@@ -1,0 +1,23 @@
+// Pest (PEG) grammar for the sizr-format formatting language
+
+alpha = @{ 'a'..'z' | 'A'..'Z' }
+num = @{ '0'..'9' }
+alphanum = @{ alpha | num | '_' }
+ident = @{ alpha ~ alphanum+ }
+
+expr = { ident | }
+var = { "$" ~ ident }
+break = { "\" }
+cond = { (var | break) ~ ('?'~expr)?  ~ (':'~expr)? }
+
+// PUSH individual single quotes to handle via the stack?
+start_quote = "'''"
+end_quote = "'''"
+
+node_body =  { start_quote ~ (var | break | cond)* ~ end_quote }
+
+node_decl = { ident ~ ':' ~ node_body }
+
+file = { SOI ~ (EOI | (node_decl ~ NEWLINE)* ~ node_decl ~ EOI) }
+
+COMMENT = { # ~ ANY* ~ NEWLINE }
