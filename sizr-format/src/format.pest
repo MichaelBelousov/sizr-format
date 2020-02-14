@@ -2,22 +2,22 @@
 
 alpha = @{ 'a'..'z' | 'A'..'Z' }
 num = @{ '0'..'9' }
-alphanum = @{ alpha | num | '_' }
-ident = @{ alpha ~ alphanum+ }
+alphanum = @{ alpha | num | "_" }
+ident = @{ alpha ~ alphanum* }
 
-expr = { ident | }
+expr = { var }
 var = { "$" ~ ident }
-break = { "\" }
-cond = { (var | break) ~ ('?'~expr)?  ~ (':'~expr)? }
+breakpt = { "\\" }
+cond = { (var | breakpt) ~ ("?"~expr)?  ~ (":"~expr)? }
 
 // PUSH individual single quotes to handle via the stack?
-start_quote = "'''"
-end_quote = "'''"
+body_start = { "'''" }
+body_end = { "'''" }
 
-node_body =  { start_quote ~ (var | break | cond)* ~ end_quote }
+node_body =  { body_start ~ (var | breakpt | cond)* ~ body_end }
 
-node_decl = { ident ~ ':' ~ node_body }
+node_decl = { ident ~ ":" ~ node_body }
 
 file = { SOI ~ (EOI | (node_decl ~ NEWLINE)* ~ node_decl ~ EOI) }
 
-COMMENT = { # ~ ANY* ~ NEWLINE }
+COMMENT = { "#" ~ ANY* ~ NEWLINE }
