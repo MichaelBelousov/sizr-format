@@ -10,8 +10,11 @@ use pest::Parser;
 pub struct LParser;
 
 fn main() {
-    let parsed = LParser::parse(Rule::node_body, "-273.15");
+    let test_src = r"
+    my_node: '''
+        $here \ $is?some $possible:node \?body
+    '''
+    ";
+    let parsed = LParser::parse(Rule::node_body, test_src);
     println!("{:?}", parsed);
-    let failed = LParser::parse(Rule::node_body, "not a number!");
-    println!("{:?}", failed);
 }
