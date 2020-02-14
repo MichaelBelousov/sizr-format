@@ -12,6 +12,7 @@ pub struct FormatDescParser;
 use std::fs;
 use std::collections::HashMap;
 use std::io::{self, Read};
+use std::env;
 
 fn main() {
 
@@ -27,22 +28,24 @@ fn main() {
       .unwrap();
   println!("NODEBODY: {:#?}", nodebody);
 
-  let nodedecl = FormatDescParser::parse(Rule::node_decl, r"myrule : '''$hel'''")
+  let nodedecl = FormatDescParser::parse(Rule::node_decl, r"my_rule : '''$hel'''")
       .expect("unsuccessful parse")
       .next()
       .unwrap();
   println!("NODE_DECL: {:#?}", nodedecl);
 
-  /*
+  let cwd = env::current_dir();
+  println!("{:?}", cwd.unwrap().display());
+
+
   let src_file =
-    fs::read_to_string("example.sizf")
+    fs::read_to_string("./example.sizf")
         .expect("cannot read file");
   let file = FormatDescParser::parse(Rule::file, &src_file)
       .expect("unsuccessful parse")
       .next()
       .unwrap();
   println!("{:#?}", file);
-  */
 
   let mut buffer = String::new();
   io::stdin().read_to_string(&mut buffer);

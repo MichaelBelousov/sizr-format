@@ -11,7 +11,15 @@ cond = { (var | breakpt) ~ ("?"~expr)?  ~ (":"~expr)? }
 body_start = { "'''" }
 body_end = { "'''" }
 
-node_body =  { body_start ~ (var | breakpt | cond)* ~ body_end }
+node_body =
+  { body_start
+  ~ ( var
+    | breakpt
+    | cond
+    )
+  *
+  ~ body_end
+  }
 
 node_decl =
   { ident
