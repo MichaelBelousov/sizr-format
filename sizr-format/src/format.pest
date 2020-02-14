@@ -15,6 +15,6 @@ node_body =  { body_start ~ (var | breakpt | cond)* ~ body_end }
 
 node_decl = { ident ~ ":" ~ node_body }
 
-file = { SOI ~ (EOI | (node_decl ~ NEWLINE)* ~ node_decl ~ EOI) }
+file = { SOI ~ (EOI | ((node_decl ~ NEWLINE)* ~ node_decl ~ EOI)) }
 
 COMMENT = { "#" ~ (!NEWLINE ~ ANY)* }
