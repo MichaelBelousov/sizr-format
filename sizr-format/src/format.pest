@@ -1,6 +1,6 @@
 // Pest (PEG) grammar for the sizr-format formatting language
 
-ident = @{ ASCII_ALPHA ~ ASCII_ALPHANUMERIC* }
+ident = @{ ASCII_ALPHA ~ ( ASCII_ALPHANUMERIC | "_" )* }
 
 expr = { var }
 var = { "$" ~ ident }
@@ -13,8 +13,13 @@ body_end = { "'''" }
 
 node_body =  { body_start ~ (var | breakpt | cond)* ~ body_end }
 
-node_decl = { ident ~ ":" ~ node_body }
+node_decl =
+  { ident
+  ~ ":"
+  ~ node_body
+  }
 
 file = { SOI ~ (EOI | ((node_decl ~ NEWLINE)* ~ node_decl ~ EOI)) }
 
 COMMENT = { "#" ~ (!NEWLINE ~ ANY)* }
+WHITESPACE = _{ " " }

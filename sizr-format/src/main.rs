@@ -27,7 +27,7 @@ fn main() {
       .unwrap();
   println!("NODEBODY: {:#?}", nodebody);
 
-  let nodedecl = FormatDescParser::parse(Rule::node_decl, "my_rule: '''$hello'''")
+  let nodedecl = FormatDescParser::parse(Rule::node_decl, r"myrule : '''$hel'''")
       .expect("unsuccessful parse")
       .next()
       .unwrap();
