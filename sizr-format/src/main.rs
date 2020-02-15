@@ -14,6 +14,26 @@ use std::collections::HashMap;
 use std::io::{self, Read};
 use std::env;
 
+// I have no idea how rust does this stuff yet, I'm just spitballing here
+trait Write {
+}
+trait VariableWrite {
+}
+trait StringWrite {
+}
+trait ConditionalWrite {
+}
+trait BreakWrite {
+}
+
+struct NodeContext {
+}
+
+//serializable for cached binary
+struct NodeFormat {
+    // switch to using inkwell to JIT the format rule
+}
+
 fn main() {
 
   let hellovar = FormatDescParser::parse(Rule::var, "$hello")
