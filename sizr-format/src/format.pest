@@ -27,7 +27,12 @@ node_decl =
   ~ node_body
   }
 
-file = { SOI ~ (EOI | ((node_decl ~ NEWLINE)* ~ node_decl ~ EOI)) }
+file = 
+  { SOI
+  ~ NEWLINE*
+  ~ (node_decl ~ NEWLINE*)*
+  ~ EOI
+  }
 
 COMMENT = { "#" ~ (!NEWLINE ~ ANY)* }
 WHITESPACE = _{ " " }
