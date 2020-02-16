@@ -15,31 +15,38 @@ use std::vector::Vec;
 use std::io::{self, Read};
 use std::env;
 
+pub enum BinExpr {
+    // Comparison
+    LessThan            {l: Box<Expr>, r: Box<Expr>},
+    GreaterThan         {l: Box<Expr>, r: Box<Expr>},
+    Equal               {l: Box<Expr>, r: Box<Expr>},
+    NotEqual            {l: Box<Expr>, r: Box<Expr>},
+    GreaterThanOrEqual  {l: Box<Expr>, r: Box<Expr>},
+    // Arithmetic
+    LessThanOrEqual     {l: Box<Expr>, r: Box<Expr>},
+    Add                 {l: Box<Expr>, r: Box<Expr>},
+    Sub                 {l: Box<Expr>, r: Box<Expr>},
+    Mult                {l: Box<Expr>, r: Box<Expr>},
+    Pow                 {l: Box<Expr>, r: Box<Expr>},
+    Divide              {l: Box<Expr>, r: Box<Expr>},
+    Remainder           {l: Box<Expr>, r: Box<Expr>},
+    IntDivide           {l: Box<Expr>, r: Box<Expr>},
+    // Logical
+    Or                  {l: Box<Expr>, r: Box<Expr>},
+    And                 {l: Box<Expr>, r: Box<Expr>},
+    Xor                 {l: Box<Expr>, r: Box<Expr>},
+}
+
+pub enum UnaryExpr {
+    Negate              {e: Box<Expr>},
+    Complement          {e: Box<Expr>},
+    Parenthesized       {e: Box<Expr>}
+}
+
 pub enum Expr {
-        // Comparison
-        LessThan            {l: Box<Expr>, r: Box<Expr>},
-        GreaterThan         {l: Box<Expr>, r: Box<Expr>},
-        Equal               {l: Box<Expr>, r: Box<Expr>},
-        NotEqual            {l: Box<Expr>, r: Box<Expr>},
-        GreaterThanOrEqual  {l: Box<Expr>, r: Box<Expr>},
-        // Arithmetic
-        LessThanOrEqual     {l: Box<Expr>, r: Box<Expr>},
-        Add                 {l: Box<Expr>, r: Box<Expr>},
-        Sub                 {l: Box<Expr>, r: Box<Expr>},
-        Mult                {l: Box<Expr>, r: Box<Expr>},
-        Pow                 {l: Box<Expr>, r: Box<Expr>},
-        Divide              {l: Box<Expr>, r: Box<Expr>},
-        Remainder           {l: Box<Expr>, r: Box<Expr>},
-        IntDivide           {l: Box<Expr>, r: Box<Expr>},
-        Negate              {l: Box<Expr>, r: Box<Expr>},
-        // Logical
-        Or                  {l: Box<Expr>, r: Box<Expr>},
-        And                 {l: Box<Expr>, r: Box<Expr>},
-        Xor                 {l: Box<Expr>, r: Box<Expr>},
-        Complement          {e: Box<Expr>},
-        // Special
-        Parenthesized       {e: Box<Expr>}
-    }
+    Binary(BinExpr),
+    Unary(UnaryExpr)
+}
 
 pub enum WriteCommand {
     Literal(String),
@@ -74,13 +81,32 @@ type Context = HashMap<String, Value>;
 // with the types: f, float, i, int, n: number, s: string, b:
 // e.g.: `class $name $props.len:b
 // no that looks ugly, should implicitly convert a decent amount...
-// depends totally on idioms, but at least no need to convert to boo,
-// should coerce python style
+// depends totally on idioms, but at least need to convert to boo,
 // maybe use rational numbers instead of number=floats|integer?
 //
-// Type coercion rules:
+// Script variable types:
+// patterns:
+// - literal patterns (strings!) look like "TEXT"
+// - regex (PCRE) patterns look like /here?(is)[my](?=regex!)$/
+// - "" is false, everything elseis true
+// numbers:
+// - int is subset of float, floats cannot be used for indexing
+// - 0 is false, everything else is true
+// boolean:
+// - true or false
+// mapping/list:
+// - dynamic typed elements
+// - empty list is false
+// - can be sliced/filtered
+// - index slice: `mylist[0..10]`, `mylist[0..+2..10]`,
+// - lambda slice: `mylist[.static]` (choose all static members)
+// lambdas:
+// - arrow function: arg => `expr`, `(a1, a2) => expr`
+// - property shorthand lambdas `.name`
+// - lambda predicates can have set operators act on them
+// - funcs[.static-f=>f.returns="double"]
 
-fn exec_bin_op(expr: &Expr, l: &Value, r: &Value) {
+fn exec_bin_op(expr: &Expr) {
     match (l, r) {
         number, number => true
         string, string => true
