@@ -204,6 +204,24 @@ fn serialize(node: &Node, ctx: &ParseContext, writeCtx: &mut WriteContext) {
 // TODO: write custom parser for performance reasons, because of the weird way
 // characters will be dealt with
 
+fn parseFormat(src: &str) -> NodeFormat {
+    let cmds = Vec<WriteCommand>::with_capacity(12);
+    let mut unread = src[..];
+    while unread {
+        match unread.find(c => c=="$"||c=="#"||c==r"\") {
+            Ok(ind) => {
+                cmds.push(unread[..ind]);
+                let parsed = parseExpr(unread[ind..]);
+                unread = unread[parsed.end..];
+            },
+            _ => ()
+        }
+    }
+    cmds.shrink();
+
+    NodeFormat { write_commands: cmds };
+}
+
 /*
 fn compileFormat(parsed: typeof FormatDescParse::parse()) -> NodeFormat {
 }
