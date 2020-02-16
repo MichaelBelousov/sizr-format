@@ -145,8 +145,6 @@ struct WriteContext {
 
 impl Expr {
     fn eval(&self) -> Value {
-        // TODO: remove debug and use display
-        // TODO: include actual type names, not just values:
         match self {
             // figure out why it cannot just dereference? maybe own a cached value?
             Expr::Value(v) => v.clone(),
@@ -158,6 +156,7 @@ impl Expr {
                         => Value::Bool(l < r),
                     (Value::Bool(l), Value::Bool(r))
                         => Value::Bool(!l && r),
+                    // TODO: remove debug and use display
                     _ => panic!("type error: left hand side, '{:?}'
                                  and right hand side, '{:?}', cannot be compared", l,r),
                 },
@@ -170,7 +169,6 @@ impl Expr {
                                      not support argument '{:?}'.", "-", v)
                     }
                 },
-            _ => panic!("for now..."),
         }
     }
 }
@@ -206,48 +204,51 @@ fn serialize(node: &Node, ctx: &ParseContext, writeCtx: &mut WriteContext) {
 // TODO: write custom parser for performance reasons, because of the weird way
 // characters will be dealt with
 
+/*
+fn compileFormat(parsed: typeof FormatDescParse::parse()) -> NodeFormat {
+}
+*/
+
 fn main() {
-  let ctx = ParseContext {
-      node_formats: HashMap::with_capacity(100),
-      variables: HashMap::with_capacity(10),
-  };
+    let ctx = ParseContext {
+        node_formats: HashMap::with_capacity(100),
+        variables: HashMap::with_capacity(10),
+    };
 
-  let hellovar = FormatDescParser::parse(Rule::var, "$hello")
-      .expect("unsuccessful parse")
-      .next()
-      .unwrap();
-  println!("VAR: {:#?}", hellovar);
-
-  let nodebody = FormatDescParser::parse(Rule::node_body, "'''$hello'''")
-      .expect("unsuccessful parse")
-      .next()
-      .unwrap();
-  println!("NODEBODY: {:#?}", nodebody);
-
-  let nodedecl = FormatDescParser::parse(Rule::node_decl, r"my_rule : '''$hel'''")
-      .expect("unsuccessful parse")
-      .next()
-      .unwrap();
-  println!("NODE_DECL: {:#?}", nodedecl);
-
-  let cwd = env::current_dir();
-  println!("{:?}", cwd.unwrap().display());
-
-
-  let src_file =
-    fs::read_to_string("./example.sizf")
+    let src_file =
+        fs::read_to_string("./example.sizf")
         .expect("cannot read file");
-  let file = FormatDescParser::parse(Rule::file, &src_file)
-      .expect("unsuccessful parse")
-      .next()
-      .unwrap();
-  println!("{:#?}", file);
+    let file = FormatDescParser::parse(Rule::file, &src_file)
+        .expect("unsuccessful parse")
+        .next()
+        .unwrap();
+    //println!("{:#?}", file);
 
-  let mut buffer = String::new();
-  io::stdin().read_to_string(&mut buffer);
-  let input = FormatDescParser::parse(Rule::file, &buffer)
-      .expect("unsuccessful parse")
-      .next()
-      .unwrap();
-  println!("STDIN: {:#?}", input);
+    for node_decl in file.into_inner() {
+        match node_decl.as_rule() {
+            Rule::node_decl => {
+                for write in node_decl.into_inner() {
+                    match write.as_rule() {
+                        Rule::var => {},
+                        Rule::breakpt => {},
+                        Rule::cond => {},
+                        _ => unreachable!(),
+                    }
+                }
+            },
+            Rule::EOI  => (),
+            _ => unreachable!(),
+        }
+    }
+
+
+    /*
+    let mut buffer = String::new();
+    io::stdin().read_to_string(&mut buffer);
+    let input = FormatDescParser::parse(Rule::file, &buffer)
+    .expect("unsuccessful parse")
+    .next()
+    .unwrap();
+    println!("STDIN: {:#?}", input);
+    */
 }
