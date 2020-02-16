@@ -11,13 +11,15 @@ pub struct FormatDescParser;
 
 use std::fs;
 use std::collections::HashMap;
-use std::vector::Vec;
+use std::vec::Vec;
 use std::io::{self, Read};
 use std::env;
 
+#[derive(Debug)]
 pub enum BinExpr {
     // Comparison
     LessThan            {l: Box<Expr>, r: Box<Expr>},
+    /*
     GreaterThan         {l: Box<Expr>, r: Box<Expr>},
     Equal               {l: Box<Expr>, r: Box<Expr>},
     NotEqual            {l: Box<Expr>, r: Box<Expr>},
@@ -35,19 +37,28 @@ pub enum BinExpr {
     Or                  {l: Box<Expr>, r: Box<Expr>},
     And                 {l: Box<Expr>, r: Box<Expr>},
     Xor                 {l: Box<Expr>, r: Box<Expr>},
+    */
 }
 
+#[derive(Debug)]
 pub enum UnaryExpr {
     Negate              {e: Box<Expr>},
+    /*
+    LogicalNegate       {e: Box<Expr>},
     Complement          {e: Box<Expr>},
-    Parenthesized       {e: Box<Expr>}
+    Parenthesize        {e: Box<Expr>},
+    */
 }
 
+// might need to optimize the alignment on nested enum...?
+#[derive(Debug)]
 pub enum Expr {
     Binary(BinExpr),
-    Unary(UnaryExpr)
+    Unary(UnaryExpr),
+    Value(Value),
 }
 
+#[derive(Debug)]
 pub enum WriteCommand {
     Literal(String),
     Breakpoint,
@@ -58,24 +69,34 @@ pub enum WriteCommand {
 }
 
 //make serializable for caching
+#[derive(Debug)]
 struct NodeFormat{
     // TODO: use inkwell to JIT the format rule
     writeCommands: Vec<WriteCommand>,
 }
 
+#[derive(Debug)]
 struct Node {
     type_: str,
 }
 
-static mut node_formats: HashMap<String, &NodeFormat> = HashMap::with_capacity(100);
-
-enum Value {
+#[derive(Debug, Clone)]
+pub enum Value {
     Number(f64),
     String(std::string::String),
-    Bool_(bool)
+    Bool(bool)
+    //Mapping(HashMap<Value, Value>))
+    //List(Vec<Value>))
 }
 
-type Context = HashMap<String, Value>;
+struct ParseContext {
+    variables: HashMap<String, Value>,
+    node_formats: HashMap<String, NodeFormat>,
+}
+
+struct WriteContext {
+    writes: Vec<String>,
+}
 
 // built in fluster style cast operator?
 // with the types: f, float, i, int, n: number, s: string, b:
@@ -100,68 +121,84 @@ type Context = HashMap<String, Value>;
 // - can be sliced/filtered
 // - index slice: `mylist[0..10]`, `mylist[0..+2..10]`,
 // - lambda slice: `mylist[.static]` (choose all static members)
+// - can union slices with set union (&) or commas:
+// - mylist[.static,.private]
+// - the "leftover slice" is [...]
 // lambdas:
 // - arrow function: arg => `expr`, `(a1, a2) => expr`
 // - property shorthand lambdas `.name`
 // - lambda predicates can have set operators act on them
 // - funcs[.static-f=>f.returns="double"]
+//
+// example special case node:
+// struct:
+// '''
+// struct $name {
+//   #<> this is a whitespace sucking comment
+//   #<> .same is a built in slice that returns either the
+//   #<> .same is a built in slice that returns the whole set only
+//   #<> 
+//   $body[r,g,b][.same]? "$[1].type r, g, b;" #<> special case if you have those props
+//   $body[...] #< remainder of body, + keep trailing whitespace! <#    
+// }
+// '''
 
-fn exec_bin_op(expr: &Expr) {
-    match (l, r) {
-        number, number => true
-        string, string => true
-        bool_, bool_ => true
-        _, _ => panic!()
-    }
-    match expr {
-        EExpr::LessThan {l, r} => l < r,
-        EExpr::GreaterThan => l > r,
-        EExpr::Equal => l == r,
-        EExpr::NotEqual => l != r,
-        EExpr::GreaterThanOrEqual => l >= r,
-        EExpr::LessThanOrEqual => l <= r,
-        EExpr::Add => l + r,
-        EExpr::Sub => l - r,
-        EExpr::Mult => l * r,
-        EExpr::Pow => l.pow(r),
-        EExpr::Divide => l / r,
-        EExpr::IntDivide => l / r,
-        EExpr::Remainder => l % r,
-        EExpr::Negate => -l,
-        EExpr::Or => l | r,
-        EExpr::And => l & r,
-        EExpr::Xor => l ^ r,
-        EExpr::Complement{e} => ~e,
+impl Expr {
+    fn eval(&self) -> Value {
+        // TODO: remove debug and use display
+        // TODO: include actual type names, not just values:
+        match self {
+            // figure out why it cannot just dereference? maybe own a cached value?
+            Expr::Value(v) => v.clone(),
+            Expr::Binary(BinExpr::LessThan{l, r})
+                => match (l.eval(), r.eval()) {
+                    (Value::Number(l), Value::Number(r))
+                        => Value::Bool(l < r),
+                    (Value::String(l), Value::String(r))
+                        => Value::Bool(l < r),
+                    (Value::Bool(l), Value::Bool(r))
+                        => Value::Bool(!l && r),
+                    _ => panic!("type error: left hand side, '{:?}'
+                                 and right hand side, '{:?}', cannot be compared", l,r),
+                },
+            Expr::Unary(UnaryExpr::Negate{e})
+                => { 
+                    let v = e.eval();
+                    match v {
+                        Value::Number(v) => Value::Number(-v),
+                        _ => panic!("type error: unary operator '{:?}' does
+                                     not support argument '{:?}'.", "-", v)
+                    }
+                },
+            _ => panic!("for now..."),
+        }
     }
 }
 
-fn serialize(node: &Node, ctx: &Context) {
-    let format = node_formats[node.type_];
-    for cmd in format.writeCommands {
+fn serialize(node: &Node, ctx: &ParseContext, writeCtx: &mut WriteContext) {
+    let format = &ctx.node_formats[&node.type_];
+    if !writeCtx.writes.is_empty() { writeCtx.writes.push(String::from("")); }
+    for cmd in &format.writeCommands {
         match cmd {
-            WriteCommand::Literal(s) => ctx.writes.last().append(s)
-            WriteCommand::Breakpoint => ctx.writes.append(String::from(""))
-            WriteCommand::Expr(e) => match e {
-                EExpr::LessThan{l,r} => l < r,
-                EExpr::GreaterThan{l,r} => l > r,
-                EExpr::Equal{l,r} => l == r,
-                EExpr::NotEqual{l,r} => l != r,
-                EExpr::GreaterThanOrEqual{l,r} => l >= r,
-                EExpr::LessThanOrEqual{l,r} => l <= r,
-                EExpr::Add{l,r} => l + r,
-                EExpr::Sub{l,r} => l - r,
-                EExpr::Mult{l,r} => l * r,
-                EExpr::Pow{l,r} => l.pow(r),
-                EExpr::Divide{l,r} => l / r,
-                EExpr::IntDivide{l,r} => l / r,
-                EExpr::Remainder{l,r} => l % r,
-                EExpr::Negate{l,r} => -l,
-                EExpr::Or{l,r} => l | r,
-                EExpr::And{l,r} => l & r,
-                EExpr::Xor{l,r} => l ^ r,
-                EExpr::Complement{e} => ~e,
-            }
-
+            WriteCommand::Literal(s) =>
+                if let Some(last) = writeCtx.writes.last_mut() {
+                    last.push_str(&s);
+                },
+            WriteCommand::Breakpoint =>
+                writeCtx.writes.push(String::from("")),
+            /*
+            // handle correctly recursively later
+            WriteCommand::Cond{expr, if_, else_} => 
+                if let Some(last) = writeCtx.writes.last_mut() {
+                    last.push_str(if expr.eval() { if_ } else { else_ });
+                    serialize(
+                        Node { writes: Vec![if expr.eval() {if_} else {else_}] },
+                        ctx,
+                        writeCtx
+                    );
+                },
+            */
+            _ => ()
         }
     }
 }
@@ -170,6 +207,10 @@ fn serialize(node: &Node, ctx: &Context) {
 // characters will be dealt with
 
 fn main() {
+  let ctx = ParseContext {
+      node_formats: HashMap::with_capacity(100),
+      variables: HashMap::with_capacity(10),
+  };
 
   let hellovar = FormatDescParser::parse(Rule::var, "$hello")
       .expect("unsuccessful parse")
