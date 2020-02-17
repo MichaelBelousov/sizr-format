@@ -55,18 +55,19 @@ ESCAPED_QUOTE = { ESCAPE ~ QUOTE }
 quote =
   @
   { QUOTE
-  ~ ( ESCAPED_QUOTE
-    | !QUOTE
-    )*
+  ~ (!( ESCAPED_QUOTE
+      | QUOTE
+    ) ~ ANY)*
   ~ QUOTE
   }
 
+// might be better to separately captured escaped delimiter
 regex =
   @
   { "/"
-  ~ ( "\\/"
+  ~ (!( "\\/"
     | !"/"
-    )*
+    ) ~ ANY)*
   ~ "/"
   }
 
@@ -74,14 +75,47 @@ ident = @{ ASCII_ALPHA ~ ( ASCII_ALPHANUMERIC | "_" )* }
 
 lambda = @{ "." ~ ident }
 
-natural = @{ ASCII_DIGIT* }
+natural = @{ ASCII_DIGIT+ }
 integer = @{ "-"? ~ natural }
 
 var = @{ "$" ~ ident }
 
-expr =
-  { expr ~ "[" ~ expr "]"
-  | expr ~ "[" ~ ( integer?
+expr = { logic_expr }
+
+logic_expr =
+  { cmp_expr ~ "&" ~ cmp_expr
+  | cmp_expr ~ "|" ~ cmp_expr
+  | cmp_expr ~ "^" ~ cmp_expr
+  }
+
+cmp_expr =
+  { add_expr ~ ">" ~ add_expr
+  | add_expr ~ ">=" ~ add_expr
+  | add_expr ~ "=" ~ add_expr
+  | add_expr ~ "!=" ~ add_expr
+  | add_expr ~ "<=" ~ add_expr
+  | add_expr ~ "<" ~ add_expr
+  }
+
+add_expr =
+  { mult_expr ~ "+" ~ mult_expr
+  | mult_expr ~ "-" ~ mult_expr
+  }
+
+mult_expr =
+  { pow_expr ~ "*" ~ pow_expr
+  | pow_expr ~ "/" ~ pow_expr
+  | pow_expr ~ "//" ~ pow_expr
+  | pow_expr ~ "%" ~ pow_expr
+  }
+
+pow_expr =
+  { slice_expr ~  "**" ~ slice_expr
+  }
+
+slice_expr = 
+  { primary_expr ~ "[" ~ primary_expr ~ "]"
+  | primary_expr ~ "[" ~ ( integer?
                  ~ ".."
                  ~ ( ("+"|"-")
                    ~ natural
@@ -89,33 +123,28 @@ expr =
                    )?
                  ~ integer?
                  )
-            "]"
-  | expr ~ "[" ~ "_" ~ "]"
-  | expr ~ "[" ~ "_" ~ "]"
-  | expr ~ "+" ~ expr
-  | expr ~ "-" ~ expr
-  | expr ~ "*" ~ expr
-  | expr ~ "/" ~ expr
-  | expr ~ "//" ~ expr
-  | expr ~ "&" ~ expr
-  | expr ~ "|" ~ expr
-  | expr ~ "^" ~ expr
-  | expr ~ "^" ~ expr
-  | "!" ~ expr
-  | "~" ~ expr
-  | "-" ~ expr
-  | expr ~ ">" ~ expr
-  | expr ~ ">=" ~ expr
-  | expr ~ "=" ~ expr
-  | expr ~ "!=" ~ expr
-  | expr ~ "<=" ~ expr
-  | expr ~ "<" ~ expr
-  | "(" ~ expr ~ ")"
-  | integer
+         ~ "]"
+  | primary_expr ~ "[" ~ "_" ~ "]"
+  | primary_expr ~ "[" ~ "_" ~ "]"
+  }
+
+unary_expr =
+  { "-" ~ unary_expr
+  | "~" ~ unary_expr
+  | "!" ~ unary_expr
+  }
+
+primary_expr =
+  { integer
   | var
   | quote
   | regex
+  | "(" ~ expr ~ ")"
+  | lambda
+  | unary_expr
+  | expr
   }
+
 
 wrap = { "\\" }
 expr_cond =
@@ -128,9 +157,9 @@ expr_cond =
   }
 
 wrap_cond =
-  { "\?" ~ expr
-  | "\:" ~ expr
-  | "\?" ~ expr ~ ":" ~ expr
+  { "\\?" ~ expr
+  | "\\:" ~ expr
+  | "\\?" ~ expr ~ ":" ~ expr
   }
 
 cond = { expr_cond | wrap_cond }
@@ -141,7 +170,7 @@ cmd =
   }
   
 
-// PUSH individual single quotes to handle via the stack?
+// PUSH individual single quotes to handle depth via the stack?
 body_start = { "'''" }
 body_end = { "'''" }
 
@@ -153,16 +182,17 @@ indent_ctx =
   | ">["
   | ">{"
   | ">\""
-  | (">!" ~ quote)
+  | ">!" ~ quote
   }
 
-body_expr =
-  { var
-  | breakpt
-  | cond
+node_body =
+  {
+  ( !body_end ~ ANY
+  | expr
+  | !WHITESPACE ~ ANY
+  )
+  *
   }
-
-node_body = { body_expr* }
 
 // will probably use YAML format instead of this
 node_decl =
@@ -174,7 +204,7 @@ node_decl =
   }
 
 COMMENT =
-  { ("#<>" | "#<" | '#>" )
+  { ("#<>" | "#<" | "#>" )
   ~ (!NEWLINE ~ ANY)*
   }
 
