@@ -98,51 +98,6 @@ struct WriteContext {
     writes: Vec<String>,
 }
 
-// built in fluster style cast operator?
-// with the types: f, float, i, int, n: number, s: string, b:
-// e.g.: `class $name $props.len:b
-// no that looks ugly, should implicitly convert a decent amount...
-// depends totally on idioms, but at least need to convert to boo,
-// maybe use rational numbers instead of number=floats|integer?
-//
-// Script variable types:
-// patterns:
-// - literal patterns (strings!) look like "TEXT"
-// - regex (PCRE) patterns look like /here?(is)[my](?=regex!)$/
-// - "" is false, everything elseis true
-// numbers:
-// - int is subset of float, floats cannot be used for indexing
-// - 0 is false, everything else is true
-// boolean:
-// - true or false
-// mapping/list:
-// - dynamic typed elements
-// - empty list is false
-// - can be sliced/filtered
-// - index slice: `mylist[0..10]`, `mylist[0..+2..10]`,
-// - lambda slice: `mylist[.static]` (choose all static members)
-// - can union slices with set union (&) or commas:
-// - mylist[.static,.private]
-// - the "leftover slice" is [...]
-// lambdas:
-// - arrow function: arg => `expr`, `(a1, a2) => expr`
-// - property shorthand lambdas `.name`
-// - lambda predicates can have set operators act on them
-// - funcs[.static-f=>f.returns="double"]
-//
-// example special case node:
-// struct:
-// '''
-// struct $name {
-//   #<> this is a whitespace sucking comment
-//   #<> .same is a built in slice that returns either the
-//   #<> .same is a built in slice that returns the whole set only
-//   #<> 
-//   $body[r,g,b][.same]? "$[1].type r, g, b;" #<> special case if you have those props
-//   $body[...] #< remainder of body, + keep trailing whitespace! <#    
-// }
-// '''
-
 impl Expr {
     fn eval(&self) -> Value {
         match self {
@@ -208,10 +163,11 @@ fn parseFormat(src: &str) -> NodeFormat {
     let cmds = Vec<WriteCommand>::with_capacity(12);
     let mut unread = src[..];
     while unread {
-        match unread.find(c => c=="$"||c=="#"||c==r"\") {
-            Ok(ind) => {
+        match unread.find(|c: char| c=="$"||c=="#"||c==r"\") {
+            Some(ind) => {
                 cmds.push(unread[..ind]);
-                let parsed = parseExpr(unread[ind..]);
+                let parsed =
+                    FormatDescParser::parse(Rule::node_body, unread[ind..]);
                 unread = unread[parsed.end..];
             },
             _ => ()

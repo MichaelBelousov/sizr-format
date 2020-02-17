@@ -1,38 +1,181 @@
 // Pest (PEG) grammar for the sizr-format formatting language
 
+// LANGUAGE FEATURES:
+// commands:
+// - literal command:
+//   - "anything in quotes"
+//   - whitespace is ignored, so good for capturing whitespace
+// - wrap command: \
+//   - where text is allowed to break
+// - conditional command: 
+//   - ?(cond) then : else
+//   - ?(cond) : else
+//   - ?(cond) then
+//   - basically condition for the next command, with possible else
+// - indentation:
+//   - >| indent to same level?
+//   - |> indent
+//   - |>> indent twice (etc...)
+//   - <| outdent
+//   - >( indent to outer parenthesis
+//   - >[ indent to outer bracket
+//   - >{ indent to outer brace
+//   - >" indent to outer quote
+//   - >!" " custom post indent literal
+// indents in some languages may be implied
+
+// SCRIPT ENGINE:
+// operators:
+// - standard C bitwise, arithmetic, comparison operators
+// - logical: &, |, ^, ~
+// - set: &, |, ~, -
+// - cast '@' e.g. 5@f
+// - no assignment
+// lambdas:
+// - .property, .propery=
+// - lambdas are cast to predicates implicitly when using set operators to
+//   manipulate them
+//   - i.e. .static&.private - .returns=double
+// mapping slices/filters:
+// - numeric: map[0..+1..10], map[0..10], map[0..], map[..]
+//                   ^ explicit step
+// - lambda: map[.static|.private] # predicate operations
+// - pattern matching:
+//   - map["r"]
+//   - map["r"|"g"|"b"]
+//   - map[/[rgb]/]
+// - leftover: map[_]
+// types:
+// - number (n), bool (b), string (s), mapping (m), list (l)
+
+ESCAPE = { "\\" }
+QUOTE = { "\"" }
+ESCAPED_QUOTE = { ESCAPE ~ QUOTE }
+
+quote =
+  @
+  { QUOTE
+  ~ ( ESCAPED_QUOTE
+    | !QUOTE
+    )*
+  ~ QUOTE
+  }
+
+regex =
+  @
+  { "/"
+  ~ ( "\\/"
+    | !"/"
+    )*
+  ~ "/"
+  }
+
 ident = @{ ASCII_ALPHA ~ ( ASCII_ALPHANUMERIC | "_" )* }
 
-expr = { var }
-var = { "$" ~ ident }
-breakpt = { "\\" }
-cond = { (var | breakpt) ~ ("?"~expr)?  ~ (":"~expr)? }
+lambda = @{ "." ~ ident }
+
+natural = @{ ASCII_DIGIT* }
+integer = @{ "-"? ~ natural }
+
+var = @{ "$" ~ ident }
+
+expr =
+  { expr ~ "[" ~ expr "]"
+  | expr ~ "[" ~ ( integer?
+                 ~ ".."
+                 ~ ( ("+"|"-")
+                   ~ natural
+                   ~ ".."
+                   )?
+                 ~ integer?
+                 )
+            "]"
+  | expr ~ "[" ~ "_" ~ "]"
+  | expr ~ "[" ~ "_" ~ "]"
+  | expr ~ "+" ~ expr
+  | expr ~ "-" ~ expr
+  | expr ~ "*" ~ expr
+  | expr ~ "/" ~ expr
+  | expr ~ "//" ~ expr
+  | expr ~ "&" ~ expr
+  | expr ~ "|" ~ expr
+  | expr ~ "^" ~ expr
+  | expr ~ "^" ~ expr
+  | "!" ~ expr
+  | "~" ~ expr
+  | "-" ~ expr
+  | expr ~ ">" ~ expr
+  | expr ~ ">=" ~ expr
+  | expr ~ "=" ~ expr
+  | expr ~ "!=" ~ expr
+  | expr ~ "<=" ~ expr
+  | expr ~ "<" ~ expr
+  | "(" ~ expr ~ ")"
+  | integer
+  | var
+  | quote
+  | regex
+  }
+
+wrap = { "\\" }
+expr_cond =
+  { "?"
+  ~ "("
+  ~ expr
+  ~ ")"
+  ~ expr?
+  ~ (":" ~ expr)?
+  }
+
+wrap_cond =
+  { "\?" ~ expr
+  | "\:" ~ expr
+  | "\?" ~ expr ~ ":" ~ expr
+  }
+
+cond = { expr_cond | wrap_cond }
+
+cmd =
+  { expr
+  | cond
+  }
+  
 
 // PUSH individual single quotes to handle via the stack?
 body_start = { "'''" }
 body_end = { "'''" }
 
-node_body =
-  { body_start
-  ~ ( var
-    | breakpt
-    | cond
-    )
-  *
-  ~ body_end
+indent_ctx =
+  { "|>"
+  | "|>>" // TODO: use parse stack to allow any indent level
+  | ">|"
+  | ">("
+  | ">["
+  | ">{"
+  | ">\""
+  | (">!" ~ quote)
   }
 
+body_expr =
+  { var
+  | breakpt
+  | cond
+  }
+
+node_body = { body_expr* }
+
+// will probably use YAML format instead of this
 node_decl =
   { ident
   ~ ":"
+  ~ body_start
   ~ node_body
+  ~ body_end
   }
 
-file = 
-  { SOI
-  ~ NEWLINE*
-  ~ (node_decl ~ NEWLINE*)*
-  ~ EOI
+COMMENT =
+  { ("#<>" | "#<" | '#>" )
+  ~ (!NEWLINE ~ ANY)*
   }
 
-COMMENT = { "#" ~ (!NEWLINE ~ ANY)* }
 WHITESPACE = _{ " " }
