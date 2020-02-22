@@ -80,58 +80,55 @@ integer = @{ "-"? ~ natural }
 
 var = @{ "$" ~ ident }
 
-expr = { logic_expr }
-
-AND = _{ "&" }
-OR  = _{ "|" }
-XOR = _{ "^" }
-
-logic_expr =
-  { cmp_expr ~ AND ~ cmp_expr
-  | cmp_expr ~ OR ~ cmp_expr
-  | cmp_expr ~ XOR ~ cmp_expr
-  }
-
-GT  = _{ ">"  }
-GTE = _{ ">=" }
-EQ  = _{ "="  }
-NEQ = _{ "!=" }
-LTE = _{ "<=" }
-LT  = _{ "<"  }
-
-cmp_expr =
-  { add_expr ~ GT  ~ add_expr
-  | add_expr ~ GTE ~ add_expr
-  | add_expr ~ EQ  ~ add_expr
-  | add_expr ~ NEQ ~ add_expr
-  | add_expr ~ LTE ~ add_expr
-  | add_expr ~ LT  ~ add_expr
-  }
-
-PLUS  = _{ "+" }
-MINUS = _{ "-" }
-
-add_expr =
-  { mult_expr ~ PLUS  ~ mult_expr
-  | mult_expr ~ MINUS ~ mult_expr
-  }
-
-MULT   = _{ "*"  }
-DIV    = _{ "/"  }
+AND    = _{ "&" }
+OR     = _{ "|" }
+XOR    = _{ "^" }
+GT     = _{ ">"  }
+GTE    = _{ ">=" }
+EQ     = _{ "="  }
+NEQ    = _{ "!=" }
+LTE    = _{ "<=" }
+LT     = _{ "<"  }
+PLUS   = _{ "+" }
+MINUS  = _{ "-" }
+MULT   = _{ "*" }
+DIV    = _{ "/" }
 INTDIV = _{ "//" }
-MOD    = _{ "%"  }
+MOD    = _{ "%" }
+POW    = _{ "**" }
+DOT    = _{ "." }
 
-mult_expr =
-  { pow_expr ~ MULT   ~ pow_expr
-  | pow_expr ~ DIV    ~ pow_expr
-  | pow_expr ~ INTDIV ~ pow_expr
-  | pow_expr ~ MOD    ~ pow_expr
+expr =
+  { atom ~ AND ~ atom
+  | atom ~ OR  ~ atom
+  | atom ~ XOR ~ atom
+  | atom ~ GT  ~ atom
+  | atom ~ GTE ~ atom
+  | atom ~ EQ  ~ atom
+  | atom ~ NEQ ~ atom
+  | atom ~ LTE ~ atom
+  | atom ~ LT  ~ atom
+  | atom ~ PLUS  ~ atom
+  | atom ~ MINUS ~ atom
+  | atom ~ MULT   ~ atom
+  | atom ~ DIV    ~ atom
+  | atom ~ INTDIV ~ atom
+  | atom ~ MOD    ~ atom
+  | atom ~ POW ~ atom
+  | atom ~ slice_block
+  | "-" ~ atom
+  | "~" ~ atom
+  | "!" ~ atom
+  | atom ~ DOT ~ ident // can't do x.y[]?
   }
 
-POW = _{ "**" }
-
-pow_expr =
-  { slice_expr ~ POW ~ slice_expr
+atom =
+  _
+  { integer
+  | quote
+  | regex
+  | "(" ~ expr ~ ")"
+  | lambda
   }
 
 range_slice = 
@@ -145,28 +142,11 @@ range_slice =
   ~ integer?
   }
 
-slice = { range_slice | atom_expr | "_" }
-
+slice = { range_slice | atom | "_" }
 slice_block = { "[" ~ slice ~ "]" }
 
-slice_expr = { unary_expr ~ slice_block }
-
-unary_expr =
-  { "-" ~ atom_expr
-  | "~" ~ atom_expr
-  | "!" ~ atom_expr
-  }
-
-atom_expr =
-  { integer
-  | quote
-  | regex
-  | var
-  | "(" ~ expr ~ ")"
-  | lambda
-  }
-
 wrap = @{ "\\" }
+
 expr_cond =
   { "?"
   ~ "("
@@ -188,11 +168,10 @@ cmd =
   { expr
   | cond
   }
-  
 
-// PUSH individual single quotes to handle depth via the stack?
-body_start = @{ "'''" }
-body_end = @{ "'''" }
+// TODO: use parse stack to handle any-depth body delimiters
+body_start = _{ "'''" }
+body_end = _{ "'''" }
 
 indent_ctx =
   { "|>"
@@ -206,11 +185,14 @@ indent_ctx =
   }
 
 line =
-  { indent_ctx?
-  ~ ( !body_end ~ expr
-    | !body_end ~ ANY
-    )
-  *
+  {
+  ( indent_ctx?
+    ~ ( !body_end ~ cmd
+      | !body_end ~ ANY
+      )
+    *
+  )
+  | NEWLINE
   }
 
 node_body = { line* }
@@ -226,6 +208,7 @@ node_decl =
 
 // will probably use YAML format instead of this
 file =
+  _
   { SOI
   ~ node_decl*
   ~ EOI

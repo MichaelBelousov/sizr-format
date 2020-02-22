@@ -6,27 +6,27 @@ extern crate pest_derive;
 use pest::Parser;
 
 lazy_static! {
-    static ref PrecClimber: PrecClimber<Rule> = {
+    static ref prec_climber: PrecClimber<Rule> = {
         use Rule::*;
         use Asssoc::*;
         //use Operator:: as Op;
         PrecClimber::new(vec![
-            Operator::new(AND, left)
-            | Operator::new(OR, left)
-            | Operator::new(XOR, left),
-            Operator::new(GT, left)
-            | Operator::new(GTE, left)
-            | Operator::new(EQ, left),
-            | Operator::new(NEQ, left),
-            | Operator::new(LTE, left),
-            | Operator::new(LT, left),
-            Operator::new(PLUS, left)
-            | Operator::new(MINUS, left),
-            Operator::new(MULT, left)
-            | Operator::new(DIV, left)
-            | Operator::new(INTDIV, left),
-            | Operator::new(MOD, left),
-            Operator::new(POW, right)
+            Operator::new(AND, Left)
+            | Operator::new(OR, Left)
+            | Operator::new(XOR, Left),
+            Operator::new(GT, Left)
+            | Operator::new(GTE, Left)
+            | Operator::new(EQ, Left),
+            | Operator::new(NEQ, Left),
+            | Operator::new(LTE, Left),
+            | Operator::new(LT, Left),
+            Operator::new(PLUS, Left)
+            | Operator::new(MINUS, Left),
+            Operator::new(MULT, Left)
+            | Operator::new(DIV, Left)
+            | Operator::new(INTDIV, Left),
+            | Operator::new(MOD, Left),
+            Operator::new(POW, Right)
         ]);
     };
 }
@@ -116,12 +116,37 @@ pub enum Value {
 }
 
 struct ParseContext {
-    variables: HashMap<String, Value>,
-    node_formats: HashMap<String, NodeFormat>,
+    variables: HashMap<str, Value>,
+    node_formats: HashMap<str, NodeFormat>,
 }
 
 struct WriteContext {
     writes: Vec<String>,
+}
+
+fn eval(expr: Pairs<Rule>) -> Value {
+    prec_climber.climb(
+        expr,
+        |pair: Pair<Rule>| match pair.as_rule() {
+            Rule::integer => Value::Number(pair.as_str().parse::<f64>().unwrap()),
+            Rule::quote => Value::String(pair.as_str()[1..-1]),
+            Rule::expr => eval(pair.into_inner()),
+            /*
+            Rule::regex
+            Rule::var
+            Rule::"(" ~ expr ~ ")"
+            Rule::lambda
+            */
+            _ => panic!("unknown atomic expression, {:#?}", p),
+        },
+        |l: &Value, op: Pair<Rule>, r: &Value| match (l, op.as_rule(), r) {
+            (Value::Number(l), Rule::LT, Value::Number(r))  => l < r,
+            (Value::String(l), Rule::LT, Value::String(r))  => l < r,
+            (Value::Bool(l), Rule::LT, Value::Bool(r))      => !l && r,
+            (_, Rule::LT, _) => panic!("can't compare {:#?} and {:#?}", l, r),
+            _ => panic!("unknown expression, {:#?} {:#?} {:#?}", l, op, r),
+        }
+    );
 }
 
 impl Expr {
