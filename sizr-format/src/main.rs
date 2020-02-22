@@ -5,6 +5,32 @@ extern crate pest_derive;
 
 use pest::Parser;
 
+lazy_static! {
+    static ref PrecClimber: PrecClimber<Rule> = {
+        use Rule::*;
+        use Asssoc::*;
+        //use Operator:: as Op;
+        PrecClimber::new(vec![
+            Operator::new(AND, left)
+            | Operator::new(OR, left)
+            | Operator::new(XOR, left),
+            Operator::new(GT, left)
+            | Operator::new(GTE, left)
+            | Operator::new(EQ, left),
+            | Operator::new(NEQ, left),
+            | Operator::new(LTE, left),
+            | Operator::new(LT, left),
+            Operator::new(PLUS, left)
+            | Operator::new(MINUS, left),
+            Operator::new(MULT, left)
+            | Operator::new(DIV, left)
+            | Operator::new(INTDIV, left),
+            | Operator::new(MOD, left),
+            Operator::new(POW, right)
+        ]);
+    };
+}
+
 #[derive(Parser)]
 #[grammar = "format.pest"]
 pub struct FormatDescParser;
@@ -72,7 +98,7 @@ pub enum WriteCommand {
 #[derive(Debug)]
 struct NodeFormat{
     // TODO: use inkwell to JIT the format rule
-    writeCommands: Vec<WriteCommand>,
+    write_commands: Vec<WriteCommand>,
 }
 
 #[derive(Debug)]
@@ -131,7 +157,7 @@ impl Expr {
 fn serialize(node: &Node, ctx: &ParseContext, writeCtx: &mut WriteContext) {
     let format = &ctx.node_formats[&node.type_];
     if !writeCtx.writes.is_empty() { writeCtx.writes.push(String::from("")); }
-    for cmd in &format.writeCommands {
+    for cmd in &format.write_commands {
         match cmd {
             WriteCommand::Literal(s) =>
                 if let Some(last) = writeCtx.writes.last_mut() {
@@ -183,7 +209,7 @@ fn main() {
                 for write in node_decl.into_inner() {
                     match write.as_rule() {
                         Rule::var => {},
-                        Rule::breakpt => {},
+                        Rule::wrap => {},
                         Rule::cond => {},
                         _ => unreachable!(),
                     }

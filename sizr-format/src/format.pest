@@ -48,9 +48,9 @@
 // types:
 // - number (n), bool (b), string (s), mapping (m), list (l)
 
-ESCAPE = { "\\" }
-QUOTE = { "\"" }
-ESCAPED_QUOTE = { ESCAPE ~ QUOTE }
+ESCAPE = _{ "\\" }
+QUOTE = _{ "\"" }
+ESCAPED_QUOTE = _{ ESCAPE ~ QUOTE }
 
 quote =
   @
@@ -82,71 +82,91 @@ var = @{ "$" ~ ident }
 
 expr = { logic_expr }
 
+AND = _{ "&" }
+OR  = _{ "|" }
+XOR = _{ "^" }
+
 logic_expr =
-  { cmp_expr ~ "&" ~ cmp_expr
-  | cmp_expr ~ "|" ~ cmp_expr
-  | cmp_expr ~ "^" ~ cmp_expr
+  { cmp_expr ~ AND ~ cmp_expr
+  | cmp_expr ~ OR ~ cmp_expr
+  | cmp_expr ~ XOR ~ cmp_expr
   }
+
+GT  = _{ ">"  }
+GTE = _{ ">=" }
+EQ  = _{ "="  }
+NEQ = _{ "!=" }
+LTE = _{ "<=" }
+LT  = _{ "<"  }
 
 cmp_expr =
-  { add_expr ~ ">" ~ add_expr
-  | add_expr ~ ">=" ~ add_expr
-  | add_expr ~ "=" ~ add_expr
-  | add_expr ~ "!=" ~ add_expr
-  | add_expr ~ "<=" ~ add_expr
-  | add_expr ~ "<" ~ add_expr
+  { add_expr ~ GT  ~ add_expr
+  | add_expr ~ GTE ~ add_expr
+  | add_expr ~ EQ  ~ add_expr
+  | add_expr ~ NEQ ~ add_expr
+  | add_expr ~ LTE ~ add_expr
+  | add_expr ~ LT  ~ add_expr
   }
+
+PLUS  = _{ "+" }
+MINUS = _{ "-" }
 
 add_expr =
-  { mult_expr ~ "+" ~ mult_expr
-  | mult_expr ~ "-" ~ mult_expr
+  { mult_expr ~ PLUS  ~ mult_expr
+  | mult_expr ~ MINUS ~ mult_expr
   }
+
+MULT   = _{ "*"  }
+DIV    = _{ "/"  }
+INTDIV = _{ "//" }
+MOD    = _{ "%"  }
 
 mult_expr =
-  { pow_expr ~ "*" ~ pow_expr
-  | pow_expr ~ "/" ~ pow_expr
-  | pow_expr ~ "//" ~ pow_expr
-  | pow_expr ~ "%" ~ pow_expr
+  { pow_expr ~ MULT   ~ pow_expr
+  | pow_expr ~ DIV    ~ pow_expr
+  | pow_expr ~ INTDIV ~ pow_expr
+  | pow_expr ~ MOD    ~ pow_expr
   }
+
+POW = _{ "**" }
 
 pow_expr =
-  { slice_expr ~  "**" ~ slice_expr
+  { slice_expr ~ POW ~ slice_expr
   }
 
-slice_expr = 
-  { primary_expr ~ "[" ~ primary_expr ~ "]"
-  | primary_expr ~ "[" ~ ( integer?
-                 ~ ".."
-                 ~ ( ("+"|"-")
-                   ~ natural
-                   ~ ".."
-                   )?
-                 ~ integer?
-                 )
-         ~ "]"
-  | primary_expr ~ "[" ~ "_" ~ "]"
-  | primary_expr ~ "[" ~ "_" ~ "]"
+range_slice = 
+  { integer?
+  ~ ".."
+  ~ ( ("+"|"-")
+      ~ natural
+      ~ ".."
+    )
+  ?
+  ~ integer?
   }
+
+slice = { range_slice | atom_expr | "_" }
+
+slice_block = { "[" ~ slice ~ "]" }
+
+slice_expr = { unary_expr ~ slice_block }
 
 unary_expr =
-  { "-" ~ unary_expr
-  | "~" ~ unary_expr
-  | "!" ~ unary_expr
+  { "-" ~ atom_expr
+  | "~" ~ atom_expr
+  | "!" ~ atom_expr
   }
 
-primary_expr =
+atom_expr =
   { integer
-  | var
   | quote
   | regex
+  | var
   | "(" ~ expr ~ ")"
   | lambda
-  | unary_expr
-  | expr
   }
 
-
-wrap = { "\\" }
+wrap = @{ "\\" }
 expr_cond =
   { "?"
   ~ "("
@@ -171,8 +191,8 @@ cmd =
   
 
 // PUSH individual single quotes to handle depth via the stack?
-body_start = { "'''" }
-body_end = { "'''" }
+body_start = @{ "'''" }
+body_end = @{ "'''" }
 
 indent_ctx =
   { "|>"
@@ -185,22 +205,30 @@ indent_ctx =
   | ">!" ~ quote
   }
 
-node_body =
-  {
-  ( !body_end ~ ANY
-  | expr
-  | !WHITESPACE ~ ANY
-  )
+line =
+  { indent_ctx?
+  ~ ( !body_end ~ expr
+    | !body_end ~ ANY
+    )
   *
   }
 
-// will probably use YAML format instead of this
+node_body = { line* }
+
+COLON = _{ ":" }
 node_decl =
   { ident
-  ~ ":"
+  ~ COLON
   ~ body_start
   ~ node_body
   ~ body_end
+  }
+
+// will probably use YAML format instead of this
+file =
+  { SOI
+  ~ node_decl*
+  ~ EOI
   }
 
 COMMENT =
