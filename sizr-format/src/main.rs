@@ -11,7 +11,6 @@ lazy_static! {
         use Rule::*;
         use Assoc::{Left, Right};
         use Operator as Op;
-
         PrecClimber::new(vec![
             Op::new(AND, Left)
             | Op::new(OR, Left)

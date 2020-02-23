@@ -1,10 +1,5 @@
-#<>
-#<> my_node: ''' $here \ $is?some $possible:node \?body '''
-#<> this is my node comment
+# my_node: ''' $here \ $is?some $possible:node \?body '''
 
-my_node: '''$here'''
-
-
-my_node: '''$here'''
-my_node: '''$here'''
-
+my_node: '''
+  |> -100 100 "hello" "he\nllo" "hell\"o"
+'''

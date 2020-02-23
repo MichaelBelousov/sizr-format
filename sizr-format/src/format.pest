@@ -48,27 +48,23 @@
 // types:
 // - number (n), bool (b), string (s), mapping (m), list (l)
 
-ESCAPE = _{ "\\" }
 QUOTE = _{ "\"" }
-ESCAPED_QUOTE = _{ ESCAPE ~ QUOTE }
+ESCAPE = _{ "\\" }
+ESCAPED_QUOTE = _{ " }
 
-quote =
-  @
-  { QUOTE
-  ~ (!( ESCAPED_QUOTE
-      | QUOTE
-    ) ~ ANY)*
-  ~ QUOTE
+quote = ${ QUOTE ~ str_content ~ QUOTE }
+str_content = @{ str_char* }
+str_char =
+  { !(QUOTE | ESCAPE) ~ ANY
+  | ESCAPE ~ (QUOTE | ESCAPE | "n" | "t" | "r")
+  | ESCAPE ~ ("u" ~ ASCII_HEX_DIGIT{4})
   }
 
-// might be better to separately captured escaped delimiter
-regex =
-  @
-  { "/"
-  ~ (!( "\\/"
-    | !"/"
-    ) ~ ANY)*
-  ~ "/"
+regex = ${ "/" ~ regex_content ~ "/" ~ ASCII_ALPHA{1,3} }
+regex_content = @{ regex_char* }
+regex_char =
+  { !("/" | ESCAPE) ~ ANY
+  | ESCAPE ~ ANY
   }
 
 ident = @{ ASCII_ALPHA ~ ( ASCII_ALPHANUMERIC | "_" )* }
@@ -119,7 +115,7 @@ expr =
   | "-" ~ atom
   | "~" ~ atom
   | "!" ~ atom
-  | atom ~ DOT ~ ident // can't do x.y[]?
+  | atom ~ DOT ~ ident  //can't do x.y[]?
   }
 
 atom =
@@ -167,7 +163,9 @@ cond = { expr_cond | wrap_cond }
 
 cmd =
   { expr
+  | atom
   | cond
+  | wrap
   }
 
 // TODO: use parse stack to handle any-depth body delimiters
@@ -188,10 +186,7 @@ indent_ctx =
 line =
   {
   ( indent_ctx?
-    ~ ( !body_end ~ cmd
-      | !body_end ~ ANY
-      )
-    +
+  ~ cmd+
   )
   | NEWLINE
   }
@@ -217,8 +212,8 @@ file =
 
 COMMENT =
   _
-  { ("#<>" | "#<" | "#>" )
+  { ("#<>" | "#<" | "#>" | "#" )
   ~ (!NEWLINE ~ ANY)*
   }
 
-WHITESPACE = _{ " "  | NEWLINE | "\t" }
+WHITESPACE = _{ " " | NEWLINE | "\t" }
