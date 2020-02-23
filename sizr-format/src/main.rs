@@ -1,33 +1,35 @@
 
 extern crate pest;
-#[macro_use]
-extern crate pest_derive;
-
+#[macro_use] extern crate pest_derive;
+#[macro_use] extern crate lazy_static;
+use pest::iterators::{Pair, Pairs};
+use pest::prec_climber::*;
 use pest::Parser;
 
 lazy_static! {
     static ref prec_climber: PrecClimber<Rule> = {
         use Rule::*;
-        use Asssoc::*;
-        //use Operator:: as Op;
+        use Assoc::{Left, Right};
+        use Operator as Op;
+
         PrecClimber::new(vec![
-            Operator::new(AND, Left)
-            | Operator::new(OR, Left)
-            | Operator::new(XOR, Left),
-            Operator::new(GT, Left)
-            | Operator::new(GTE, Left)
-            | Operator::new(EQ, Left),
-            | Operator::new(NEQ, Left),
-            | Operator::new(LTE, Left),
-            | Operator::new(LT, Left),
-            Operator::new(PLUS, Left)
-            | Operator::new(MINUS, Left),
-            Operator::new(MULT, Left)
-            | Operator::new(DIV, Left)
-            | Operator::new(INTDIV, Left),
-            | Operator::new(MOD, Left),
-            Operator::new(POW, Right)
-        ]);
+            Op::new(AND, Left)
+            | Op::new(OR, Left)
+            | Op::new(XOR, Left),
+            Op::new(GT, Left)
+            | Op::new(GTE, Left)
+            | Op::new(EQ, Left)
+            | Op::new(NEQ, Left)
+            | Op::new(LTE, Left)
+            | Op::new(LT, Left),
+            Op::new(PLUS, Left)
+            | Op::new(MINUS, Left),
+            Op::new(MULT, Left)
+            | Op::new(DIV, Left)
+            | Op::new(INTDIV, Left)
+            | Op::new(MOD, Left),
+            Op::new(POW, Right)
+        ])
     };
 }
 
@@ -38,8 +40,6 @@ pub struct FormatDescParser;
 use std::fs;
 use std::collections::HashMap;
 use std::vec::Vec;
-use std::io::{self, Read};
-use std::env;
 
 #[derive(Debug)]
 pub enum BinExpr {
@@ -116,8 +116,8 @@ pub enum Value {
 }
 
 struct ParseContext {
-    variables: HashMap<str, Value>,
-    node_formats: HashMap<str, NodeFormat>,
+    variables: HashMap<String, Value>,
+    node_formats: HashMap<String, NodeFormat>,
 }
 
 struct WriteContext {
@@ -129,7 +129,7 @@ fn eval(expr: Pairs<Rule>) -> Value {
         expr,
         |pair: Pair<Rule>| match pair.as_rule() {
             Rule::integer => Value::Number(pair.as_str().parse::<f64>().unwrap()),
-            Rule::quote => Value::String(pair.as_str()[1..-1]),
+            Rule::quote => Value::String(pair.into_inner().as_str().to_string()),
             Rule::expr => eval(pair.into_inner()),
             /*
             Rule::regex
@@ -137,16 +137,20 @@ fn eval(expr: Pairs<Rule>) -> Value {
             Rule::"(" ~ expr ~ ")"
             Rule::lambda
             */
-            _ => panic!("unknown atomic expression, {:#?}", p),
+            _ => unreachable!()
         },
-        |l: &Value, op: Pair<Rule>, r: &Value| match (l, op.as_rule(), r) {
-            (Value::Number(l), Rule::LT, Value::Number(r))  => l < r,
-            (Value::String(l), Rule::LT, Value::String(r))  => l < r,
-            (Value::Bool(l), Rule::LT, Value::Bool(r))      => !l && r,
-            (_, Rule::LT, _) => panic!("can't compare {:#?} and {:#?}", l, r),
-            _ => panic!("unknown expression, {:#?} {:#?} {:#?}", l, op, r),
+        |l: Value, op: Pair<Rule>, r: Value| match (&l, op.as_rule(), &r) {
+            (Value::Number(l), Rule::LT, Value::Number(r))
+                => Value::Bool(*l < *r),
+            (Value::String(l), Rule::LT, Value::String(r))
+                => Value::Bool(*l < *r),
+            (Value::Bool(l), Rule::LT, Value::Bool(r))
+                => Value::Bool(!*l && *r),
+            (_, Rule::LT, _)
+                => panic!("can't compare {:#?} and {:#?}", l, r),
+            _   => unreachable!()
         }
-    );
+    )
 }
 
 impl Expr {
@@ -207,14 +211,8 @@ fn serialize(node: &Node, ctx: &ParseContext, writeCtx: &mut WriteContext) {
     }
 }
 
-fn compileFormat(src: &str) -> NodeFormat {
-    NodeFormat {
-        write_commands: vec![]
-    }
-}
-
 fn main() {
-    let ctx = ParseContext {
+    let _ctx = ParseContext {
         node_formats: HashMap::with_capacity(100),
         variables: HashMap::with_capacity(10),
     };
@@ -226,33 +224,5 @@ fn main() {
         .expect("unsuccessful parse")
         .next()
         .unwrap();
-    //println!("{:#?}", file);
-
-    for node_decl in file.into_inner() {
-        match node_decl.as_rule() {
-            Rule::node_decl => {
-                for write in node_decl.into_inner() {
-                    match write.as_rule() {
-                        Rule::var => {},
-                        Rule::wrap => {},
-                        Rule::cond => {},
-                        _ => unreachable!(),
-                    }
-                }
-            },
-            Rule::EOI  => (),
-            _ => unreachable!(),
-        }
-    }
-
-
-    /*
-    let mut buffer = String::new();
-    io::stdin().read_to_string(&mut buffer);
-    let input = FormatDescParser::parse(Rule::file, &buffer)
-    .expect("unsuccessful parse")
-    .next()
-    .unwrap();
-    println!("STDIN: {:#?}", input);
-    */
+    println!("{:#?}", file);
 }

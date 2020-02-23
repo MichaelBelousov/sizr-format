@@ -1,6 +1,6 @@
-#
-# my_node: ''' $here \ $is?some $possible:node \?body '''
-# this is my node comment
+#<>
+#<> my_node: ''' $here \ $is?some $possible:node \?body '''
+#<> this is my node comment
 
 my_node: '''$here'''
 

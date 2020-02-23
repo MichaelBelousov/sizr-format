@@ -131,12 +131,13 @@ atom =
   | lambda
   }
 
+RANGE_DELIMITER = _{ ".." }
 range_slice = 
   { integer?
-  ~ ".."
+  ~ RANGE_DELIMITER
   ~ ( ("+"|"-")
-      ~ natural
-      ~ ".."
+    ~ natural
+    ~ RANGE_DELIMITER
     )
   ?
   ~ integer?
@@ -190,7 +191,7 @@ line =
     ~ ( !body_end ~ cmd
       | !body_end ~ ANY
       )
-    *
+    +
   )
   | NEWLINE
   }
@@ -215,8 +216,9 @@ file =
   }
 
 COMMENT =
+  _
   { ("#<>" | "#<" | "#>" )
   ~ (!NEWLINE ~ ANY)*
   }
 
-WHITESPACE = _{ " " }
+WHITESPACE = _{ " "  | NEWLINE | "\t" }
