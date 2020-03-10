@@ -10,7 +10,8 @@ pub struct lambda {
 struct ParseContext<'a> {
     source: &'a str;
     loc: mut u32;
-    ast: mut AstNode;
+    astSoFar: mut AstNode;
+    known: mut Stack<AstNode>;
 }
 
 pub mod atoms {
@@ -39,6 +40,7 @@ fn parse_atom(ctx: &mut ParseContext) {
 }
 
 pub mod ops {
+    fn parse_
     static let AND = "&";
     static let OR = "|";
     static let XOR = "^";
@@ -71,11 +73,11 @@ fn parse_mono_op(ctx: &mut ParseContext) {
 fn parse_write(ctx: &mut ParseContext) {
 }
 
-pub enum AstNodes<'a> {
+pub enum AstNode<'a> {
     Indent,
     Outdent,
     Align(Regex),
-    Add(Box<AstNodes>, Box<AstNodes>),
+    Add(Box<AstNode>, Box<AstNode>),
     Quote(&'a str)
 }
 
