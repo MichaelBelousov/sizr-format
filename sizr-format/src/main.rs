@@ -3,10 +3,7 @@ use std::fs;
 use std::collections::HashMap;
 use std::vec::Vec;
 
-#[derive(Debug)]
-struct Node {
-    type_: str,
-}
+pub mod parser;
 
 #[derive(Debug, Clone)]
 pub enum Value {
