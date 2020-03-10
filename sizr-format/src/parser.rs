@@ -10,6 +10,7 @@ pub struct lambda {
 struct ParseContext<'a> {
     source: &'a str;
     loc: mut u32;
+    ast: mut AstNode;
 }
 
 pub mod atoms {
@@ -20,9 +21,11 @@ pub mod atoms {
     }
 
     fn parse_regex(ctx: &mut ParseContext) {
+        ctx.loc += 1; //skip delimiter
     }
 
     fn parse_paren_group(ctx: &mut ParseContext) {
+        ctx.loc += 1; //skip opener
     }
 
     fn parse_lambda(ctx: &mut ParseContext) {
@@ -55,10 +58,7 @@ pub mod ops {
     static let DOT = ".";
     static let EXCLAIM = "!";
     static let TILDE = "~";
-    fn slice(ctx: &mut ParseContext) {
-    }
-
-    fn slice(ctx: &mut ParseContext) {
+    fn parse_slice(ctx: &mut ParseContext) {
     }
 }
 
@@ -71,9 +71,19 @@ fn parse_mono_op(ctx: &mut ParseContext) {
 fn parse_write(ctx: &mut ParseContext) {
 }
 
-fn parse_indent_decl(ctx: &mut ParseContext) {
+pub enum AstNodes<'a> {
+    Indent,
+    Outdent,
+    Align(Regex),
+    Add(Box<AstNodes>, Box<AstNodes>),
+    Quote(&'a str)
+}
+
+fn parse_indent_ctx_decl(ctx: &mut ParseContext) {
     match ctx.source[ctx.loc..ctx.loc+2] {
-        "
-    } else if {
+        "|>" => { ctx.ast.add(Indent()); },
+        ">/" => { ctx.loc+=1; parse_regex(&ctx); },
+        "<|" => { ctx.ast.add(Outdent()) },
+        _ => panic!("Unknown [indent] token")
     }
 }
