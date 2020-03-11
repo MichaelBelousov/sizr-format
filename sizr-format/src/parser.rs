@@ -2,9 +2,11 @@
  * Parser for the sizr-format language
  */
 
-#[macro_use]
-extern crate regex;
+#[macro_use] extern crate regex;
 use regex::Regex;
+
+#[macro_use] extern crate lazy_static;
+use std::collections::BTreeMap;
 
 pub mod parser {
 
@@ -96,28 +98,36 @@ pub mod parser {
     }
 
     pub mod ops {
-        /*
-        static let AND = "&";
-        static let OR = "|";
-        static let XOR = "^";
-        static let GT = ">";
-        static let GTE = ">=";
-        static let EQ = "=";
-        static let NEQ = "!=";
-        static let LTE = "<=";
-        static let LT = "<";
-        static let PLUS = "+";
-        static let MINUS = "-";
-        static let MULT = "*";
-        static let DIV = "/";
-        static let INTDIV = "//";
-        static let MOD = "%";
-        static let POW = "**";
-        static let DOT = ".";
-        static let EXCLAIM = "!";
-        static let TILDE = "~";
-        */
         fn parse_slice(ctx: &mut ParseContext) {
+        }
+
+        pub enum Precedence {
+            Logic = 0,
+            Comp, Add, Mult, Exp, Dot,
+        }
+
+        lazy_static! {
+          pub static ref binOpPrecedenceMap: BTreeMap<&'static str, Precedence> = {
+            let mut m = BTreeMap::new();
+            m.insert("&",  Precedence::Logic);
+            m.insert("|",  Precedence::Logic);
+            m.insert("^",  Precedence::Logic);
+            m.insert(">",  Precedence::Comp);
+            m.insert(">=", Precedence::Comp);
+            m.insert("=",  Precedence::Comp);
+            m.insert("!=", Precedence::Comp);
+            m.insert("<=", Precedence::Comp);
+            m.insert("<",  Precedence::Comp);
+            m.insert("+",  Precedence::Add);
+            m.insert("-",  Precedence::Add);
+            m.insert("*",  Precedence::Mult);
+            m.insert("/",  Precedence::Mult);
+            m.insert("//", Precedence::Mult);
+            m.insert("%",  Precedence::Mult);
+            m.insert("**", Precedence::Exp);
+            m.insert(".",  Precedence::Dot);
+            m
+          }
         }
     }
 
@@ -125,7 +135,7 @@ pub mod parser {
     fn parse_bin_op(ctx: &mut ParseContext) {
     }
 
-    fn parse_mono_op(ctx: &mut ParseContext) {
+    fn parse_unary_op(ctx: &mut ParseContext) {
     }
 
     fn parse_indent_ctx_decl(ctx: &mut ParseContext) {
@@ -136,5 +146,4 @@ pub mod parser {
             _ => panic!("Unknown token, expected indentation context")
         }
     }
-
 }
