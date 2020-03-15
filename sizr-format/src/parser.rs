@@ -8,31 +8,51 @@ use regex::Regex;
 extern crate lazy_static;
 use std::collections::BTreeMap;
 
+use std::vec::Vec;
+
 pub mod parser {
 
     #[derive(Debug)]
     pub enum Ast<'a> {
         Indent,
         Outdent,
-        Align(Option<Regex<'a>>),
-        Add(Box<AstNode<'a>>, Box<AstNode<'a>>),
+        Align(Option<regex::Regex>),
+        Add(Box<Ast<'a>>, Box<Ast<'a>>),
         Quote(&'a str),
         Number(f64),
-        Expr(Box<AstNode<'a>>),
+        Variable{ name: &'a str },
+        Group(Box<Ast<'a>>),
+        Cond{
+            cond: Box<Ast<'a>>,
+            then: Box<Ast<'a>>,
+            else_: Box<Ast<'a>>
+        },
+        WrapPoint,
+        NodeFormat(Vec<Box<Ast<'a>>>),
+        File(Vec<Format>),
     }
 
     impl<'a> Ast<'a> {
-        pub fn append(&self) {
+        pub fn append(&self, next: Ast<'a>) {
+            match self {
+                Indent => ,
+                Outdent =>
+            }
         }
+        /*
         pub fn finish(&self) {
+            match self {
+                Group(_) => 
+            }
         }
+        */
     }
 
     #[derive(Debug)]
     struct ParseContext<'a> {
         pub src: &'a str,
         pub loc: usize,
-        pub ast: AstNode<'a>, // Vec<TopLevelDef>
+        pub ast: Ast<'a>,
     }
 
     impl<'a> ParseContext<'a> {
@@ -44,7 +64,7 @@ pub mod parser {
     pub mod atoms {
         use ParseContext;
 
-        pub fn parse_quote_syntax(ctx: &mut ParseContext, delim: char) {
+        pub fn parseQuoteSyntax(ctx: &mut ParseContext, delim: char) {
             // TODO: in debug mode check explicitly for delimiter match
             ctx.loc += 1; //skip delimiter
             let start = ctx.loc;
@@ -63,44 +83,44 @@ pub mod parser {
             }
         }
 
-        pub fn parse_number(ctx: &mut ParseContext) {
+        pub fn parseNumber(ctx: &mut ParseContext) {
             let end = ctx.src[ctx.loc](|c| c.whitespace);
             let atom_src = ctx.src[ctx.loc..ctx.src];
         }
 
-        pub fn parse_quote(ctx: &mut ParseContext) {
-            parse_quote_syntax(ctx, '"');
+        pub fn parseQuote(ctx: &mut ParseContext) {
+            parseQuoteSyntax(ctx, '"');
         }
 
-        pub fn parse_regex(ctx: &mut ParseContext) {
-            parse_quote_syntax(ctx, '/');
+        pub fn parseRegex(ctx: &mut ParseContext) {
+            parseQuoteSyntax(ctx, '/');
         }
 
-        pub fn parse_paren_group(ctx: &mut ParseContext) {
+        pub fn parseParenGroup(ctx: &mut ParseContext) {
             ctx.loc += 1; //skip opener
             // TODO: in debug mode check explicitly for delimiter match
-            let expr = parse_expression();
+            let expr = parseExpression();
             ctx.loc += 1; //skip closer
             // TODO: in debug mode check explicitly for delimiter match
             ctx.ast.append(loc);
         }
 
-        pub fn parse_lambda(ctx: &mut ParseContext) {
+        pub fn parseLambda(ctx: &mut ParseContext) {
         }
 
-        pub fn parse_wrap(ctx: &mut ParseContext) {
+        pub fn parseWrap(ctx: &mut ParseContext) {
         }
     }
 
-    pub fn parse_atom(ctx: &mut ParseContext) {
+    pub fn parseAtom(ctx: &mut ParseContext) {
     }
 
     pub fn parseCommand(ctx: &mut ParseContext) {
         match &ctx.remainingSrc().chars().nth(0) {
             Some(c) => match c {
-                '"'  => { atoms::parse_quote(ctx) },
-                '\\' => { atoms::parse_wrap(ctx) },
-                '?'  => { atoms::parse_cond(ctx) },
+                '"'  => { atoms::parseQuote(ctx) },
+                '\\' => { atoms::parseWrap(ctx) },
+                '?'  => { atoms::parseCond(ctx) },
                 _ => panic!("Unknown token, expected write command")
             },
             None => panic!("Unknown token, expected write command")
@@ -128,11 +148,16 @@ pub mod parser {
         }
     }
 
+    pub fn parseIdentifier(ctx: &mut ParseContext) {
+        let first = ctx.remainingSrc().chars().nth(0);
+        if first.is_numeric() { panic!("invalid identifier")
+        let after = ctx.remainingSrc().find(|c: char| c.is_whitespace() && c != '_' && c.is_numeric() )
+    }
+
     pub fn parseFormatDef(ctx: &mut ParseContext) {
         skipWhitespace(ctx);
         parseIdentifier(ctx);
         skipToDelim(ctx);
-        //parseDelim?
         let idxAfterDelim = &ctx.remainingSrc().find(|c: char| c != '\'');
         if let Some(idxAfterDelim) {
             let delim = &ctx.remainingSrc()[..idxAfterDelim];
@@ -146,7 +171,9 @@ pub mod parser {
     }
 
     pub mod ops {
-        fn parse_slice(ctx: &mut ParseContext) {
+        use ParseContext;
+
+        fn parseSlice(ctx: &mut ParseContext) {
         }
 
         pub enum Precedence {
@@ -180,20 +207,20 @@ pub mod parser {
     }
 
     // TODO: use precedence climbing for bin ops
-    pub fn parse_bin_op(ctx: &mut ParseContext) {
+    pub fn parseBinOp(ctx: &mut ParseContext) {
       skipWhitespace(ctx);
-      parse_atom(ctx);
-      parse_bin_op(ctx);
-      parse_atom(ctx);
+      parseAtom(ctx);
+      parseBinOp(ctx);
+      parseAtom(ctx);
     }
 
-    pub fn parse_unary_op(ctx: &mut ParseContext) {
+    pub fn parseUnaryOp(ctx: &mut ParseContext) {
     }
 
-    pub fn parse_indent_ctx_decl(ctx: &mut ParseContext) {
+    pub fn parseIndentCtxDecl(ctx: &mut ParseContext) {
         match &ctx.src[ctx.loc..ctx.loc+2] {
             "|>" => { ctx.ast.append(Ast::Indent); },
-            ">/" => { ctx.loc += 1; atoms::parse_regex(ctx); },
+            ">/" => { ctx.loc += 1; atoms::parseRegex(ctx); },
             "<|" => { ctx.ast.append(Ast::Outdent) },
             _ => panic!("Unknown token, expected indentation context")
         }
