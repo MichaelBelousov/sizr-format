@@ -10,10 +10,13 @@ use std::collections::BTreeMap;
 
 use std::vec::Vec;
 
+
 pub mod parser {
+
 
     #[derive(Debug)]
     pub enum Ast<'a> {
+        Identifier(&'a str),
         Indent,
         Outdent,
         Align(Option<regex::Regex>),
@@ -29,14 +32,18 @@ pub mod parser {
         },
         WrapPoint,
         NodeFormat(Vec<Box<Ast<'a>>>),
-        File(Vec<Format>),
+        File(Vec<NodeFormat>),
     }
 
     impl<'a> Ast<'a> {
         pub fn append(&self, next: Ast<'a>) {
             match self {
-                Indent => ,
-                Outdent =>
+                NodeFormat(v) => v.push(Box::new(next)),
+                File(v) => match next {
+                    NodeFormat => v.push(next),
+                    _ => panic!("wrong ast node to append to file"),
+                },
+                _ => panic!("cannot append to other ast nodes")
             }
         }
         /*
@@ -46,6 +53,31 @@ pub mod parser {
             }
         }
         */
+    }
+
+    pub mod match {
+        fn identifier(ctx: &ParseContext) {
+            if let Some(c) = ctx.remainingSrc().chars().nth(0) {
+                c.is_alpha()
+            } else false
+        }
+        fn number(ctx: &ParseContext) {
+            if let Some(c) = ctx.remainingSrc().chars().nth(0) {
+                c.is_numeric()
+            } else false
+        }
+        fn quote(ctx: &ParseContext) {
+            ctx.remainingSrc().chars().nth(0) == Some('"')
+        }
+        fn regex(ctx: &ParseContext) {
+            ctx.remainingSrc().chars().nth(0) == Some('/')
+        }
+        fn eol(ctx: &ParseContext) {
+            ctx.remainingSrc().chars().nth(0) == Some('\n')
+        }
+        fn eof(ctx: &ParseContext) {
+            ctx.remainingSrc().chars().nth(0) == None
+        }
     }
 
     #[derive(Debug)]
@@ -99,28 +131,35 @@ pub mod parser {
         pub fn parseParenGroup(ctx: &mut ParseContext) {
             ctx.loc += 1; //skip opener
             // TODO: in debug mode check explicitly for delimiter match
-            let expr = parseExpression();
+            parseExpression(ctx);
             ctx.loc += 1; //skip closer
             // TODO: in debug mode check explicitly for delimiter match
-            ctx.ast.append(loc);
+            ctx.ast = Ast::Group(0);
         }
 
         pub fn parseLambda(ctx: &mut ParseContext) {
+            // skip "."
+            parseLambda
         }
 
-        pub fn parseWrap(ctx: &mut ParseContext) {
+        pub fn parseWrapPoint(ctx: &mut ParseContext) {
         }
     }
 
-    pub fn parseAtom(ctx: &mut ParseContext) {
+    //pub mod writes
+    pub mod exprs {
+        use ParseContext;
+
+        pub fn parseCond(ctx: &mut ParseContext) {
+        }
     }
 
     pub fn parseCommand(ctx: &mut ParseContext) {
         match &ctx.remainingSrc().chars().nth(0) {
             Some(c) => match c {
-                '"'  => { atoms::parseQuote(ctx) },
-                '\\' => { atoms::parseWrap(ctx) },
-                '?'  => { atoms::parseCond(ctx) },
+                '"'  => atoms::parseQuote(ctx),
+                '\\' => atoms::parseWrapPoint(ctx),
+                '?'  => exprs::parseCond(ctx),
                 _ => panic!("Unknown token, expected write command")
             },
             None => panic!("Unknown token, expected write command")
@@ -141,6 +180,7 @@ pub mod parser {
         }
     }
 
+    // TODO: group with parse format def specific mod
     fn skipToDelim(ctx: &mut ParseContext) {
         match &ctx.remainingSrc().find(|c: char| c == '\'') {
             Some(jump) => ctx.loc += jump,
@@ -149,17 +189,22 @@ pub mod parser {
     }
 
     pub fn parseIdentifier(ctx: &mut ParseContext) {
-        let first = ctx.remainingSrc().chars().nth(0);
-        if first.is_numeric() { panic!("invalid identifier")
-        let after = ctx.remainingSrc().find(|c: char| c.is_whitespace() && c != '_' && c.is_numeric() )
+        // TODO: verify first char is not numeric in debug mode
+        let maybeAfter = ctx.remainingSrc().find(|c: char| !c.is_alphanumeric() && c != '_');
+        if let Some(after) = maybeAfter {
+            ctx.ast.append(Ast::Identifier(&ctx.remainingSrc()[..after]));
+            ctx.loc += after;
+        } else {
+            panic!("debug");
+        }
     }
 
     pub fn parseFormatDef(ctx: &mut ParseContext) {
         skipWhitespace(ctx);
         parseIdentifier(ctx);
         skipToDelim(ctx);
-        let idxAfterDelim = &ctx.remainingSrc().find(|c: char| c != '\'');
-        if let Some(idxAfterDelim) {
+        let maybeIdx = &ctx.remainingSrc().find(|c: char| c != '\'');
+        if let Some(idxAfterDelim) = maybeIdx {
             let delim = &ctx.remainingSrc()[..idxAfterDelim];
             while &ctx.remainingSrc()[..idxAfterDelim] != delim {
                 skipWhitespace(ctx);
@@ -209,9 +254,9 @@ pub mod parser {
     // TODO: use precedence climbing for bin ops
     pub fn parseBinOp(ctx: &mut ParseContext) {
       skipWhitespace(ctx);
-      parseAtom(ctx);
-      parseBinOp(ctx);
-      parseAtom(ctx);
+      //parseAtom(ctx);
+      //parseBinOp(ctx);
+      //parseAtom(ctx);
     }
 
     pub fn parseUnaryOp(ctx: &mut ParseContext) {
