@@ -3,16 +3,15 @@
  */
 
 extern crate regex;
-use regex::Regex;
 
 extern crate lazy_static;
 use std::collections::BTreeMap;
 
 use std::vec::Vec;
+use std::boxed::Box;
 
 
 pub mod parser {
-
 
     #[derive(Debug)]
     pub enum Ast<'a> {
@@ -22,13 +21,16 @@ pub mod parser {
         Align(Option<regex::Regex>),
         Add(Box<Ast<'a>>, Box<Ast<'a>>),
         Quote(&'a str),
+        Regex(regex::Regex),
         Number(f64),
         Variable{ name: &'a str },
+        Lambda{ equals: Option<Box<Ast<'a>>> },
+        Underscore,
         Group(Box<Ast<'a>>),
         Cond{
             cond: Box<Ast<'a>>,
-            then: Box<Ast<'a>>,
-            else_: Box<Ast<'a>>
+            then: Option<Box<Ast<'a>>>,
+            else_: Option<Box<Ast<'a>>>
         },
         WrapPoint,
         NodeFormat(Vec<Box<Ast<'a>>>),
@@ -46,38 +48,6 @@ pub mod parser {
                 _ => panic!("cannot append to other ast nodes")
             }
         }
-        /*
-        pub fn finish(&self) {
-            match self {
-                Group(_) => 
-            }
-        }
-        */
-    }
-
-    pub mod match {
-        fn identifier(ctx: &ParseContext) {
-            if let Some(c) = ctx.remainingSrc().chars().nth(0) {
-                c.is_alpha()
-            } else false
-        }
-        fn number(ctx: &ParseContext) {
-            if let Some(c) = ctx.remainingSrc().chars().nth(0) {
-                c.is_numeric()
-            } else false
-        }
-        fn quote(ctx: &ParseContext) {
-            ctx.remainingSrc().chars().nth(0) == Some('"')
-        }
-        fn regex(ctx: &ParseContext) {
-            ctx.remainingSrc().chars().nth(0) == Some('/')
-        }
-        fn eol(ctx: &ParseContext) {
-            ctx.remainingSrc().chars().nth(0) == Some('\n')
-        }
-        fn eof(ctx: &ParseContext) {
-            ctx.remainingSrc().chars().nth(0) == None
-        }
     }
 
     #[derive(Debug)]
@@ -93,19 +63,69 @@ pub mod parser {
         }
     }
 
+    pub mod matcher {
+        fn identifier(ctx: &ParseContext) -> bool {
+            if let Some(c) = ctx.remainingSrc().chars().nth(0) {
+                c.is_alpha()
+            } else false
+        }
+
+        fn number(ctx: &ParseContext) -> bool {
+            if let Some(c) = ctx.remainingSrc().chars().nth(0) {
+                c.is_numeric()
+            } else false
+        }
+
+        fn quote(ctx: &ParseContext) -> bool {
+            ctx.remainingSrc().chars().nth(0) == Some('"')
+        }
+
+        fn regex(ctx: &ParseContext) -> bool {
+            ctx.remainingSrc().chars().nth(0) == Some('/')
+        }
+
+        fn eol(ctx: &ParseContext) -> bool {
+            ctx.remainingSrc().chars().nth(0) == Some('\n')
+        }
+
+        fn eof(ctx: &ParseContext) -> bool {
+            ctx.remainingSrc().chars().nth(0) == None
+        }
+
+        fn lambda(ctx: &ParseContext) -> bool {
+            ctx.remainingSrc().chars().nth(0) == Some('.')
+        }
+    }
+
     pub mod atoms {
         use ParseContext;
 
-        pub fn parseQuoteSyntax(ctx: &mut ParseContext, delim: char) {
+        // NOTE: maybe take immutable context ref?
+        pub fn readIdentifier(ctx: &mut ParseContext) -> str {
+            // TODO: verify first char is not numeric in debug mode
+            if let Some(after) = ctx.remainingSrc().find(
+                |c: char| !c.is_alphanumeric() && c != '_'
+            ) {
+                // TODO: convert escape sequences i.e. \n, \\, etc
+                let content = &ctx.remainingSrc()[..after];
+                ctx.ast.append(Ast::Identifier(content));
+                ctx.loc += after;
+                content
+            } else {
+                panic!("debug");
+            }
+        }
+
+
+        fn readQuoted(ctx: &mut ParseContext, delim: char) -> &str {
             // TODO: in debug mode check explicitly for delimiter match
             ctx.loc += 1; //skip delimiter
             let start = ctx.loc;
-            let delimLen = 1;
             loop {
                 match &ctx.remainingSrc().find(|c: char| c == '\\' || c == delim) {
                     Some(jump) => {
                         match &ctx.remainingSrc()[jump] {
-                            '\\'  => { ctx.loc += jump + delimLen + 1; },
+                            '\\'  => { ctx.loc += jump + 2; },
                             delim => { ctx.loc += jump + 1; break; },
                             _ => panic!("unreachable")
                         }
@@ -113,36 +133,58 @@ pub mod parser {
                     None => break
                 }
             }
+            &ctx.src[start..ctx.loc-1]
         }
 
-        pub fn parseNumber(ctx: &mut ParseContext) {
-            let end = ctx.src[ctx.loc](|c| c.whitespace);
-            let atom_src = ctx.src[ctx.loc..ctx.src];
+        pub fn parseNumber(ctx: &mut ParseContext) -> Ast::Number {
+            // TODO: support scientific notation
+            if let Some(end) =
+                ctx.remainingSrc().find(|c: char| !c.is_numeric() && c != '.'
+            ) {
+                let src = ctx.remainingSrc()[..end];
+                let parsed = src.parse::<f64>().unwrap();
+                Ast::Number(parsed)
+            } else {
+                panic!("failed to parse number");
+            }
         }
 
-        pub fn parseQuote(ctx: &mut ParseContext) {
-            parseQuoteSyntax(ctx, '"');
+        pub fn parseQuote(ctx: &mut ParseContext) -> Ast::Quote {
+            Ast::Quote(readQuoted(ctx, '"'));
         }
 
-        pub fn parseRegex(ctx: &mut ParseContext) {
-            parseQuoteSyntax(ctx, '/');
+        pub fn parseRegex(ctx: &mut ParseContext) -> Ast::Regex {
+            Ast::Regex(readQuoted(ctx, '/'));
         }
 
         pub fn parseParenGroup(ctx: &mut ParseContext) {
             ctx.loc += 1; //skip opener
             // TODO: in debug mode check explicitly for delimiter match
-            parseExpression(ctx);
+            let expr = parseExpression(ctx);
             ctx.loc += 1; //skip closer
             // TODO: in debug mode check explicitly for delimiter match
             ctx.ast = Ast::Group(0);
         }
 
         pub fn parseLambda(ctx: &mut ParseContext) {
-            // skip "."
-            parseLambda
+            // TODO: in debug mode explicitly check for "." start
+            ctx.loc += 1;
+            let name = readIdentifier();
+            match ctx.remainingSrc().chars().nth(0)  {
+                Some(c @ '=') => {
+                    let expr = parseExpression(ctx);
+                    ast.append(Ast::Lambda{equals: Some(Box::new(expr))});
+                },
+                Some(_) => {
+                    ast.append(Ast::Lambda{equals: None});
+                },
+                _ => panic!("unexpected during lambda parsing")
+            }
         }
 
         pub fn parseWrapPoint(ctx: &mut ParseContext) {
+            ctx.loc += 1;
+            ctx.ast.append(Ast::WrapPoint);
         }
     }
 
@@ -188,20 +230,9 @@ pub mod parser {
         }
     }
 
-    pub fn parseIdentifier(ctx: &mut ParseContext) {
-        // TODO: verify first char is not numeric in debug mode
-        let maybeAfter = ctx.remainingSrc().find(|c: char| !c.is_alphanumeric() && c != '_');
-        if let Some(after) = maybeAfter {
-            ctx.ast.append(Ast::Identifier(&ctx.remainingSrc()[..after]));
-            ctx.loc += after;
-        } else {
-            panic!("debug");
-        }
-    }
-
     pub fn parseFormatDef(ctx: &mut ParseContext) {
         skipWhitespace(ctx);
-        parseIdentifier(ctx);
+        let name = atoms::readIdentifier(ctx);
         skipToDelim(ctx);
         let maybeIdx = &ctx.remainingSrc().find(|c: char| c != '\'');
         if let Some(idxAfterDelim) = maybeIdx {
