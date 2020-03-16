@@ -1,13 +1,13 @@
 
-#[macro_use] extern crate regex;
-use regex::Regex;
+//#[macro_use]
+extern crate regex;
 
-#[macro_use] extern crate lazy_static;
+#[macro_use]
+extern crate lazy_static;
 
-use std::collections::BTreeMap;
-use std::fs;
-use std::collections::HashMap;
-use std::vec::Vec;
+//use std::fs;
+//use std::collections::{BTreeMap, HashMap};
+//use std::vec::Vec;
 
 pub mod parser;
 
