@@ -50,6 +50,13 @@ impl<'a> ParseContext<'a> {
         &self.loc.set(self.loc.get() + inc);
         self.loc.get()
     }
+
+    pub fn new(in_src: &'a str) -> Self {
+        ParseContext{
+            src: in_src,
+            loc: Cell::new(0),
+        }
+    }
 }
 
 pub mod matcher {
@@ -350,4 +357,7 @@ fn parse_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Ast<'a> {
 pub fn parse_text(text: &str) {
     //create parse context
     //parse
+    let ctx = ParseContext::new(text);
+    let ast = parse_file(&ctx);
+    println!("{:?}", ast);
 }

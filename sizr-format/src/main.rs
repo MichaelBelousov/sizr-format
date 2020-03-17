@@ -5,7 +5,8 @@ extern crate regex;
 #[macro_use]
 extern crate lazy_static;
 
-//use std::fs;
+use std::fs;
+use std::io::{self, Read};
 //use std::collections::{BTreeMap, HashMap};
 //use std::vec::Vec;
 
@@ -21,4 +22,7 @@ pub enum Value {
 }
 
 fn main() {
+    let mut buffer = String::new();
+    io::stdin().read_to_string(&mut buffer);
+    parser::parse_text(&buffer);
 }
