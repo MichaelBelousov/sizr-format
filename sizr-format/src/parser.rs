@@ -7,6 +7,7 @@ extern crate lazy_static;
 
 use std::vec::Vec;
 use std::boxed::Box;
+use std::cell::{Cell, RefCell};
 
 
 #[derive(Debug)]
@@ -35,13 +36,18 @@ pub enum Ast<'a> {
 #[derive(Debug)]
 struct ParseContext<'a> {
     pub src: &'a str,
-    pub loc: usize,
-    pub ast: Ast<'a>,
+    pub loc.get(): Cell<usize>,
 }
 
 impl<'a> ParseContext<'a> {
     fn remainingSrc(&self) -> &'a str {
-        &self.src[self.loc..]
+        &self.src[self.loc.get()..]
+    }
+
+    fn incLoc(&self, inc: usize) -> usize {
+        /** FIXME: find idiomatic rust solution for this stuff */
+        &self.loc.set(loc.get() + inc);
+        &self.loc
     }
 }
 
@@ -79,23 +85,38 @@ pub mod matcher {
     fn lambda(ctx: &ParseContext) -> bool {
         ctx.remainingSrc().chars().nth(0) == Some('.')
     }
+
+    fn binary_op(ctx: &ParseContext) -> bool {
+        if let Some(end) = ctx.remainingSrc().find(
+            |c| c.is_whitespace() || c.is_ascii_alphanumeric()
+        ) {
+            ops::BIN_OP_PRECEDENCE_MAP.has(ctx.remainingSrc()[..end]);
+        } else { false }
+    }
+
+    fn unary_op(ctx: &ParseContext) -> bool {
+        match ctx.remainingSrc().chars().nth(0) {
+            Some('-') | Some('~') | Some('!') => true,
+            None => false
+        }
+    }
 }
 
-fn skipToChar(ctx: &mut ParseContext, to: char) {
+fn skipToChar(ctx: &ParseContext, to: char) {
     match &ctx.remainingSrc().find(|c| c == to) {
-        Some(jump) => ctx.loc += jump,
+        Some(jump) => ctx.incLoc(jump),
         None => panic!("EOI")
     }
 }
 
-fn skipChar(ctx: &mut ParseContext, to: char) {
+fn skipChar(ctx: &ParseContext, to: char) {
     skipToChar(ctx, to);
-    ctx.loc += 1;
+    ctx.incLoc(1);
 }
 
-fn skipWhitespace(ctx: &mut ParseContext) {
+fn skipWhitespace(ctx: &ParseContext) {
     match &ctx.remainingSrc().find(|c: char| !c.is_whitespace()) {
-        Some(jump) => ctx.loc += jump,
+        Some(jump) => ctx.incLoc(jump),
         None => panic!("reached EOI")
     }
 }
@@ -104,14 +125,14 @@ pub mod atoms {
     use super::*;
 
     // NOTE: maybe take immutable context ref?
-    pub fn readIdentifier<'a>(ctx: &'a mut ParseContext) -> &'a str {
+    pub fn readIdentifier<'a>(ctx: &'a ParseContext) -> &'a str {
         // TODO: verify first char is not numeric in debug mode
         if let Some(after) = ctx.remainingSrc().find(
             |c: char| !c.is_ascii_alphanumeric() && c != '_'
         ) {
             // TODO: convert escape sequences i.e. \n, \\, etc
             let content = &ctx.remainingSrc()[..after];
-            ctx.loc += after;
+            ctx.incLoc(after);
             content
         } else {
             panic!("debug");
@@ -119,26 +140,26 @@ pub mod atoms {
     }
 
 
-    fn readQuoted<'a>(ctx: &'a mut ParseContext, delim: char) -> &'a str {
+    fn readQuoted<'a>(ctx: &'a ParseContext, delim: char) -> &'a str {
         // TODO: in debug mode check explicitly for delimiter match
-        ctx.loc += 1; //skip delimiter
-        let start = ctx.loc;
+        ctx.incLoc(1); //skip delimiter
+        let start = ctx.loc.get();
         loop {
             match ctx.remainingSrc().find(|c: char| c == '\\' || c == delim) {
                 Some(jump) => {
                     match &ctx.remainingSrc().chars().nth(jump) {
-                        Some('\\')  => { ctx.loc += jump + 2; },
-                        Some(delim) => { ctx.loc += jump + 1; break; },
+                        Some('\\')  => { ctx.incLoc(jump + 2); },
+                        Some(delim) => { ctx.incLoc(jump + 1); break; },
                         _ => panic!("unreachable")
                     }
                 },
                 None => break
             }
         }
-        &ctx.src[start..ctx.loc-1]
+        &ctx.src[start..ctx.loc.get()-1]
     }
 
-    pub fn parseNumber<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
+    pub fn parseNumber<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         // TODO: support scientific notation
         if let Some(end) =
             ctx.remainingSrc().find(|c: char| !c.is_ascii_digit() && c != '.'
@@ -151,26 +172,26 @@ pub mod atoms {
         }
     }
 
-    pub fn parseQuote<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
+    pub fn parseQuote<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         Ast::Quote(readQuoted(ctx, '"'))
     }
 
-    pub fn parseRegex<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
+    pub fn parseRegex<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         Ast::Regex(regex::Regex::new(readQuoted(ctx, '/')).unwrap())
     }
 
-    pub fn parseParenGroup<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
-        ctx.loc += 1; //skip opener
+    pub fn parseParenGroup<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        ctx.incLoc(1); //skip opener
         // TODO: in debug mode check explicitly for delimiter match
         let expr = exprs::parseExpression(ctx);
-        ctx.loc += 1; //skip closer
+        ctx.incLoc(1); //skip closer
         // TODO: in debug mode check explicitly for delimiter match
         Ast::Group(Box::new(expr))
     }
 
-    pub fn parseLambda<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
+    pub fn parseLambda<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         // TODO: in debug mode explicitly check for "." start
-        ctx.loc += 1;
+        ctx.incLoc(1);
         let name = readIdentifier(ctx);
         Ast::Lambda{
             property: name,
@@ -186,13 +207,13 @@ pub mod atoms {
     }
 
     // TODO: allow wrap points to form implicit conditions
-    pub fn parseWrapPoint<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
-        ctx.loc += 1;
+    pub fn parseWrapPoint<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        ctx.incLoc(1);
         Ast::WrapPoint
     }
 
-    pub fn parseVariable<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
-        ctx.loc += 1;
+    pub fn parseVariable<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        ctx.incLoc(1);
         Ast::Variable{ name: readIdentifier(ctx) }
     }
 }
@@ -201,8 +222,8 @@ pub mod atoms {
 pub mod exprs {
     use super::*;
 
-    pub fn parseCond<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
-        ctx.loc += 1; // skip "?"
+    pub fn parseCond<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        ctx.incLoc(1); //skip "?"
         skipWhitespace(ctx);
         let cond = Box::new(atoms::parseParenGroup(ctx));
         skipWhitespace(ctx);
@@ -222,7 +243,7 @@ pub mod exprs {
     }
 
     // parseExpression?
-    pub fn parseExpression<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
+    pub fn parseExpression<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         match &ctx.remainingSrc().chars().nth(0) {
             Some(c) => match c {
                 '"'  => atoms::parseQuote(ctx),
@@ -238,14 +259,14 @@ pub mod exprs {
 
 
 
-pub fn parseFile(ctx: &mut ParseContext) {
-    while ctx.loc < ctx.src.len() {
+pub fn parseFile(ctx: &ParseContext) {
+    while ctx.loc.get() < ctx.src.len() {
         skipWhitespace(ctx);
         parseFormatDef(ctx);
     }
 }
 
-pub fn parseFormatDef(ctx: &mut ParseContext) {
+pub fn parseFormatDef(ctx: &ParseContext) {
     skipWhitespace(ctx);
     let name = atoms::readIdentifier(ctx);
     skipToChar(ctx, '\'');
@@ -264,7 +285,7 @@ pub mod ops {
     use super::*;
 
     /*
-    fn parseSlice(ctx: &mut ParseContext) {
+    fn parseSlice(ctx: &ParseContext) {
     }
     */
 
@@ -300,21 +321,28 @@ pub mod ops {
 }
 
 // TODO: use precedence climbing for bin ops
-pub fn parseBinOp(ctx: &mut ParseContext) {
+pub fn parseBinOp(ctx: &ParseContext) {
   skipWhitespace(ctx);
   //parseAtom(ctx);
   //parseBinOp(ctx);
   //parseAtom(ctx);
+  //while match ctx.remainingSrc() {
+  //}
+  // match () {
+  // }
 }
 
-pub fn parseUnaryOp(ctx: &mut ParseContext) {
+pub fn parseUnaryOp(ctx: &ParseContext) {
 }
 
-pub fn parseIndentCtxDecl<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
-    match &ctx.src[ctx.loc..ctx.loc+2] {
-        "|>" => { ctx.loc += 2; Ast::Indent },
-        ">/" => { ctx.loc += 1; atoms::parseRegex(ctx) },
-        "<|" => { ctx.loc += 2; Ast::Outdent },
+pub fn _parseExpression(ctx: &ParseContext) {
+}
+
+pub fn parseIndentCtxDecl<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+    match &ctx.src[ctx.loc.get()..ctx.loc.get()+2] {
+        "|>" => { ctx.incLoc(2); Ast::Indent },
+        ">/" => { ctx.incLoc(1); atoms::parseRegex(ctx) },
+        "<|" => { ctx.incLoc(2); Ast::Outdent },
         _ => panic!("Unknown token, expected indentation context")
     }
 }
