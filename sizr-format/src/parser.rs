@@ -7,7 +7,7 @@ extern crate lazy_static;
 
 use std::vec::Vec;
 use std::boxed::Box;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 
 
 #[derive(Debug)]
@@ -36,7 +36,7 @@ pub enum Ast<'a> {
 #[derive(Debug)]
 struct ParseContext<'a> {
     pub src: &'a str,
-    pub loc.get(): Cell<usize>,
+    pub loc: Cell<usize>,
 }
 
 impl<'a> ParseContext<'a> {
@@ -45,9 +45,9 @@ impl<'a> ParseContext<'a> {
     }
 
     fn incLoc(&self, inc: usize) -> usize {
-        /** FIXME: find idiomatic rust solution for this stuff */
-        &self.loc.set(loc.get() + inc);
-        &self.loc
+        /* FIXME: find idiomatic rust solution for this stuff */
+        &self.loc.set(self.loc.get() + inc);
+        self.loc.get()
     }
 }
 
@@ -88,25 +88,25 @@ pub mod matcher {
 
     fn binary_op(ctx: &ParseContext) -> bool {
         if let Some(end) = ctx.remainingSrc().find(
-            |c| c.is_whitespace() || c.is_ascii_alphanumeric()
+            |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
         ) {
-            ops::BIN_OP_PRECEDENCE_MAP.has(ctx.remainingSrc()[..end]);
+            ops::PRECEDENCES.contains_key(&ctx.remainingSrc()[..end])
         } else { false }
     }
 
     fn unary_op(ctx: &ParseContext) -> bool {
         match ctx.remainingSrc().chars().nth(0) {
             Some('-') | Some('~') | Some('!') => true,
-            None => false
+            _ => false
         }
     }
 }
 
 fn skipToChar(ctx: &ParseContext, to: char) {
     match &ctx.remainingSrc().find(|c| c == to) {
-        Some(jump) => ctx.incLoc(jump),
+        Some(jump) => ctx.incLoc(*jump),
         None => panic!("EOI")
-    }
+    };
 }
 
 fn skipChar(ctx: &ParseContext, to: char) {
@@ -116,9 +116,9 @@ fn skipChar(ctx: &ParseContext, to: char) {
 
 fn skipWhitespace(ctx: &ParseContext) {
     match &ctx.remainingSrc().find(|c: char| !c.is_whitespace()) {
-        Some(jump) => ctx.incLoc(jump),
+        Some(jump) => ctx.incLoc(*jump),
         None => panic!("reached EOI")
-    }
+    };
 }
 
 pub mod atoms {
@@ -296,7 +296,7 @@ pub mod ops {
     use std::collections::BTreeMap;
 
     lazy_static! {
-        static ref BIN_OP_PRECEDENCE_MAP: BTreeMap<&'static str, Precedence> = {
+        pub static ref PRECEDENCES: BTreeMap<&'static str, Precedence> = {
             let mut m = BTreeMap::new();
             m.insert("&",  Precedence::Logic);
             m.insert("|",  Precedence::Logic);
@@ -321,7 +321,7 @@ pub mod ops {
 }
 
 // TODO: use precedence climbing for bin ops
-pub fn parseBinOp(ctx: &ParseContext) {
+fn parseBinOp(ctx: &ParseContext) {
   skipWhitespace(ctx);
   //parseAtom(ctx);
   //parseBinOp(ctx);
@@ -332,10 +332,10 @@ pub fn parseBinOp(ctx: &ParseContext) {
   // }
 }
 
-pub fn parseUnaryOp(ctx: &ParseContext) {
+fn parseUnaryOp(ctx: &ParseContext) {
 }
 
-pub fn _parseExpression(ctx: &ParseContext) {
+fn _parseExpression(ctx: &ParseContext) {
 }
 
 pub fn parseIndentCtxDecl<'a>(ctx: &'a ParseContext) -> Ast<'a> {
