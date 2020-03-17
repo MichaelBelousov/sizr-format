@@ -33,18 +33,19 @@ pub enum Ast<'a> {
     File(Vec<Ast<'a>>),
 }
 
+// TODO: make private to this module
 #[derive(Debug)]
-struct ParseContext<'a> {
+pub struct ParseContext<'a> {
     pub src: &'a str,
     pub loc: Cell<usize>,
 }
 
 impl<'a> ParseContext<'a> {
-    fn remaining_src(&self) -> &'a str {
+    pub fn remaining_src(&self) -> &'a str {
         &self.src[self.loc.get()..]
     }
 
-    fn inc_loc(&self, inc: usize) -> usize {
+    pub fn inc_loc(&self, inc: usize) -> usize {
         /* FIXME: find idiomatic rust solution for this stuff */
         &self.loc.set(self.loc.get() + inc);
         self.loc.get()
@@ -196,7 +197,7 @@ pub mod atoms {
         Ast::Lambda{
             property: name,
             equals: match ctx.remaining_src().chars().nth(0) {
-                Some(c @ '=') => {
+                Some('=') => {
                     let expr = exprs::parse_expression(ctx);
                     Some(Box::new(expr))
                 },
@@ -257,22 +258,21 @@ pub mod exprs {
     }
 }
 
-
-
-pub fn parse_file(ctx: &ParseContext) {
+// TODO: rename to like a "NodeSet", parse_file sounds too high-level
+fn parse_file(ctx: &ParseContext) {
     while ctx.loc.get() < ctx.src.len() {
         skip_whitespace(ctx);
         parse_format_def(ctx);
     }
 }
 
-pub fn parse_format_def(ctx: &ParseContext) {
+fn parse_format_def(ctx: &ParseContext) {
     skip_whitespace(ctx);
     let name = atoms::read_identifier(ctx);
     skip_to_char(ctx, '\'');
-    if let Some(idxAfterDelim) = ctx.remaining_src().find(|c: char| c != '\'') {
-        let delim = &(ctx.remaining_src()[..idxAfterDelim]);
-        while &ctx.remaining_src()[..idxAfterDelim] != delim {
+    if let Some(end) = ctx.remaining_src().find(|c: char| c != '\'') {
+        let delim = &(ctx.remaining_src()[..end]);
+        while &ctx.remaining_src()[..end] != delim {
             skip_whitespace(ctx);
             exprs::parse_expression(ctx);
         }
@@ -338,11 +338,16 @@ fn parse_unary_op(ctx: &ParseContext) {
 fn _parse_expression(ctx: &ParseContext) {
 }
 
-pub fn parse_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+fn parse_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Ast<'a> {
     match &ctx.src[ctx.loc.get()..ctx.loc.get()+2] {
         "|>" => { ctx.inc_loc(2); Ast::Indent },
         ">/" => { ctx.inc_loc(1); atoms::parse_regex(ctx) },
         "<|" => { ctx.inc_loc(2); Ast::Outdent },
         _ => panic!("Unknown token, expected indentation context")
     }
+}
+
+pub fn parse_text(text: &str) {
+    //create parse context
+    //parse
 }
