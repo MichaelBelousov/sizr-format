@@ -62,39 +62,47 @@ impl<'a> ParseContext<'a> {
 pub mod matcher {
     use super::*;
 
-    fn identifier(ctx: &ParseContext) -> bool {
+    pub fn identifier(ctx: &ParseContext) -> bool {
         if let Some(c) = ctx.remaining_src().chars().nth(0) {
             c.is_ascii_alphabetic()
         } else { false }
     }
 
-    fn number(ctx: &ParseContext) -> bool {
+    pub fn number(ctx: &ParseContext) -> bool {
         if let Some(c) = ctx.remaining_src().chars().nth(0) {
             c.is_ascii_digit()
         } else { false }
     }
 
-    fn quote(ctx: &ParseContext) -> bool {
+    pub fn quote(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('"')
     }
 
-    fn regex(ctx: &ParseContext) -> bool {
+    pub fn regex(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('/')
     }
 
-    fn eol(ctx: &ParseContext) -> bool {
+    pub fn eol(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('\n')
     }
 
-    fn eof(ctx: &ParseContext) -> bool {
+    pub fn eof(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == None
     }
 
-    fn lambda(ctx: &ParseContext) -> bool {
+    pub fn lambda(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('.')
     }
 
-    fn binary_op(ctx: &ParseContext) -> bool {
+    pub fn cond(ctx: &ParseContext) -> bool {
+        ctx.remaining_src().chars().nth(0) == Some('?')
+    }
+
+    pub fn variable(ctx: &ParseContext) -> bool {
+        ctx.remaining_src().chars().nth(0) == Some('$')
+    }
+
+    pub fn binary_op(ctx: &ParseContext) -> bool {
         if let Some(end) = ctx.remaining_src().find(
             |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
         ) {
@@ -102,9 +110,20 @@ pub mod matcher {
         } else { false }
     }
 
-    fn unary_op(ctx: &ParseContext) -> bool {
+    pub fn unary_op(ctx: &ParseContext) -> bool {
         match ctx.remaining_src().chars().nth(0) {
             Some('-') | Some('~') | Some('!') => true,
+            _ => false
+        }
+    }
+
+    pub fn wrap_point(ctx: &ParseContext) -> bool {
+        ctx.remaining_src().chars().nth(0) == Some('\\')
+    }
+
+    pub fn indent_ctx_decl(ctx: &ParseContext) -> bool {
+        match &ctx.src[ctx.loc.get()..ctx.loc.get()+2] {
+            "|>" | ">/" | "<|"  => true,
             _ => false
         }
     }
@@ -224,6 +243,15 @@ pub mod atoms {
         ctx.inc_loc(1);
         Ast::Variable{ name: read_identifier(ctx) }
     }
+
+    pub fn parse_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        match &ctx.src[ctx.loc.get()..ctx.loc.get()+2] {
+            "|>" => { ctx.inc_loc(2); Ast::Indent },
+            ">/" => { ctx.inc_loc(1); atoms::parse_regex(ctx) },
+            "<|" => { ctx.inc_loc(2); Ast::Outdent },
+            _ => panic!("Unknown token, expected indentation context")
+        }
+    }
 }
 
 //pub mod writes
@@ -252,15 +280,18 @@ pub mod exprs {
 
     // parse_expression?
     pub fn parse_expression<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        match &ctx.remaining_src().chars().nth(0) {
-            Some(c) => match c {
-                '"'  => atoms::parse_quote(ctx),
-                '\\' => atoms::parse_wrap_point(ctx),
-                '?'  => parse_cond(ctx),
-                '$'  => atoms::parse_variable(ctx),
-                _ => panic!("Unknown token, expected write command")
-            },
-            None => panic!("Unknown token, expected write command")
+        if matcher::quote(ctx) {
+            atoms::parse_quote(ctx)
+        } else if matcher::wrap_point(ctx) {
+            atoms::parse_wrap_point(ctx)
+        } else if matcher::cond(ctx) {
+            parse_cond(ctx)
+        } else if matcher::variable(ctx) {
+            atoms::parse_variable(ctx)
+        } else if matcher::indent_ctx_decl(ctx) {
+            atoms::parse_indent_ctx_decl(ctx)
+        } else {
+            panic!("Unknown token, expected write command")
         }
     }
 }
@@ -268,7 +299,7 @@ pub mod exprs {
 // TODO: rename to like a "NodeSet", parse_file sounds too high-level
 fn parse_file(ctx: &ParseContext) {
     while ctx.loc.get() < ctx.src.len() {
-        skip_whitespace(ctx);
+        //skip_whitespace(ctx);
         parse_format_def(ctx);
     }
 }
@@ -279,6 +310,7 @@ fn parse_format_def(ctx: &ParseContext) {
     skip_to_char(ctx, '\'');
     if let Some(end) = ctx.remaining_src().find(|c: char| c != '\'') {
         let delim = &(ctx.remaining_src()[..end]);
+        ctx.inc_loc(end);
         while &ctx.remaining_src()[..end] != delim {
             skip_whitespace(ctx);
             exprs::parse_expression(ctx);
@@ -340,18 +372,6 @@ fn parse_bin_op(ctx: &ParseContext) {
 }
 
 fn parse_unary_op(ctx: &ParseContext) {
-}
-
-fn _parse_expression(ctx: &ParseContext) {
-}
-
-fn parse_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-    match &ctx.src[ctx.loc.get()..ctx.loc.get()+2] {
-        "|>" => { ctx.inc_loc(2); Ast::Indent },
-        ">/" => { ctx.inc_loc(1); atoms::parse_regex(ctx) },
-        "<|" => { ctx.inc_loc(2); Ast::Outdent },
-        _ => panic!("Unknown token, expected indentation context")
-    }
 }
 
 pub fn parse_text(text: &str) {
