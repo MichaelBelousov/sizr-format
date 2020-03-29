@@ -106,7 +106,8 @@ pub mod matcher {
         if let Some(end) = ctx.remaining_src().find(
             |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
         ) {
-            ops::PRECEDENCES.contains_key(&ctx.remaining_src()[..end])
+            ops::BINARY_OPS.iter()
+                .any(|op| op.symbol == &ctx.remaining_src()[..end])
         } else { false }
     }
 
@@ -290,6 +291,8 @@ pub mod exprs {
             atoms::parse_variable(ctx)
         } else if matcher::indent_ctx_decl(ctx) {
             atoms::parse_indent_ctx_decl(ctx)
+        } else if matcher::unary_op(ctx) {
+            expr::parse_unary_op(ctx)
         } else {
             panic!("Unknown token, expected write command")
         }
@@ -332,46 +335,70 @@ pub mod ops {
         Logic = 0, Comp, Add, Mult, Exp, Dot,
     }
 
-    use std::collections::BTreeMap;
-
-    lazy_static! {
-        pub static ref PRECEDENCES: BTreeMap<&'static str, Precedence> = {
-            let mut m = BTreeMap::new();
-            m.insert("&",  Precedence::Logic);
-            m.insert("|",  Precedence::Logic);
-            m.insert("^",  Precedence::Logic);
-            m.insert(">",  Precedence::Comp);
-            m.insert(">=", Precedence::Comp);
-            m.insert("=",  Precedence::Comp);
-            m.insert("!=", Precedence::Comp);
-            m.insert("<=", Precedence::Comp);
-            m.insert("<",  Precedence::Comp);
-            m.insert("+",  Precedence::Add);
-            m.insert("-",  Precedence::Add);
-            m.insert("*",  Precedence::Mult);
-            m.insert("/",  Precedence::Mult);
-            m.insert("//", Precedence::Mult);
-            m.insert("%",  Precedence::Mult);
-            m.insert("**", Precedence::Exp);
-            m.insert(".",  Precedence::Dot);
-            m
-        };
+    pub struct BinOpDef {
+        pub symbol: &'static str,
+        pub prec: Precedence,
     }
-}
 
-// TODO: use precedence climbing for bin ops
-fn parse_bin_op(ctx: &ParseContext) {
-  skip_whitespace(ctx);
-  //parseAtom(ctx);
-  //parse_bin_op(ctx);
-  //parseAtom(ctx);
-  //while match ctx.remaining_src() {
-  //}
-  // match () {
-  // }
-}
+    pub static AND: BinOpDef =
+        BinOpDef{symbol: "&",  prec: Precedence::Logic};
+    pub static OR: BinOpDef =
+        BinOpDef{symbol: "|",  prec: Precedence::Logic};
+    pub static XOR: BinOpDef =
+        BinOpDef{symbol: "^",  prec: Precedence::Logic};
+    pub static GT: BinOpDef =
+        BinOpDef{symbol: ">",  prec: Precedence::Comp};
+    pub static GTE: BinOpDef =
+        BinOpDef{symbol: ">=", prec: Precedence::Comp};
+    pub static EQ: BinOpDef =
+        BinOpDef{symbol: "=",  prec: Precedence::Comp};
+    pub static NEQ: BinOpDef =
+        BinOpDef{symbol: "!=", prec: Precedence::Comp};
+    pub static LTE: BinOpDef =
+        BinOpDef{symbol: "<=", prec: Precedence::Comp};
+    pub static LT: BinOpDef =
+        BinOpDef{symbol: "<",  prec: Precedence::Comp};
+    pub static ADD: BinOpDef =
+        BinOpDef{symbol: "+",  prec: Precedence::Add};
+    pub static SUB: BinOpDef =
+        BinOpDef{symbol: "-",  prec: Precedence::Add};
+    pub static MUL: BinOpDef =
+        BinOpDef{symbol: "*",  prec: Precedence::Mult};
+    pub static DIV: BinOpDef =
+        BinOpDef{symbol: "/",  prec: Precedence::Mult};
+    pub static IDIV: BinOpDef =
+        BinOpDef{symbol: "//", prec: Precedence::Mult};
+    pub static MOD: BinOpDef =
+        BinOpDef{symbol: "%",  prec: Precedence::Mult};
+    pub static POW: BinOpDef =
+        BinOpDef{symbol: "**", prec: Precedence::Exp};
+    pub static DOT: BinOpDef =
+        BinOpDef{symbol: ".",  prec: Precedence::Dot};
 
-fn parse_unary_op(ctx: &ParseContext) {
+    pub static BINARY_OPS: Vec<BinOpDef> = vec![
+        AND, OR, XOR,
+        GT, GTE, EQ, NEQ, LTE, LT,
+        ADD, SUB,
+        MUL, DIV, IDIV, MOD,
+        POW,
+        DOT,
+    ];
+
+    // TODO: rename to prefix_unary_op?
+    pub fn parse_unary_op(ctx: &ParseContext) {
+    }
+
+    // TODO: use precedence climbing for bin ops
+    pub fn parse_bin_op(ctx: &ParseContext) {
+      //parseAtom(ctx);
+      //parse_bin_op(ctx);
+      //parseAtom(ctx);
+      //while match ctx.remaining_src() {
+      //}
+      // match () {
+      // }
+    }
+
 }
 
 pub fn parse_text(text: &str) {
