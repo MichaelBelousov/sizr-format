@@ -31,6 +31,15 @@ pub enum Ast<'a> {
     WrapPoint,
     NodeFormat(Vec<Box<Ast<'a>>>),
     File(Vec<Ast<'a>>),
+    BinaryOp{
+        left: Box<Ast<'a>>,
+        right: Box<Ast<'a>>,
+        op: &'static ops::BinOpDef
+    },
+    UnaryOp{
+        op: &'static ops::UnaryOpDef,
+        inner: Box<Ast<'a>>
+    },
 }
 
 // TODO: make private to this module
@@ -292,7 +301,7 @@ pub mod exprs {
         } else if matcher::indent_ctx_decl(ctx) {
             atoms::parse_indent_ctx_decl(ctx)
         } else if matcher::unary_op(ctx) {
-            expr::parse_unary_op(ctx)
+            ops::parse_unary_op(ctx)
         } else {
             panic!("Unknown token, expected write command")
         }
@@ -331,10 +340,23 @@ pub mod ops {
     }
     */
 
+    #[derive(Debug)]
     pub enum Precedence {
         Logic = 0, Comp, Add, Mult, Exp, Dot,
     }
 
+    #[derive(Debug)]
+    pub struct UnaryOpDef {
+        pub symbol: &'static str,
+    }
+
+    pub static NEG:  UnaryOpDef = UnaryOpDef{symbol: "-"};
+    pub static COMP: UnaryOpDef = UnaryOpDef{symbol: "~"};
+    pub static NOT:  UnaryOpDef = UnaryOpDef{symbol: "!"};
+
+    pub static UNARY_OPS: [&UnaryOpDef; 3] = [&NEG, &COMP, &NOT];
+
+    #[derive(Debug)]
     pub struct BinOpDef {
         pub symbol: &'static str,
         pub prec: Precedence,
@@ -342,21 +364,21 @@ pub mod ops {
 
     pub static AND: BinOpDef =
         BinOpDef{symbol: "&",  prec: Precedence::Logic};
-    pub static OR: BinOpDef =
+    pub static OR:  BinOpDef =
         BinOpDef{symbol: "|",  prec: Precedence::Logic};
     pub static XOR: BinOpDef =
         BinOpDef{symbol: "^",  prec: Precedence::Logic};
-    pub static GT: BinOpDef =
+    pub static GT:  BinOpDef =
         BinOpDef{symbol: ">",  prec: Precedence::Comp};
     pub static GTE: BinOpDef =
         BinOpDef{symbol: ">=", prec: Precedence::Comp};
-    pub static EQ: BinOpDef =
+    pub static EQ:  BinOpDef =
         BinOpDef{symbol: "=",  prec: Precedence::Comp};
     pub static NEQ: BinOpDef =
         BinOpDef{symbol: "!=", prec: Precedence::Comp};
     pub static LTE: BinOpDef =
         BinOpDef{symbol: "<=", prec: Precedence::Comp};
-    pub static LT: BinOpDef =
+    pub static LT:  BinOpDef =
         BinOpDef{symbol: "<",  prec: Precedence::Comp};
     pub static ADD: BinOpDef =
         BinOpDef{symbol: "+",  prec: Precedence::Add};
@@ -375,17 +397,25 @@ pub mod ops {
     pub static DOT: BinOpDef =
         BinOpDef{symbol: ".",  prec: Precedence::Dot};
 
-    pub static BINARY_OPS: Vec<BinOpDef> = vec![
-        AND, OR, XOR,
-        GT, GTE, EQ, NEQ, LTE, LT,
-        ADD, SUB,
-        MUL, DIV, IDIV, MOD,
-        POW,
-        DOT,
+    // TODO: sort by code points in a macro for binary searches
+    pub static BINARY_OPS: [&BinOpDef; 17] = [
+        &AND, &OR, &XOR,
+        &GT, &GTE, &EQ, &NEQ, &LTE, &LT,
+        &ADD, &SUB,
+        &MUL, &DIV, &IDIV, &MOD,
+        &POW,
+        &DOT,
     ];
 
     // TODO: rename to prefix_unary_op?
-    pub fn parse_unary_op(ctx: &ParseContext) {
+    pub fn parse_unary_op<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        let sym = &ctx.remaining_src()[..=1];
+        Ast::UnaryOp{
+            op: match UNARY_OPS.iter().find(|op| op.symbol == sym) {
+                Some(o) => o, _ => panic!("expected unary operator")
+            },
+            inner: Box::new(exprs::parse_expression(ctx))
+        }
     }
 
     // TODO: use precedence climbing for bin ops
