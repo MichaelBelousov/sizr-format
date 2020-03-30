@@ -342,7 +342,7 @@ pub mod ops {
 
     #[derive(Debug)]
     pub enum Precedence {
-        Logic = 0, Comp, Add, Mult, Exp, Dot,
+        And = 0, Or = 1, Comp, Add, Mult, Exp, Dot,
     }
 
     #[derive(Debug)]
@@ -356,46 +356,49 @@ pub mod ops {
 
     pub static UNARY_OPS: [&UnaryOpDef; 3] = [&NEG, &COMP, &NOT];
 
+    pub enum Assoc { Left, Right }
+
     #[derive(Debug)]
     pub struct BinOpDef {
         pub symbol: &'static str,
         pub prec: Precedence,
+        pub assoc: Assoc,
     }
 
     pub static AND: BinOpDef =
-        BinOpDef{symbol: "&",  prec: Precedence::Logic};
+        BinOpDef{symbol: "&",  prec: Precedence::And, assoc: Assoc::Left};
     pub static OR:  BinOpDef =
-        BinOpDef{symbol: "|",  prec: Precedence::Logic};
+        BinOpDef{symbol: "|",  prec: Precedence::Or, assoc: Assoc::Left};
     pub static XOR: BinOpDef =
-        BinOpDef{symbol: "^",  prec: Precedence::Logic};
+        BinOpDef{symbol: "^",  prec: Precedence::Or, assoc: Assoc::Left};
     pub static GT:  BinOpDef =
-        BinOpDef{symbol: ">",  prec: Precedence::Comp};
+        BinOpDef{symbol: ">",  prec: Precedence::Comp, assoc: Assoc::Left};
     pub static GTE: BinOpDef =
-        BinOpDef{symbol: ">=", prec: Precedence::Comp};
+        BinOpDef{symbol: ">=", prec: Precedence::Comp, assoc: Assoc::Left};
     pub static EQ:  BinOpDef =
-        BinOpDef{symbol: "=",  prec: Precedence::Comp};
+        BinOpDef{symbol: "=",  prec: Precedence::Comp, assoc: Assoc::Left};
     pub static NEQ: BinOpDef =
-        BinOpDef{symbol: "!=", prec: Precedence::Comp};
+        BinOpDef{symbol: "!=", prec: Precedence::Comp, assoc: Assoc::Left};
     pub static LTE: BinOpDef =
-        BinOpDef{symbol: "<=", prec: Precedence::Comp};
+        BinOpDef{symbol: "<=", prec: Precedence::Comp, assoc: Assoc::Left};
     pub static LT:  BinOpDef =
-        BinOpDef{symbol: "<",  prec: Precedence::Comp};
+        BinOpDef{symbol: "<",  prec: Precedence::Comp, assoc: Assoc::Left};
     pub static ADD: BinOpDef =
-        BinOpDef{symbol: "+",  prec: Precedence::Add};
+        BinOpDef{symbol: "+",  prec: Precedence::Add, assoc: Assoc::Left};
     pub static SUB: BinOpDef =
-        BinOpDef{symbol: "-",  prec: Precedence::Add};
+        BinOpDef{symbol: "-",  prec: Precedence::Add, assoc: Assoc::Left};
     pub static MUL: BinOpDef =
-        BinOpDef{symbol: "*",  prec: Precedence::Mult};
+        BinOpDef{symbol: "*",  prec: Precedence::Mult, assoc: Assoc::Left};
     pub static DIV: BinOpDef =
-        BinOpDef{symbol: "/",  prec: Precedence::Mult};
+        BinOpDef{symbol: "/",  prec: Precedence::Mult, assoc: Assoc::Left};
     pub static IDIV: BinOpDef =
-        BinOpDef{symbol: "//", prec: Precedence::Mult};
+        BinOpDef{symbol: "//", prec: Precedence::Mult, assoc: Assoc::Left};
     pub static MOD: BinOpDef =
-        BinOpDef{symbol: "%",  prec: Precedence::Mult};
+        BinOpDef{symbol: "%",  prec: Precedence::Mult, assoc: Assoc::Left};
     pub static POW: BinOpDef =
-        BinOpDef{symbol: "**", prec: Precedence::Exp};
+        BinOpDef{symbol: "**", prec: Precedence::Exp, assoc: Assoc::Right};
     pub static DOT: BinOpDef =
-        BinOpDef{symbol: ".",  prec: Precedence::Dot};
+        BinOpDef{symbol: ".",  prec: Precedence::Dot, assoc: Assoc::Left};
 
     // TODO: sort by code points in a macro for binary searches
     pub static BINARY_OPS: [&BinOpDef; 17] = [
@@ -412,7 +415,8 @@ pub mod ops {
         let sym = &ctx.remaining_src()[..=1];
         Ast::UnaryOp{
             op: match UNARY_OPS.iter().find(|op| op.symbol == sym) {
-                Some(o) => o, _ => panic!("expected unary operator")
+                Some(o) => o,
+                _ => panic!("expected unary token")
             },
             inner: Box::new(exprs::parse_expression(ctx))
         }
@@ -420,15 +424,8 @@ pub mod ops {
 
     // TODO: use precedence climbing for bin ops
     pub fn parse_bin_op(ctx: &ParseContext) {
-      //parseAtom(ctx);
-      //parse_bin_op(ctx);
-      //parseAtom(ctx);
-      //while match ctx.remaining_src() {
-      //}
-      // match () {
-      // }
+        while ctx.next_tok
     }
-
 }
 
 pub fn parse_text(text: &str) {
