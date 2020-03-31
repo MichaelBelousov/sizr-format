@@ -8,6 +8,7 @@ extern crate lazy_static;
 use std::vec::Vec;
 use std::boxed::Box;
 use std::cell::Cell;
+use std::option::Option;
 
 
 #[derive(Debug)]
@@ -15,12 +16,12 @@ pub enum Ast<'a> {
     Indent,
     Outdent,
     Align(Option<regex::Regex>),
-    Add(Box<Ast<'a>>, Box<Ast<'a>>),
+    Identifier(&'a str),
     Quote(&'a str),
     Regex(regex::Regex),
     Number(f64),
     Variable{ name: &'a str },
-    Lambda{ property: &'a str, equals: Option<Box<Ast<'a>>> },
+    Lambda{property: &'a str, equals: Option<Box<Ast<'a>>>},
     Underscore,
     Group(Box<Ast<'a>>),
     Cond{
@@ -46,7 +47,10 @@ pub enum Ast<'a> {
 #[derive(Debug)]
 pub struct ParseContext<'a> {
     pub src: &'a str,
+    // TODO: replace with mutex?
     pub loc: Cell<usize>,
+    // lookahead
+    pub last_token: atoms::Token<'a>,
 }
 
 impl<'a> ParseContext<'a> {
@@ -64,7 +68,9 @@ impl<'a> ParseContext<'a> {
         ParseContext{
             src: in_src,
             loc: Cell::new(0),
+            last_token: atoms::Token::None
         }
+        //parse_atom
     }
 }
 
@@ -111,22 +117,6 @@ pub mod matcher {
         ctx.remaining_src().chars().nth(0) == Some('$')
     }
 
-    pub fn binary_op(ctx: &ParseContext) -> bool {
-        if let Some(end) = ctx.remaining_src().find(
-            |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
-        ) {
-            ops::BINARY_OPS.iter()
-                .any(|op| op.symbol == &ctx.remaining_src()[..end])
-        } else { false }
-    }
-
-    pub fn unary_op(ctx: &ParseContext) -> bool {
-        match ctx.remaining_src().chars().nth(0) {
-            Some('-') | Some('~') | Some('!') => true,
-            _ => false
-        }
-    }
-
     pub fn wrap_point(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('\\')
     }
@@ -161,7 +151,24 @@ fn skip_whitespace(ctx: &ParseContext) {
 pub mod atoms {
     use super::*;
 
-    // NOTE: maybe take immutable context ref?
+    #[derive(Debug)]
+    pub enum Token<'a>
+    {
+        None,
+        Indent,
+        Outdent,
+        Align(Option<regex::Regex>),
+        WrapPoint,
+        Identifier(&'a str),
+        Number(f64),
+        Quote,
+        Regex,
+        Variable{ name: &'a str },
+        SimpleLambda{property: &'a str},
+        BinaryOp(&'static ops::BinOpDef),
+        UnaryOp(&'static ops::UnaryOpDef),
+    }
+
     pub fn read_identifier<'a>(ctx: &'a ParseContext) -> &'a str {
         // TODO: verify first char is not numeric in debug mode
         if let Some(after) = ctx.remaining_src().find(
@@ -196,28 +203,28 @@ pub mod atoms {
         &ctx.src[start..ctx.loc.get()-1]
     }
 
-    pub fn parse_number<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+    pub fn parse_number<'a>(ctx: &'a ParseContext) -> Token<'a> {
         // TODO: support scientific notation
         if let Some(end) =
             ctx.remaining_src().find(|c: char| !c.is_ascii_digit() && c != '.'
         ) {
             let src = &ctx.remaining_src()[..end];
             let parsed = src.parse::<f64>().unwrap();
-            Ast::Number(parsed)
+            Token::Number(parsed)
         } else {
             panic!("failed to parse number");
         }
     }
 
-    pub fn parse_quote<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        Ast::Quote(read_quoted(ctx, '"'))
+    pub fn parse_quote<'a>(ctx: &'a ParseContext) -> Token<'a> {
+        Token::Quote(read_quoted(ctx, '"'))
     }
 
-    pub fn parse_regex<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        Ast::Regex(regex::Regex::new(read_quoted(ctx, '/')).unwrap())
+    pub fn parse_regex<'a>(ctx: &'a ParseContext) -> Token<'a> {
+        Token::Regex(regex::Regex::new(read_quoted(ctx, '/')).unwrap())
     }
 
-    pub fn parse_paren_group<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+    pub fn parse_paren_group<'a>(ctx: &'a ParseContext) -> Token<'a> {
         ctx.inc_loc(1); //skip opener
         // TODO: in debug mode check explicitly for delimiter match
         let expr = exprs::parse_expression(ctx);
@@ -226,11 +233,11 @@ pub mod atoms {
         Ast::Group(Box::new(expr))
     }
 
-    pub fn parse_lambda<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+    pub fn parse_lambda<'a>(ctx: &'a ParseContext) -> Token<'a> {
         // TODO: in debug mode explicitly check for "." start
         ctx.inc_loc(1);
         let name = read_identifier(ctx);
-        Ast::Lambda{
+        Token::SimpleLambda{
             property: name,
             equals: match ctx.remaining_src().chars().nth(0) {
                 Some('=') => {
@@ -246,20 +253,66 @@ pub mod atoms {
     // TODO: allow wrap points to form implicit conditions
     pub fn parse_wrap_point<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         ctx.inc_loc(1);
-        Ast::WrapPoint
+        Token::WrapPoint
     }
 
     pub fn parse_variable<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         ctx.inc_loc(1);
-        Ast::Variable{ name: read_identifier(ctx) }
+        Token::Variable{ name: read_identifier(ctx) }
     }
 
-    pub fn parse_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+    pub fn try_parse_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Token<'a> {
         match &ctx.src[ctx.loc.get()..ctx.loc.get()+2] {
             "|>" => { ctx.inc_loc(2); Ast::Indent },
             ">/" => { ctx.inc_loc(1); atoms::parse_regex(ctx) },
             "<|" => { ctx.inc_loc(2); Ast::Outdent },
             _ => panic!("Unknown token, expected indentation context")
+        }
+    }
+
+    pub fn try_parse_binary_op(ctx: &ParseContext) -> Option<&'static ops::BinOpDef> {
+        if let Some(end) = ctx.remaining_src().find(
+            |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
+        ) {
+            match ops::BINARY_OPS
+                .iter()
+                .find(|op| op.symbol == &ctx.remaining_src()[..end])
+            {
+                Some(op) => Some(op),
+                _ => None
+            }
+        } else { None }
+    }
+
+    pub fn try_parse_unary_op(ctx: &ParseContext) -> Option<&'static ops::UnaryOpDef> {
+        if let Some(end) = ctx.remaining_src().find(
+            |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
+        ) {
+            match ops::UNARY_OPS
+                .iter()
+                .find(|op| op.symbol == &ctx.remaining_src()[..end])
+            {
+                Some(op) => Some(op),
+                _ => None
+            }
+        } else { None }
+    }
+
+    pub fn next_token<'a>(ctx: &'a ParseContext) -> Token<'a> {
+        if matcher::quote(ctx) {
+            parse_quote(ctx)
+        } else if matcher::wrap_point(ctx) {
+            parse_wrap_point(ctx)
+        } else if matcher::variable(ctx) {
+            parse_variable(ctx)
+        } else if matcher::indent_ctx_decl(ctx) {
+            parse_indent_ctx_decl(ctx)
+        } else if let Some(unOp) = try_parse_unary_op(ctx) {
+            Token::UnaryOp(unOp)
+        } else if let Some(binOp) = try_parse_binary_op(ctx) {
+            Token::BinaryOp(binOp)
+        } else {
+            panic!("Unknown token, expected atom")
         }
     }
 }
@@ -288,7 +341,6 @@ pub mod exprs {
         }
     }
 
-    // parse_expression?
     pub fn parse_expression<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         if matcher::quote(ctx) {
             atoms::parse_quote(ctx)
@@ -300,8 +352,10 @@ pub mod exprs {
             atoms::parse_variable(ctx)
         } else if matcher::indent_ctx_decl(ctx) {
             atoms::parse_indent_ctx_decl(ctx)
+        /*
         } else if matcher::unary_op(ctx) {
             ops::parse_unary_op(ctx)
+        */
         } else {
             panic!("Unknown token, expected write command")
         }
@@ -356,6 +410,7 @@ pub mod ops {
 
     pub static UNARY_OPS: [&UnaryOpDef; 3] = [&NEG, &COMP, &NOT];
 
+    #[derive(Debug)]
     pub enum Assoc { Left, Right }
 
     #[derive(Debug)]
@@ -411,7 +466,7 @@ pub mod ops {
     ];
 
     // TODO: rename to prefix_unary_op?
-    pub fn parse_unary_op<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+    pub fn parse_unary_expr<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         let sym = &ctx.remaining_src()[..=1];
         Ast::UnaryOp{
             op: match UNARY_OPS.iter().find(|op| op.symbol == sym) {
@@ -423,8 +478,17 @@ pub mod ops {
     }
 
     // TODO: use precedence climbing for bin ops
-    pub fn parse_bin_op(ctx: &ParseContext) {
-        while ctx.next_tok
+    pub fn parse_binary_expr<'a>(ctx: &ParseContext) -> Ast<'a> {
+        /*
+        while ctx {
+        }
+        */
+        // XXX: bad
+        Ast::BinaryOp{
+            left: Box::new(Ast::Number(1.0)),
+            right: Box::new(Ast::Number(2.0)),
+            op: &ADD
+        }
     }
 }
 
