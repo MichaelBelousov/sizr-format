@@ -50,7 +50,7 @@ pub struct ParseContext<'a> {
     // TODO: replace with mutex?
     pub loc: Cell<usize>,
     // lookahead
-    pub last_token: atoms::Token<'a>,
+    pub tokens: Vec<atoms::Token<'a>>,
 }
 
 impl<'a> ParseContext<'a> {
@@ -64,6 +64,7 @@ impl<'a> ParseContext<'a> {
 
     pub fn inc_loc(&self, inc: usize) -> usize {
         /* FIXME: find idiomatic rust solution for this stuff */
+        // I think a mutex might be correct
         &self.loc.set(self.loc.get() + inc);
         self.loc.get()
     }
@@ -72,7 +73,7 @@ impl<'a> ParseContext<'a> {
         ParseContext{
             src: in_src,
             loc: Cell::new(0),
-            last_token: atoms::Token::None
+            tokens: vec![]
         }
         //parse_atom
     }
@@ -228,7 +229,7 @@ pub mod atoms {
     }
 
     // XXX: maybe shouldn't be an atom?
-    pub fn try_parse_simple_lambda<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
+    pub fn try_lex_simple_lambda<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
         // TODO: in debug mode explicitly check for "." start
         if let Some(c @ '.') = ctx.remaining_src().chars().nth(0) {
             ctx.inc_loc(1);
@@ -242,7 +243,7 @@ pub mod atoms {
         }
     }
 
-    pub fn try_parse_variable<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
+    pub fn try_lex_variable<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
         if let Some(c @ '$') = ctx.remaining_src().chars().nth(0) {
             ctx.inc_loc(1);
             let name = read_identifier(ctx.remaining_src());
@@ -255,7 +256,7 @@ pub mod atoms {
         }
     }
 
-    pub fn try_parse_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
+    pub fn try_lex_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
         match &ctx.remaining_src()[..2] {
             "|>" => Some(Token::Indent),
             ">|" => Some(Token::Align(None)),
@@ -274,7 +275,7 @@ pub mod atoms {
         }
     }
 
-    pub fn try_parse_binary_op(ctx: &ParseContext) -> Option<&'static ops::BinOpDef> {
+    pub fn try_lex_binary_op(ctx: &ParseContext) -> Option<&'static ops::BinOpDef> {
         if let Some(end) = ctx.remaining_src().find(
             |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
         ) {
@@ -288,7 +289,7 @@ pub mod atoms {
         } else { None }
     }
 
-    pub fn try_parse_unary_op(ctx: &ParseContext) -> Option<&'static ops::UnaryOpDef> {
+    pub fn try_lex_unary_op(ctx: &ParseContext) -> Option<&'static ops::UnaryOpDef> {
         if let Some(end) = ctx.remaining_src().find(
             |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
         ) {
@@ -310,13 +311,13 @@ pub mod atoms {
                 parse_quote(ctx)
             } else if matcher::wrap_point(ctx) {
                 Token::WrapPoint
-            } else if let Some(variable) = try_parse_variable(ctx) {
+            } else if let Some(variable) = try_lex_variable(ctx) {
                 variable
-            } else if let Some(indent_ctx_decl) = try_parse_indent_ctx_decl(ctx) {
+            } else if let Some(indent_ctx_decl) = try_lex_indent_ctx_decl(ctx) {
                 indent_ctx_decl
-            } else if let Some(unOp) = try_parse_unary_op(ctx) {
+            } else if let Some(unOp) = try_lex_unary_op(ctx) {
                 Token::UnaryOp(unOp)
-            } else if let Some(binOp) = try_parse_binary_op(ctx) {
+            } else if let Some(binOp) = try_lex_binary_op(ctx) {
                 Token::BinaryOp(binOp)
             } else {
                 panic!("Unknown token, expected atom")
