@@ -159,7 +159,6 @@ pub mod atoms {
     #[derive(Debug)]
     pub enum Token<'a>
     {
-        None,
         LPar,
         RPar,
         Indent,
@@ -222,10 +221,6 @@ pub mod atoms {
 
     pub fn parse_quote<'a>(ctx: &'a ParseContext) -> Token<'a> {
         Token::Quote(read_quoted(ctx.remaining_src(), '"'))
-    }
-
-    pub fn parse_regex<'a>(ctx: &'a ParseContext) -> Token<'a> {
-        Token::Regex(regex::Regex::new(read_quoted(ctx.remaining_src(), '/')).unwrap())
     }
 
     // XXX: maybe shouldn't be an atom?
@@ -303,7 +298,7 @@ pub mod atoms {
         } else { None }
     }
 
-    pub fn next_token<'a>(ctx: &'a ParseContext) -> Token<'a> {
+    pub fn consume_token<'a>(ctx: &'a ParseContext) -> Token<'a> {
         match ctx.remaining_src().chars().nth(0) {
             Some('(') => Token::LPar,
             Some(')') => Token::RPar,
@@ -377,25 +372,42 @@ pub mod exprs {
         }
     }
 
-    pub fn parse_expression<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        /*
-        if matcher::quote(ctx) {
-            atoms::parse_quote(ctx)
-        } else if matcher::wrap_point(ctx) {
-            atoms::parse_wrap_point(ctx)
-        } else if matcher::cond(ctx) {
-            parse_cond(ctx)
-        } else if matcher::variable(ctx) {
-            atoms::parse_variable(ctx)
-        /*
-        } else if matcher::unary_op(ctx) {
-            ops::parse_unary_op(ctx)
-        */
-        } else {
-            panic!("Unknown token, expected write command")
+    pub fn parse_expression<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
+        while ctx.tokens.len() < 2 {
+            ctx.tokens.push(atoms::consume_token(ctx))
         }
-        */
-        Ast::Indent
+        if let Token::BinaryOp(op) = ctx.tokens[1] {
+            parse_binary_expr(ctx);
+        }
+        match ctx.tokens[0] {
+            Token::LPar
+                => parse_paren_group(ctx),
+            Token::Indent
+                => Ast::Indent,
+            Token::Outdent
+                => Ast::Outdent,
+            Token::Align(maybeRegex)
+                => Ast::Align(maybeRegex),
+            Token::WrapPoint
+                => Ast::WrapPoint,
+            Token::Identifier(val)
+                => Ast::Identifier(val),
+            Token::Number(val)
+                => Ast::Number(val),
+            Token::Quote(val)
+                => Ast::Quote(val),
+            Token::Regex(val)
+                => Ast::Regex(val),
+            Token::Variable{ name: n }
+                => Ast::Variable,
+            Token::SimpleLambda{property: p}
+                => parse_lambda(ctx),
+            Token::BinaryOp(&'static ops::BinOpDef)
+                => parse_binary_expr(ctx),
+            Token::UnaryOp(&'static ops::UnaryOpDef),
+                => parse_unary_expr(ctx)
+            _ => panic!("Unexpected token")
+        }
     }
 }
 
