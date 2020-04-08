@@ -58,6 +58,10 @@ impl<'a> ParseContext<'a> {
         &self.src[self.loc.get()..]
     }
 
+    pub fn next_char(&self) -> Option<char> {
+        self.remaining_src().chars().nth(0)
+    }
+
     pub fn inc_loc(&self, inc: usize) -> usize {
         /* FIXME: find idiomatic rust solution for this stuff */
         &self.loc.set(self.loc.get() + inc);
@@ -123,7 +127,7 @@ pub mod matcher {
 
     pub fn indent_ctx_decl(ctx: &ParseContext) -> bool {
         match &ctx.src[ctx.loc.get()..ctx.loc.get()+2] {
-            "|>" | ">/" | "<|"  => true,
+            "|>" | ">/" | "<|" | ">|"  => true,
             _ => false
         }
     }
@@ -155,28 +159,29 @@ pub mod atoms {
     pub enum Token<'a>
     {
         None,
+        LPar,
+        RPar,
         Indent,
         Outdent,
         Align(Option<regex::Regex>),
         WrapPoint,
         Identifier(&'a str),
         Number(f64),
-        Quote,
-        Regex,
+        Quote(&'a str),
+        Regex(regex::Regex),
         Variable{ name: &'a str },
         SimpleLambda{property: &'a str},
         BinaryOp(&'static ops::BinOpDef),
         UnaryOp(&'static ops::UnaryOpDef),
     }
 
-    pub fn read_identifier<'a>(ctx: &'a ParseContext) -> &'a str {
+    pub fn read_identifier<'a>(source: &'a str) -> &'a str {
         // TODO: verify first char is not numeric in debug mode
-        if let Some(after) = ctx.remaining_src().find(
+        if let Some(after) = source.find(
             |c: char| !c.is_ascii_alphanumeric() && c != '_'
         ) {
             // TODO: convert escape sequences i.e. \n, \\, etc
-            let content = &ctx.remaining_src()[..after];
-            ctx.inc_loc(after);
+            let content = &source[..after];
             content
         } else {
             panic!("debug");
@@ -184,23 +189,21 @@ pub mod atoms {
     }
 
 
-    fn read_quoted<'a>(ctx: &'a ParseContext, delim: char) -> &'a str {
-        // TODO: in debug mode check explicitly for delimiter match
-        ctx.inc_loc(1); //skip delimiter
-        let start = ctx.loc.get();
+    fn read_quoted<'a>(source: &'a str, delim: char) -> &'a str {
+        let mut i = 1; //skip delimiter
         loop {
-            match ctx.remaining_src().find(|c: char| c == '\\' || c == delim) {
+            match source.find(|c: char| c == '\\' || c == delim) {
                 Some(jump) => {
-                    match &ctx.remaining_src().chars().nth(jump) {
-                        Some('\\')  => { ctx.inc_loc(jump + 2); },
-                        Some(delim) => { ctx.inc_loc(jump + 1); break; },
+                    match &source.chars().nth(jump) {
+                        Some('\\')  => { i += jump + 2; },
+                        Some(delim) => { i += jump + 1; break; },
                         _ => panic!("unreachable")
                     }
                 },
                 None => break
             }
         }
-        &ctx.src[start..ctx.loc.get()-1]
+        &source[1..i]
     }
 
     pub fn parse_number<'a>(ctx: &'a ParseContext) -> Token<'a> {
@@ -217,56 +220,57 @@ pub mod atoms {
     }
 
     pub fn parse_quote<'a>(ctx: &'a ParseContext) -> Token<'a> {
-        Token::Quote(read_quoted(ctx, '"'))
+        Token::Quote(read_quoted(ctx.remaining_src(), '"'))
     }
 
     pub fn parse_regex<'a>(ctx: &'a ParseContext) -> Token<'a> {
-        Token::Regex(regex::Regex::new(read_quoted(ctx, '/')).unwrap())
+        Token::Regex(regex::Regex::new(read_quoted(ctx.remaining_src(), '/')).unwrap())
     }
 
-    pub fn parse_paren_group<'a>(ctx: &'a ParseContext) -> Token<'a> {
-        ctx.inc_loc(1); //skip opener
-        // TODO: in debug mode check explicitly for delimiter match
-        let expr = exprs::parse_expression(ctx);
-        ctx.inc_loc(1); //skip closer
-        // TODO: in debug mode check explicitly for delimiter match
-        Ast::Group(Box::new(expr))
-    }
-
-    pub fn parse_lambda<'a>(ctx: &'a ParseContext) -> Token<'a> {
+    // XXX: maybe shouldn't be an atom?
+    pub fn try_parse_simple_lambda<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
         // TODO: in debug mode explicitly check for "." start
-        ctx.inc_loc(1);
-        let name = read_identifier(ctx);
-        Token::SimpleLambda{
-            property: name,
-            equals: match ctx.remaining_src().chars().nth(0) {
-                Some('=') => {
-                    let expr = exprs::parse_expression(ctx);
-                    Some(Box::new(expr))
-                },
-                Some(_) => None,
-                _ => panic!("unexpected during lambda parsing")
-            }
+        if let Some(c @ '.') = ctx.remaining_src().chars().nth(0) {
+            ctx.inc_loc(1);
+            let name = read_identifier(ctx.remaining_src());
+            ctx.inc_loc(name.len());
+            Some(Token::SimpleLambda{
+                property: name
+            })
+        } else {
+            None
         }
     }
 
-    // TODO: allow wrap points to form implicit conditions
-    pub fn parse_wrap_point<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        ctx.inc_loc(1);
-        Token::WrapPoint
+    pub fn try_parse_variable<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
+        if let Some(c @ '$') = ctx.remaining_src().chars().nth(0) {
+            ctx.inc_loc(1);
+            let name = read_identifier(ctx.remaining_src());
+            ctx.inc_loc(name.len());
+            Some(Token::Variable{
+                name: read_identifier(&ctx.remaining_src()[1..])
+            })
+        } else {
+            None
+        }
     }
 
-    pub fn parse_variable<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        ctx.inc_loc(1);
-        Token::Variable{ name: read_identifier(ctx) }
-    }
-
-    pub fn try_parse_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Token<'a> {
-        match &ctx.src[ctx.loc.get()..ctx.loc.get()+2] {
-            "|>" => { ctx.inc_loc(2); Ast::Indent },
-            ">/" => { ctx.inc_loc(1); atoms::parse_regex(ctx) },
-            "<|" => { ctx.inc_loc(2); Ast::Outdent },
-            _ => panic!("Unknown token, expected indentation context")
+    pub fn try_parse_indent_ctx_decl<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
+        match &ctx.remaining_src()[..2] {
+            "|>" => Some(Token::Indent),
+            ">|" => Some(Token::Align(None)),
+            ">/" => Some(Token::Align(
+                Some(
+                    regex::Regex::new(
+                        read_quoted(
+                            ctx.remaining_src(),
+                            '/'
+                        )
+                    ).unwrap()
+                )
+            )),
+            "<|" => Some(Token::Outdent),
+            _ => None
         }
     }
 
@@ -299,20 +303,25 @@ pub mod atoms {
     }
 
     pub fn next_token<'a>(ctx: &'a ParseContext) -> Token<'a> {
-        if matcher::quote(ctx) {
-            parse_quote(ctx)
-        } else if matcher::wrap_point(ctx) {
-            parse_wrap_point(ctx)
-        } else if matcher::variable(ctx) {
-            parse_variable(ctx)
-        } else if matcher::indent_ctx_decl(ctx) {
-            parse_indent_ctx_decl(ctx)
-        } else if let Some(unOp) = try_parse_unary_op(ctx) {
-            Token::UnaryOp(unOp)
-        } else if let Some(binOp) = try_parse_binary_op(ctx) {
-            Token::BinaryOp(binOp)
-        } else {
-            panic!("Unknown token, expected atom")
+        match ctx.remaining_src().chars().nth(0) {
+            Some('(') => Token::LPar,
+            Some(')') => Token::RPar,
+            _ => if matcher::quote(ctx) {
+                parse_quote(ctx)
+            } else if matcher::wrap_point(ctx) {
+                Token::WrapPoint
+            } else if let Some(variable) = try_parse_variable(ctx) {
+                variable
+            } else if let Some(indent_ctx_decl) = try_parse_indent_ctx_decl(ctx) {
+                indent_ctx_decl
+            } else if let Some(unOp) = try_parse_unary_op(ctx) {
+                Token::UnaryOp(unOp)
+            } else if let Some(binOp) = try_parse_binary_op(ctx) {
+                Token::BinaryOp(binOp)
+            } else {
+                panic!("Unknown token, expected atom")
+            }
+
         }
     }
 }
@@ -321,10 +330,18 @@ pub mod atoms {
 pub mod exprs {
     use super::*;
 
+    pub fn parse_paren_group<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        ctx.inc_loc(1); //skip "("
+        skip_whitespace(ctx);
+        let ast = parse_expression(ctx);
+        ctx.inc_loc(1); //skip ")"
+        Ast::Group(Box::new(ast))
+    }
+
     pub fn parse_cond<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         ctx.inc_loc(1); //skip "?"
         skip_whitespace(ctx);
-        let cond = Box::new(atoms::parse_paren_group(ctx));
+        let cond = Box::new(parse_paren_group(ctx));
         skip_whitespace(ctx);
         if ctx.remaining_src().chars().nth(0) == Some(':') {
             Ast::Cond {
@@ -341,7 +358,26 @@ pub mod exprs {
         }
     }
 
+    pub fn parse_lambda<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        // TODO: in debug mode explicitly check for "." start
+        ctx.inc_loc(1);
+        let name = atoms::read_identifier(ctx.remaining_src());
+        ctx.inc_loc(name.len());
+        Ast::Lambda{
+            property: name,
+            equals: match ctx.remaining_src().chars().nth(0) {
+                Some('=') => {
+                    let expr = exprs::parse_expression(ctx);
+                    Some(Box::new(expr))
+                },
+                Some(_) => None,
+                _ => panic!("unexpected during lambda parsing")
+            }
+        }
+    }
+
     pub fn parse_expression<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        /*
         if matcher::quote(ctx) {
             atoms::parse_quote(ctx)
         } else if matcher::wrap_point(ctx) {
@@ -350,8 +386,6 @@ pub mod exprs {
             parse_cond(ctx)
         } else if matcher::variable(ctx) {
             atoms::parse_variable(ctx)
-        } else if matcher::indent_ctx_decl(ctx) {
-            atoms::parse_indent_ctx_decl(ctx)
         /*
         } else if matcher::unary_op(ctx) {
             ops::parse_unary_op(ctx)
@@ -359,6 +393,8 @@ pub mod exprs {
         } else {
             panic!("Unknown token, expected write command")
         }
+        */
+        Ast::Indent
     }
 }
 
@@ -372,7 +408,8 @@ fn parse_file(ctx: &ParseContext) {
 
 fn parse_format_def(ctx: &ParseContext) {
     skip_whitespace(ctx);
-    let name = atoms::read_identifier(ctx);
+    let name = atoms::read_identifier(ctx.remaining_src());
+    ctx.inc_loc(name.len());
     skip_to_char(ctx, '\'');
     if let Some(end) = ctx.remaining_src().find(|c: char| c != '\'') {
         let delim = &(ctx.remaining_src()[..end]);
