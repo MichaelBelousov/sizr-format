@@ -329,7 +329,7 @@ pub mod exprs {
     pub fn parse_paren_group<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         ctx.inc_loc(1); //skip "("
         skip_whitespace(ctx);
-        let ast = parse_expression(ctx);
+        let ast = parse_expr(ctx);
         ctx.inc_loc(1); //skip ")"
         Ast::Group(Box::new(ast))
     }
@@ -343,13 +343,13 @@ pub mod exprs {
             Ast::Cond {
                 cond,
                 then: None,
-                else_: Some(Box::new(parse_expression(ctx)))
+                else_: Some(Box::new(parse_expr(ctx)))
             }
         } else {
-            let then = Some(Box::new(parse_expression(ctx)));
+            let then = Some(Box::new(parse_expr(ctx)));
             skip_char(ctx, ':');
             skip_whitespace(ctx);
-            let else_ = Some(Box::new(parse_expression(ctx)));
+            let else_ = Some(Box::new(parse_expr(ctx)));
             Ast::Cond { cond, then, else_ }
         }
     }
@@ -363,7 +363,7 @@ pub mod exprs {
             property: name,
             equals: match ctx.remaining_src().chars().nth(0) {
                 Some('=') => {
-                    let expr = exprs::parse_expression(ctx);
+                    let expr = exprs::parse_expr(ctx);
                     Some(Box::new(expr))
                 },
                 Some(_) => None,
@@ -372,7 +372,9 @@ pub mod exprs {
         }
     }
 
-    pub fn parse_expression<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
+    use atoms::Token;
+
+    pub fn parse_expr<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
         while ctx.tokens.len() < 2 {
             ctx.tokens.push(atoms::consume_token(ctx))
         }
@@ -399,13 +401,20 @@ pub mod exprs {
             Token::Regex(val)
                 => Ast::Regex(val),
             Token::Variable{ name: n }
-                => Ast::Variable,
+                => Ast::Variable{ name: n },
             Token::SimpleLambda{property: p}
                 => parse_lambda(ctx),
-            Token::BinaryOp(&'static ops::BinOpDef)
-                => parse_binary_expr(ctx),
-            Token::UnaryOp(&'static ops::UnaryOpDef),
-                => parse_unary_expr(ctx)
+            Token::BinaryOp(op)
+                => Ast::BinaryOp{
+                    op,
+                    left: parse_atom(ctx),
+                    right: parse_expr(ctx),
+                },
+            Token::UnaryOp(op)
+                => Ast::UnaryOp{
+                    op,
+                    inner: parse_expr(ctx),
+                },
             _ => panic!("Unexpected token")
         }
     }
@@ -429,7 +438,7 @@ fn parse_format_def(ctx: &ParseContext) {
         ctx.inc_loc(end);
         while &ctx.remaining_src()[..end] != delim {
             skip_whitespace(ctx);
-            exprs::parse_expression(ctx);
+            exprs::parse_expr(ctx);
         }
     } else {
         panic!("bad format definition syntax");
@@ -523,7 +532,7 @@ pub mod ops {
                 Some(o) => o,
                 _ => panic!("expected unary token")
             },
-            inner: Box::new(exprs::parse_expression(ctx))
+            inner: Box::new(exprs::parse_expr(ctx))
         }
     }
 
