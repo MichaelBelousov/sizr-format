@@ -171,8 +171,7 @@ pub mod atoms {
         Regex(regex::Regex),
         Variable{ name: &'a str },
         SimpleLambda{property: &'a str},
-        BinaryOp(&'static ops::BinOpDef),
-        UnaryOp(&'static ops::UnaryOpDef),
+        Op(&'a str),
     }
 
     pub fn read_identifier<'a>(source: &'a str) -> &'a str {
@@ -270,32 +269,27 @@ pub mod atoms {
         }
     }
 
-    pub fn try_lex_binary_op(ctx: &ParseContext) -> Option<&'static ops::BinOpDef> {
+    pub fn try_lex_op(ctx: &ParseContext) -> Option<Token> {
         if let Some(end) = ctx.remaining_src().find(
             |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
         ) {
-            match ops::BINARY_OPS
-                .iter()
-                .find(|op| op.symbol == &ctx.remaining_src()[..end])
-            {
-                Some(op) => Some(op),
-                _ => None
-            }
-        } else { None }
-    }
-
-    pub fn try_lex_unary_op(ctx: &ParseContext) -> Option<&'static ops::UnaryOpDef> {
-        if let Some(end) = ctx.remaining_src().find(
-            |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
-        ) {
+            // TODO: use separate pattern, not op definitions to match
             match ops::UNARY_OPS
                 .iter()
                 .find(|op| op.symbol == &ctx.remaining_src()[..end])
             {
-                Some(op) => Some(op),
-                _ => None
-            }
-        } else { None }
+                Some(op) => { return Some(Token::Op(op.symbol)); },
+                _ => ()
+            };
+            match ops::BINARY_OPS
+                .iter()
+                .find(|op| op.symbol == &ctx.remaining_src()[..end])
+            {
+                Some(op) => { return Some(Token::Op(op.symbol)); },
+                _ => ()
+            };
+        }
+        return None;
     }
 
     pub fn consume_token<'a>(ctx: &'a ParseContext) -> Token<'a> {
@@ -310,14 +304,57 @@ pub mod atoms {
                 variable
             } else if let Some(indent_ctx_decl) = try_lex_indent_ctx_decl(ctx) {
                 indent_ctx_decl
-            } else if let Some(unOp) = try_lex_unary_op(ctx) {
-                Token::UnaryOp(unOp)
-            } else if let Some(binOp) = try_lex_binary_op(ctx) {
-                Token::BinaryOp(binOp)
+            } else if let Some(op) = try_lex_op(ctx) {
+                op
             } else {
                 panic!("Unknown token, expected atom")
             }
 
+        }
+    }
+
+    pub fn parse<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
+        if let Some(tok) = ctx.next_token() {
+            match tok {
+                Token::LPar => {
+                    let inner = exprs::parse(ctx);
+                    let next = ctx.next_token();
+                    if next != Token::RPar { panic!("Expected closing parentheses"); }
+                    Ast::Group(Box::new(inner))
+                },
+                Token::Op(symbol) =>
+                    match ops::UNARY_OPS.iter().find(|op| op.symbol == symbol) {
+                        Some(op) => {
+                            let inner = exprs::parse(ctx);
+                            Ast::UnaryOp{op, inner: Box::new(inner)}
+                        },
+                        _ => panic!("unexpected binary operator")
+                    },
+                Token::Indent => Ast::Indent,
+                Token::Outdent => Ast::Outdent,
+                Token::Align(val) => Ast::Align(val),
+                Token::WrapPoint => Ast::WrapPoint,
+                Token::Identifier(val) => Ast::Identifier(val),
+                Token::Number(val) => Ast::Number(val),
+                Token::Quote(val) => Ast::Quote(val),
+                Token::Regex(val) => Ast::Regex(val),
+                Token::Variable{ name } => Ast::Variable{ name },
+                Token::SimpleLambda{property} => {
+                    let next = ctx.next_token();
+                    if next == Token::Equals {
+                        let equalsExpr = exprs::parse(ctx);
+                        Ast::Lambda{
+                            property,
+                            equals: Some(Box::new(equalsExpr))
+                        }
+                    } else {
+                        Ast::Lambda{ property, equals: None }
+                    }
+                },
+                //_ => panic!("Unexpected token")
+            }
+        } else {
+            panic!("Unexpected end of input")
         }
     }
 }
@@ -325,14 +362,6 @@ pub mod atoms {
 //pub mod writes
 pub mod exprs {
     use super::*;
-
-    pub fn parse_paren_group<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        ctx.inc_loc(1); //skip "("
-        skip_whitespace(ctx);
-        let ast = parse_expr(ctx);
-        ctx.inc_loc(1); //skip ")"
-        Ast::Group(Box::new(ast))
-    }
 
     pub fn parse_cond<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         ctx.inc_loc(1); //skip "?"
@@ -343,13 +372,13 @@ pub mod exprs {
             Ast::Cond {
                 cond,
                 then: None,
-                else_: Some(Box::new(parse_expr(ctx)))
+                else_: Some(Box::new(parse(ctx)))
             }
         } else {
-            let then = Some(Box::new(parse_expr(ctx)));
+            let then = Some(Box::new(parse(ctx)));
             skip_char(ctx, ':');
             skip_whitespace(ctx);
-            let else_ = Some(Box::new(parse_expr(ctx)));
+            let else_ = Some(Box::new(parse(ctx)));
             Ast::Cond { cond, then, else_ }
         }
     }
@@ -363,7 +392,7 @@ pub mod exprs {
             property: name,
             equals: match ctx.remaining_src().chars().nth(0) {
                 Some('=') => {
-                    let expr = exprs::parse_expr(ctx);
+                    let expr = exprs::parse(ctx);
                     Some(Box::new(expr))
                 },
                 Some(_) => None,
@@ -374,49 +403,39 @@ pub mod exprs {
 
     use atoms::Token;
 
-    pub fn parse_expr<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
-        while ctx.tokens.len() < 2 {
-            ctx.tokens.push(atoms::consume_token(ctx))
+    pub fn parseAux<'a>(ctx: &'a mut ParseContext, lastPrec: i32) -> Ast<'a> {
+        let mut lhs = atoms::parse();
+        loop {
+            if let Some(tok) = ctx.next_token() {
+                match tok {
+                    Token::Op(sym) => match ops::BINARY_OPS.iter().find(|op| op.symbol == sym) {
+                        Some(op) => {
+                            if op.prec >= min_prec  {
+                                let next_prec = op.prec
+                                    + if op.assoc == ops::Assoc::Left {1} else {0};
+                                let rhs = parseAux(ctx, next_prec);
+                                lhs = Ast::BinaryOp {
+                                    op,
+                                    left: Box::new(lhs),
+                                    right: Box::new(rhs)
+                                };
+                            } else {
+                                break;
+                            }
+                        },
+                        _ => panic!("unexpected unary operator")
+                    },
+                    _ => break
+                }
+            } else {
+                panic!("unexpected end of input");
+            }
         }
-        if let Token::BinaryOp(op) = ctx.tokens[1] {
-            parse_binary_expr(ctx);
-        }
-        match ctx.tokens[0] {
-            Token::LPar
-                => parse_paren_group(ctx),
-            Token::Indent
-                => Ast::Indent,
-            Token::Outdent
-                => Ast::Outdent,
-            Token::Align(maybeRegex)
-                => Ast::Align(maybeRegex),
-            Token::WrapPoint
-                => Ast::WrapPoint,
-            Token::Identifier(val)
-                => Ast::Identifier(val),
-            Token::Number(val)
-                => Ast::Number(val),
-            Token::Quote(val)
-                => Ast::Quote(val),
-            Token::Regex(val)
-                => Ast::Regex(val),
-            Token::Variable{ name: n }
-                => Ast::Variable{ name: n },
-            Token::SimpleLambda{property: p}
-                => parse_lambda(ctx),
-            Token::BinaryOp(op)
-                => Ast::BinaryOp{
-                    op,
-                    left: parse_atom(ctx),
-                    right: parse_expr(ctx),
-                },
-            Token::UnaryOp(op)
-                => Ast::UnaryOp{
-                    op,
-                    inner: parse_expr(ctx),
-                },
-            _ => panic!("Unexpected token")
-        }
+        lhs
+    }
+
+    pub fn parse<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
+        parseAux(ctx, 0)
     }
 }
 
@@ -438,7 +457,7 @@ fn parse_format_def(ctx: &ParseContext) {
         ctx.inc_loc(end);
         while &ctx.remaining_src()[..end] != delim {
             skip_whitespace(ctx);
-            exprs::parse_expr(ctx);
+            exprs::parse(ctx);
         }
     } else {
         panic!("bad format definition syntax");
@@ -454,7 +473,7 @@ pub mod ops {
     */
 
     #[derive(Debug)]
-    pub enum Precedence {
+    pub enum Prec {
         And = 0, Or = 1, Comp, Add, Mult, Exp, Dot,
     }
 
@@ -475,44 +494,44 @@ pub mod ops {
     #[derive(Debug)]
     pub struct BinOpDef {
         pub symbol: &'static str,
-        pub prec: Precedence,
+        pub prec: Prec,
         pub assoc: Assoc,
     }
 
     pub static AND: BinOpDef =
-        BinOpDef{symbol: "&",  prec: Precedence::And, assoc: Assoc::Left};
+        BinOpDef{symbol: "&",  prec: Prec::And, assoc: Assoc::Left};
     pub static OR:  BinOpDef =
-        BinOpDef{symbol: "|",  prec: Precedence::Or, assoc: Assoc::Left};
+        BinOpDef{symbol: "|",  prec: Prec::Or, assoc: Assoc::Left};
     pub static XOR: BinOpDef =
-        BinOpDef{symbol: "^",  prec: Precedence::Or, assoc: Assoc::Left};
+        BinOpDef{symbol: "^",  prec: Prec::Or, assoc: Assoc::Left};
     pub static GT:  BinOpDef =
-        BinOpDef{symbol: ">",  prec: Precedence::Comp, assoc: Assoc::Left};
+        BinOpDef{symbol: ">",  prec: Prec::Comp, assoc: Assoc::Left};
     pub static GTE: BinOpDef =
-        BinOpDef{symbol: ">=", prec: Precedence::Comp, assoc: Assoc::Left};
+        BinOpDef{symbol: ">=", prec: Prec::Comp, assoc: Assoc::Left};
     pub static EQ:  BinOpDef =
-        BinOpDef{symbol: "=",  prec: Precedence::Comp, assoc: Assoc::Left};
+        BinOpDef{symbol: "=",  prec: Prec::Comp, assoc: Assoc::Left};
     pub static NEQ: BinOpDef =
-        BinOpDef{symbol: "!=", prec: Precedence::Comp, assoc: Assoc::Left};
+        BinOpDef{symbol: "!=", prec: Prec::Comp, assoc: Assoc::Left};
     pub static LTE: BinOpDef =
-        BinOpDef{symbol: "<=", prec: Precedence::Comp, assoc: Assoc::Left};
+        BinOpDef{symbol: "<=", prec: Prec::Comp, assoc: Assoc::Left};
     pub static LT:  BinOpDef =
-        BinOpDef{symbol: "<",  prec: Precedence::Comp, assoc: Assoc::Left};
+        BinOpDef{symbol: "<",  prec: Prec::Comp, assoc: Assoc::Left};
     pub static ADD: BinOpDef =
-        BinOpDef{symbol: "+",  prec: Precedence::Add, assoc: Assoc::Left};
+        BinOpDef{symbol: "+",  prec: Prec::Add, assoc: Assoc::Left};
     pub static SUB: BinOpDef =
-        BinOpDef{symbol: "-",  prec: Precedence::Add, assoc: Assoc::Left};
+        BinOpDef{symbol: "-",  prec: Prec::Add, assoc: Assoc::Left};
     pub static MUL: BinOpDef =
-        BinOpDef{symbol: "*",  prec: Precedence::Mult, assoc: Assoc::Left};
+        BinOpDef{symbol: "*",  prec: Prec::Mult, assoc: Assoc::Left};
     pub static DIV: BinOpDef =
-        BinOpDef{symbol: "/",  prec: Precedence::Mult, assoc: Assoc::Left};
+        BinOpDef{symbol: "/",  prec: Prec::Mult, assoc: Assoc::Left};
     pub static IDIV: BinOpDef =
-        BinOpDef{symbol: "//", prec: Precedence::Mult, assoc: Assoc::Left};
+        BinOpDef{symbol: "//", prec: Prec::Mult, assoc: Assoc::Left};
     pub static MOD: BinOpDef =
-        BinOpDef{symbol: "%",  prec: Precedence::Mult, assoc: Assoc::Left};
+        BinOpDef{symbol: "%",  prec: Prec::Mult, assoc: Assoc::Left};
     pub static POW: BinOpDef =
-        BinOpDef{symbol: "**", prec: Precedence::Exp, assoc: Assoc::Right};
+        BinOpDef{symbol: "**", prec: Prec::Exp, assoc: Assoc::Right};
     pub static DOT: BinOpDef =
-        BinOpDef{symbol: ".",  prec: Precedence::Dot, assoc: Assoc::Left};
+        BinOpDef{symbol: ".",  prec: Prec::Dot, assoc: Assoc::Left};
 
     // TODO: sort by code points in a macro for binary searches
     pub static BINARY_OPS: [&BinOpDef; 17] = [
@@ -532,7 +551,7 @@ pub mod ops {
                 Some(o) => o,
                 _ => panic!("expected unary token")
             },
-            inner: Box::new(exprs::parse_expr(ctx))
+            inner: Box::new(exprs::parse(ctx))
         }
     }
 
