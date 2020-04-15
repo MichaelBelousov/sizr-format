@@ -81,16 +81,16 @@ impl<'a> PartialEq for Token<'a> {
             (Indent, Indent) => true,
             (Outdent, Outdent) => true,
             (Align(None), Align(None)) => true,
-            (Align(Some(leftRegex)), Align(Some(rightRegex)))
-            | (Regex(leftRegex), Regex(rightRegex))
-                => leftRegex.as_str() == rightRegex.as_str(),
+            (Align(Some(left_regex)), Align(Some(right_regex)))
+            | (Regex(left_regex), Regex(right_regex))
+                => left_regex.as_str() == right_regex.as_str(),
             (Align(_), Align(_)) => false,
             (WrapPoint, WrapPoint) => true,
             (Identifier(l), Identifier(r)) => l == r,
             (Number(l), Number(r)) => l == r,
             (Quote(l), Quote(r)) => l == r,
-            (Variable{name: lName}, Variable{name: rName}) => lName == rName,
-            (SimpleLambda{property: lProp}, SimpleLambda{property: rProp}) => lProp == rProp,
+            (Variable{name: lname}, Variable{name: rname}) => lname == rname,
+            (SimpleLambda{property: lprop}, SimpleLambda{property: rprop}) => lprop == rprop,
             (Op(l), Op(r)) => l == r,
             _ => false
         }
@@ -228,15 +228,14 @@ pub mod atoms {
     fn read_quoted<'a>(source: &'a str, delim: char) -> &'a str {
         let mut i = 1; //skip delimiter
         loop {
-            match source.find(|c: char| c == '\\' || c == delim) {
-                Some(jump) => {
-                    match &source.chars().nth(jump) {
-                        Some('\\')  => { i += jump + 2; },
-                        Some(delim) => { i += jump + 1; break; },
-                        _ => panic!("unreachable")
-                    }
-                },
-                None => break
+            if let Some(jump) = source.find(|c: char| c == '\\' || c == delim) {
+                match source.chars().nth(jump) {
+                    Some('\\')  => { i += jump + 2; },
+                    Some(_) => { i += jump + 1; break; },
+                    _ => panic!("error while reading delimited text")
+                }
+            } else {
+                break;
             }
         }
         &source[1..i]
@@ -373,27 +372,8 @@ pub mod atoms {
 pub mod exprs {
     use super::*;
 
-    /*
-    pub fn parse_cond<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        ctx.inc_loc(1); //skip "?"
-        skip_whitespace(ctx);
-        let cond = Box::new(parse_paren_group(ctx));
-        skip_whitespace(ctx);
-        if ctx.remaining_src().chars().nth(0) == Some(':') {
-            Ast::Cond {
-                cond,
-                then: None,
-                else_: Some(Box::new(parse(ctx)))
-            }
-        } else {
-            let then = Some(Box::new(parse(ctx)));
-            skip_char(ctx, ':');
-            skip_whitespace(ctx);
-            let else_ = Some(Box::new(parse(ctx)));
-            Ast::Cond { cond, then, else_ }
-        }
-    }
-    */
+    // TODO: support slices
+    // TODO: support conditional write commands
 
     pub fn parse_lambda<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         // TODO: in debug mode explicitly check for "." start
@@ -413,49 +393,43 @@ pub mod exprs {
         }
     }
 
-
-    pub fn parseAux<'a>(ctx: &'a ParseContext, min_prec: i32) -> Ast<'a> {
+    pub fn parse_aux<'a>(ctx: &'a ParseContext, min_prec: i32) -> Ast<'a> {
         let mut lhs = atoms::parse(ctx);
         loop {
-            if let Some(tok) = ctx.next_token() {
-                match tok {
-                    Token::Op(sym) => match ops::BINARY_OPS.iter().find(|op| op.symbol == sym) {
-                        Some(op) => {
-                            if op.prec >=
-                                FromPrimitive::from_i32(min_prec).expect("programmer error: bad enum cast")
-                            {
-                                let next_prec = op.prec as i32
-                                    + if op.assoc == ops::Assoc::Left {1} else {0};
-                                let rhs = parseAux(ctx, next_prec);
-                                lhs = Ast::BinaryOp {
-                                    op,
-                                    left: Box::new(lhs),
-                                    right: Box::new(rhs)
-                                };
-                            } else {
-                                break;
-                            }
-                        },
-                        _ => panic!("unexpected unary operator")
-                    },
-                    _ => break
+            let tok = ctx.next_token().expect("unexpected end of input");
+            if let Token::Op(sym) = tok {
+                let op = ops::BINARY_OPS.iter()
+                    .find(|op| op.symbol == sym)
+                    .expect("unexpected unary operator");
+                let min_prec_as_enum = FromPrimitive::from_i32(min_prec)
+                    .expect("programmer error: bad enum cast");
+                if op.prec >= min_prec_as_enum {
+                    let next_prec = op.prec as i32
+                        + if op.assoc == ops::Assoc::Left {1} else {0};
+                    let rhs = parse_aux(ctx, next_prec);
+                    lhs = Ast::BinaryOp {
+                        op,
+                        left: Box::new(lhs),
+                        right: Box::new(rhs)
+                    };
+                } else {
+                    break;
                 }
             } else {
-                panic!("unexpected end of input");
+                break
             }
         }
         lhs
     }
 
     pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        parseAux(ctx, 0)
+        parse_aux(ctx, 0)
     }
 }
 
-// TODO: rename to like a "NodeSet", parse_file sounds too high-level
+// TODO: rename to like a "parse_NodeSet", parse_file sounds too high-level
 fn parse_file(ctx: &ParseContext) {
     while ctx.loc.get() < ctx.src.len() {
-        //skip_whitespace(ctx);
         parse_format_def(ctx);
     }
 }
@@ -479,11 +453,6 @@ fn parse_format_def(ctx: &ParseContext) {
 
 pub mod ops {
     use super::*;
-
-    /*
-    fn parse_slice(ctx: &ParseContext) {
-    }
-    */
 
     #[derive(Debug, PartialEq, PartialOrd, FromPrimitive, Copy, Clone)]
     pub enum Prec {
@@ -563,3 +532,4 @@ pub fn parse_text(text: &str) {
     let ast = parse_file(&ctx);
     println!("{:?}", ast);
 }
+
