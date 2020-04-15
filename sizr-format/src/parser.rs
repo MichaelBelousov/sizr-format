@@ -49,8 +49,24 @@ pub struct ParseContext<'a> {
     pub src: &'a str,
     // TODO: replace with mutex?
     pub loc: Cell<usize>,
-    // lookahead
-    pub tokens: Vec<atoms::Token<'a>>,
+}
+
+#[derive(Debug)]
+pub enum Token<'a>
+{
+    LPar,
+    RPar,
+    Indent,
+    Outdent,
+    Align(Option<regex::Regex>),
+    WrapPoint,
+    Identifier(&'a str),
+    Number(f64),
+    Quote(&'a str),
+    Regex(regex::Regex),
+    Variable{ name: &'a str },
+    SimpleLambda{property: &'a str},
+    Op(&'a str),
 }
 
 impl<'a> ParseContext<'a> {
@@ -63,7 +79,7 @@ impl<'a> ParseContext<'a> {
     }
 
     pub fn inc_loc(&self, inc: usize) -> usize {
-        /* FIXME: find idiomatic rust solution for this stuff */
+        // FIXME: find idiomatic rust solution for this stuff
         // I think a mutex might be correct
         &self.loc.set(self.loc.get() + inc);
         self.loc.get()
@@ -73,9 +89,19 @@ impl<'a> ParseContext<'a> {
         ParseContext{
             src: in_src,
             loc: Cell::new(0),
-            tokens: vec![]
         }
-        //parse_atom
+    }
+
+    pub fn next_token(&self) -> Option<Token> {
+        self.remaining_src().chars().nth(0).map(|c| match c {
+            '(' => Token::LPar,
+            ')' => Token::RPar
+            '\\' => Token::WrapPoint
+            '"' => atoms::parse_quote(self)
+        })
+        .or(atoms::try_lex_variable(self))
+        .or(atoms::try_lex_indent_ctx_decl(self))
+        .or(atoms::try_lex_op(self))
     }
 }
 
@@ -155,24 +181,6 @@ fn skip_whitespace(ctx: &ParseContext) {
 
 pub mod atoms {
     use super::*;
-
-    #[derive(Debug)]
-    pub enum Token<'a>
-    {
-        LPar,
-        RPar,
-        Indent,
-        Outdent,
-        Align(Option<regex::Regex>),
-        WrapPoint,
-        Identifier(&'a str),
-        Number(f64),
-        Quote(&'a str),
-        Regex(regex::Regex),
-        Variable{ name: &'a str },
-        SimpleLambda{property: &'a str},
-        Op(&'a str),
-    }
 
     pub fn read_identifier<'a>(source: &'a str) -> &'a str {
         // TODO: verify first char is not numeric in debug mode
@@ -269,92 +277,65 @@ pub mod atoms {
         }
     }
 
-    pub fn try_lex_op(ctx: &ParseContext) -> Option<Token> {
-        if let Some(end) = ctx.remaining_src().find(
-            |c: char| c.is_whitespace() || c.is_ascii_alphanumeric()
-        ) {
-            // TODO: use separate pattern, not op definitions to match
-            match ops::UNARY_OPS
-                .iter()
-                .find(|op| op.symbol == &ctx.remaining_src()[..end])
+    pub fn try_lex_op<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
+        let end = ctx.remaining_src()
+            .find(|c| c.is_whitespace() || c.is_ascii_alphanumeric())?;
+        // TODO: use separate pattern, not op definitions to match
+        if let Some(op) = ops::UNARY_OPS
+            .iter()
+            .find(|op| op.symbol == &ctx.remaining_src()[..end])
             {
-                Some(op) => { return Some(Token::Op(op.symbol)); },
-                _ => ()
-            };
-            match ops::BINARY_OPS
+                Some(Token::Op(op.symbol))
+            }
+        else
+        {
+            let op = ops::BINARY_OPS
                 .iter()
-                .find(|op| op.symbol == &ctx.remaining_src()[..end])
-            {
-                Some(op) => { return Some(Token::Op(op.symbol)); },
-                _ => ()
-            };
+                .find(|op| op.symbol == &ctx.remaining_src()[..end])?;
+            return Some(Token::Op(op.symbol));
         }
+
         return None;
     }
 
-    pub fn consume_token<'a>(ctx: &'a ParseContext) -> Token<'a> {
-        match ctx.remaining_src().chars().nth(0) {
-            Some('(') => Token::LPar,
-            Some(')') => Token::RPar,
-            _ => if matcher::quote(ctx) {
-                parse_quote(ctx)
-            } else if matcher::wrap_point(ctx) {
-                Token::WrapPoint
-            } else if let Some(variable) = try_lex_variable(ctx) {
-                variable
-            } else if let Some(indent_ctx_decl) = try_lex_indent_ctx_decl(ctx) {
-                indent_ctx_decl
-            } else if let Some(op) = try_lex_op(ctx) {
-                op
-            } else {
-                panic!("Unknown token, expected atom")
-            }
-
-        }
-    }
-
     pub fn parse<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
-        if let Some(tok) = ctx.next_token() {
-            match tok {
-                Token::LPar => {
-                    let inner = exprs::parse(ctx);
-                    let next = ctx.next_token();
-                    if next != Token::RPar { panic!("Expected closing parentheses"); }
-                    Ast::Group(Box::new(inner))
-                },
-                Token::Op(symbol) =>
-                    match ops::UNARY_OPS.iter().find(|op| op.symbol == symbol) {
-                        Some(op) => {
-                            let inner = exprs::parse(ctx);
-                            Ast::UnaryOp{op, inner: Box::new(inner)}
-                        },
-                        _ => panic!("unexpected binary operator")
-                    },
-                Token::Indent => Ast::Indent,
-                Token::Outdent => Ast::Outdent,
-                Token::Align(val) => Ast::Align(val),
-                Token::WrapPoint => Ast::WrapPoint,
-                Token::Identifier(val) => Ast::Identifier(val),
-                Token::Number(val) => Ast::Number(val),
-                Token::Quote(val) => Ast::Quote(val),
-                Token::Regex(val) => Ast::Regex(val),
-                Token::Variable{ name } => Ast::Variable{ name },
-                Token::SimpleLambda{property} => {
-                    let next = ctx.next_token();
-                    if next == Token::Equals {
-                        let equalsExpr = exprs::parse(ctx);
-                        Ast::Lambda{
-                            property,
-                            equals: Some(Box::new(equalsExpr))
-                        }
-                    } else {
-                        Ast::Lambda{ property, equals: None }
+        let tok = ctx.expect("unexpected end of input");
+        match tok {
+            Token::LPar => {
+                let inner = exprs::parse(ctx);
+                let next = ctx.next_token().expect("expected closing parenthesis, found EOI");
+                if next != Token::RPar { panic!("expected closing parenthesis"); }
+                Ast::Group(Box::new(inner))
+            },
+            Token::Op(symbol) => {
+                let op = ops::UNARY_OPS
+                    .iter()
+                    .find(|op| op.symbol == symbol)
+                    .expect("unexpected binary operator");
+                let inner = exprs::parse(ctx);
+                Ast::UnaryOp{op, inner: Box::new(inner)}
+            },
+            Token::Indent => Ast::Indent,
+            Token::Outdent => Ast::Outdent,
+            Token::Align(val) => Ast::Align(val),
+            Token::WrapPoint => Ast::WrapPoint,
+            Token::Identifier(val) => Ast::Identifier(val),
+            Token::Number(val) => Ast::Number(val),
+            Token::Quote(val) => Ast::Quote(val),
+            Token::Regex(val) => Ast::Regex(val),
+            Token::Variable{ name } => Ast::Variable{ name },
+            Token::SimpleLambda{property} => {
+                let next = ctx.next_token();
+                if next == Token::Equals {
+                    let equalsExpr = exprs::parse(ctx);
+                    Ast::Lambda{
+                        property,
+                        equals: Some(Box::new(equalsExpr))
                     }
-                },
-                //_ => panic!("Unexpected token")
-            }
-        } else {
-            panic!("Unexpected end of input")
+                } else {
+                    Ast::Lambda{ property, equals: None }
+                }
+            },
         }
     }
 }
@@ -363,6 +344,7 @@ pub mod atoms {
 pub mod exprs {
     use super::*;
 
+    /*
     pub fn parse_cond<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         ctx.inc_loc(1); //skip "?"
         skip_whitespace(ctx);
@@ -382,6 +364,7 @@ pub mod exprs {
             Ast::Cond { cond, then, else_ }
         }
     }
+    */
 
     pub fn parse_lambda<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         // TODO: in debug mode explicitly check for "." start
@@ -401,9 +384,8 @@ pub mod exprs {
         }
     }
 
-    use atoms::Token;
 
-    pub fn parseAux<'a>(ctx: &'a mut ParseContext, lastPrec: i32) -> Ast<'a> {
+    pub fn parseAux<'a>(ctx: &'a mut ParseContext, min_prec: i32) -> Ast<'a> {
         let mut lhs = atoms::parse();
         loop {
             if let Some(tok) = ctx.next_token() {
