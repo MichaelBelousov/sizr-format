@@ -9,6 +9,8 @@ use std::vec::Vec;
 use std::boxed::Box;
 use std::cell::Cell;
 use std::option::Option;
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 
 
 #[derive(Debug)]
@@ -65,8 +67,34 @@ pub enum Token<'a>
     Quote(&'a str),
     Regex(regex::Regex),
     Variable{ name: &'a str },
+    // TODO: rename to lambdaStart or something
     SimpleLambda{property: &'a str},
     Op(&'a str),
+}
+
+impl<'a> PartialEq for Token<'a> {
+    fn eq (&self, other: &Self) -> bool {
+        use Token::*;
+        match (self, other) {
+            (LPar, LPar) => true,
+            (RPar, RPar) => true,
+            (Indent, Indent) => true,
+            (Outdent, Outdent) => true,
+            (Align(None), Align(None)) => true,
+            (Align(Some(leftRegex)), Align(Some(rightRegex)))
+            | (Regex(leftRegex), Regex(rightRegex))
+                => leftRegex.as_str() == rightRegex.as_str(),
+            (Align(_), Align(_)) => false,
+            (WrapPoint, WrapPoint) => true,
+            (Identifier(l), Identifier(r)) => l == r,
+            (Number(l), Number(r)) => l == r,
+            (Quote(l), Quote(r)) => l == r,
+            (Variable{name: lName}, Variable{name: rName}) => lName == rName,
+            (SimpleLambda{property: lProp}, SimpleLambda{property: rProp}) => lProp == rProp,
+            (Op(l), Op(r)) => l == r,
+            _ => false
+        }
+    }
 }
 
 impl<'a> ParseContext<'a> {
@@ -93,11 +121,12 @@ impl<'a> ParseContext<'a> {
     }
 
     pub fn next_token(&self) -> Option<Token> {
-        self.remaining_src().chars().nth(0).map(|c| match c {
-            '(' => Token::LPar,
-            ')' => Token::RPar
-            '\\' => Token::WrapPoint
-            '"' => atoms::parse_quote(self)
+        self.remaining_src().chars().nth(0).and_then(|c| match c {
+            '(' => Some(Token::LPar),
+            ')' => Some(Token::RPar),
+            '\\' => Some(Token::WrapPoint),
+            '"' => Some(atoms::parse_quote(self)),
+            _ => None
         })
         .or(atoms::try_lex_variable(self))
         .or(atoms::try_lex_indent_ctx_decl(self))
@@ -279,14 +308,15 @@ pub mod atoms {
 
     pub fn try_lex_op<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
         let end = ctx.remaining_src()
-            .find(|c| c.is_whitespace() || c.is_ascii_alphanumeric())?;
+            // XXX: why can't the rust compiler infer the type?
+            .find(|c: char| c.is_whitespace() || c.is_ascii_alphanumeric())?;
         // TODO: use separate pattern, not op definitions to match
         if let Some(op) = ops::UNARY_OPS
             .iter()
             .find(|op| op.symbol == &ctx.remaining_src()[..end])
-            {
-                Some(Token::Op(op.symbol))
-            }
+        {
+            return Some(Token::Op(op.symbol));
+        }
         else
         {
             let op = ops::BINARY_OPS
@@ -294,12 +324,10 @@ pub mod atoms {
                 .find(|op| op.symbol == &ctx.remaining_src()[..end])?;
             return Some(Token::Op(op.symbol));
         }
-
-        return None;
     }
 
-    pub fn parse<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
-        let tok = ctx.expect("unexpected end of input");
+    pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        let tok = ctx.next_token().expect("unexpected end of input");
         match tok {
             Token::LPar => {
                 let inner = exprs::parse(ctx);
@@ -325,8 +353,8 @@ pub mod atoms {
             Token::Regex(val) => Ast::Regex(val),
             Token::Variable{ name } => Ast::Variable{ name },
             Token::SimpleLambda{property} => {
-                let next = ctx.next_token();
-                if next == Token::Equals {
+                let next = ctx.next_token().expect("unexpected EOI while parsing lambda");
+                if next == Token::Op("=") {
                     let equalsExpr = exprs::parse(ctx);
                     Ast::Lambda{
                         property,
@@ -336,6 +364,7 @@ pub mod atoms {
                     Ast::Lambda{ property, equals: None }
                 }
             },
+            _ => panic!("unexpected token '{:?}', during atom parsing"),
         }
     }
 }
@@ -385,15 +414,17 @@ pub mod exprs {
     }
 
 
-    pub fn parseAux<'a>(ctx: &'a mut ParseContext, min_prec: i32) -> Ast<'a> {
-        let mut lhs = atoms::parse();
+    pub fn parseAux<'a>(ctx: &'a ParseContext, min_prec: i32) -> Ast<'a> {
+        let mut lhs = atoms::parse(ctx);
         loop {
             if let Some(tok) = ctx.next_token() {
                 match tok {
                     Token::Op(sym) => match ops::BINARY_OPS.iter().find(|op| op.symbol == sym) {
                         Some(op) => {
-                            if op.prec >= min_prec  {
-                                let next_prec = op.prec
+                            if op.prec >=
+                                FromPrimitive::from_i32(min_prec).expect("programmer error: bad enum cast")
+                            {
+                                let next_prec = op.prec as i32
                                     + if op.assoc == ops::Assoc::Left {1} else {0};
                                 let rhs = parseAux(ctx, next_prec);
                                 lhs = Ast::BinaryOp {
@@ -416,7 +447,7 @@ pub mod exprs {
         lhs
     }
 
-    pub fn parse<'a>(ctx: &'a mut ParseContext) -> Ast<'a> {
+    pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         parseAux(ctx, 0)
     }
 }
@@ -454,10 +485,13 @@ pub mod ops {
     }
     */
 
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, PartialOrd, FromPrimitive, Copy, Clone)]
     pub enum Prec {
-        And = 0, Or = 1, Comp, Add, Mult, Exp, Dot,
+        And = 0, Or, Comp, Add, Mult, Exp, Dot,
     }
+
+    #[derive(Debug, PartialEq)]
+    pub enum Assoc { Left, Right }
 
     #[derive(Debug)]
     pub struct UnaryOpDef {
@@ -469,9 +503,6 @@ pub mod ops {
     pub static NOT:  UnaryOpDef = UnaryOpDef{symbol: "!"};
 
     pub static UNARY_OPS: [&UnaryOpDef; 3] = [&NEG, &COMP, &NOT];
-
-    #[derive(Debug)]
-    pub enum Assoc { Left, Right }
 
     #[derive(Debug)]
     pub struct BinOpDef {
@@ -524,37 +555,10 @@ pub mod ops {
         &POW,
         &DOT,
     ];
-
-    // TODO: rename to prefix_unary_op?
-    pub fn parse_unary_expr<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        let sym = &ctx.remaining_src()[..=1];
-        Ast::UnaryOp{
-            op: match UNARY_OPS.iter().find(|op| op.symbol == sym) {
-                Some(o) => o,
-                _ => panic!("expected unary token")
-            },
-            inner: Box::new(exprs::parse(ctx))
-        }
-    }
-
-    // TODO: use precedence climbing for bin ops
-    pub fn parse_binary_expr<'a>(ctx: &ParseContext) -> Ast<'a> {
-        /*
-        while ctx {
-        }
-        */
-        // XXX: bad
-        Ast::BinaryOp{
-            left: Box::new(Ast::Number(1.0)),
-            right: Box::new(Ast::Number(2.0)),
-            op: &ADD
-        }
-    }
 }
 
+// need interior mutability... why can't I 
 pub fn parse_text(text: &str) {
-    //create parse context
-    //parse
     let ctx = ParseContext::new(text);
     let ast = parse_file(&ctx);
     println!("{:?}", ast);
