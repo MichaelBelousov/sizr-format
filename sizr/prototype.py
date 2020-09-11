@@ -9,12 +9,6 @@ Parser prototype for Sizr transform language
 import os, sys
 import re
 
-class EOIableStr(str):
-    def __getitem__(self, start = 0, end = None, step = 1)
-        if end is None and step == 1 and start >= len(self): 
-            raise IsEoiErr()
-        else return super()[start:end:step]
-
 class ParseCtx:
     def __init__(self, src: str, loc: int = 0):
         self.src = src
@@ -130,9 +124,9 @@ def isNestingOp(parse_ctx: ParseCtx) -> bool:
     return any(map(lambda op: remaining_src.startswith(op), ops))
 
 def parseNestingOp(ctx: ParseCtx) -> bool:
-    if isTransformOp(ctx):
-        print('is transform op!')
-        raise IsTransformOpErr()
+    # proof need check ahead and raise behind
+    if isTransformOp(ctx): raise IsTransformOpErr()
+    if not ctx.remaining_src: raise IsEoiErr()
     op = ctx.remaining_src[0]
     ctx.loc += 1 # nesting ops are same size
     skipLeadingSpace(ctx)
@@ -143,6 +137,7 @@ def parseNestingOp(ctx: ParseCtx) -> bool:
 def parseScopeProp(parse_ctx: ParseCtx) -> ScopeProp:
     # TODO: remove alias
     remaining_src = parse_ctx.remaining_src
+    if not parse_ctx.remaining_src: raise IsEoiErr()
     # TODO: move out to reusable `at_capture` matcher
     is_capture = remaining_src[0] == '$'
     if is_capture: raise IsCaptureErr()
@@ -172,7 +167,7 @@ def parseScopeProp(parse_ctx: ParseCtx) -> ScopeProp:
 
 def parseScopeExpr(parse_ctx: ParseCtx) -> ScopeExpr:
     expr = ScopeExpr()
-    had_explicit_capture = False
+    had_explicit_capture = False # FIXME: will always have explicit capture...
     try:
         while True:
             prop = parseScopeProp(parse_ctx)
@@ -186,9 +181,8 @@ def parseScopeExpr(parse_ctx: ParseCtx) -> ScopeExpr:
     if had_explicit_capture:
         try:
             expr.nesting_op = parseNestingOp(parse_ctx)
-        except IsTransformOpErr:
-            print('is transform op 2')
-            pass
+        except IsTransformOpErr: pass
+        except IsEoiErr: pass
     return expr
 
 def parseQuery(ctx: ParseCtx) -> Query:
