@@ -7,6 +7,7 @@ Parser prototype for Sizr transform language
 import re
 from code import *
 
+
 class ParseCtx:
     def __init__(self, src: str, loc: int = 0):
         self.src = src
@@ -17,21 +18,26 @@ class ParseCtx:
 , src={repr(s.src)}>
 , remaining_src{repr(s.remaining_src)}
 >'''
+
     @property
     def remaining_src(self):
         return self.src[self.loc:]
 
-class RejectedParseErr(Exception): pass
+
+class RejectedParseErr(Exception):
+    pass
+
 
 def skipLeadingSpace(ctx: ParseCtx):
     while ctx.loc < len(ctx.src) and ctx.src[ctx.loc].isspace():
         ctx.loc += 1
 
-# TODO: start using this over .find and preprocess
+
 def nextTokenEndOffset(ctx: ParseCtx) -> int:
-    whitespace_pattern = re.compile(r' \t\n')
+    whitespace_pattern = re.compile(r'[ \t\n]')
     space_match = whitespace_pattern.search(ctx.remaining_src)
     return space_match.start() if space_match is not None else len(ctx.remaining_src)
+
 
 def parseValue(ctx: ParseCtx):
     remaining_src = ctx.src[ctx.loc:]
@@ -39,7 +45,8 @@ def parseValue(ctx: ParseCtx):
     is_num = remaining_src[0].isdigit()
     if is_quote:
         unescaped_quote_pattern = re.compile(r'(?<!\\)"')
-        end_quote_offset = unescaped_quote_pattern.search(remaining_src[1:]).end() + 1
+        end_quote_offset = unescaped_quote_pattern.search(
+            remaining_src[1:]).end() + 1
         ctx.loc += end_quote_offset
         skipLeadingSpace(ctx)
         # NOTE: when switching to ctx.remaining_src this won't work anymore
@@ -58,18 +65,22 @@ def parseValue(ctx: ParseCtx):
         # NOTE: when switching to ctx.remaining_src this won't work anymore
         return remaining_src[:next_space_offset]
 
+
 def isCapture(ctx: ParseCtx) -> bool:
     return bool(ctx.remaining_src) and ctx.remaining_src[0] == '$'
 
+
 def parseCapture(ctx: ParseCtx):
-    if not ctx.remaining_src: raise RejectedParseErr()
+    if not ctx.remaining_src:
+        raise RejectedParseErr()
     remaining_src = ctx.src[ctx.loc:]
     is_regex_capture = remaining_src[:2] == '$/'
     is_named_capture = remaining_src[1:2].isalpha()
     is_anonymous_capture = remaining_src[0] == '$'
     if is_regex_capture:
         unescaped_slash_pattern = re.compile(r'(?<!\\)/')
-        end_slash_offset = unescaped_slash_pattern.search(remaining_src[2:]).end() + 2
+        end_slash_offset = unescaped_slash_pattern.search(
+            remaining_src[2:]).end() + 2
         regex_src = remaining_src[2:end_slash_offset]
         ctx.loc += end_slash_offset
         skipLeadingSpace(ctx)
@@ -85,7 +96,9 @@ def parseCapture(ctx: ParseCtx):
         ctx.loc += 1
         skipLeadingSpace(ctx)
         return CaptureExpr()
-    else: raise RejectedParse()
+    else:
+        raise RejectedParse()
+
 
 def isNestingOp(ctx: ParseCtx) -> bool:
     remaining_src = ctx.src[ctx.loc:]
@@ -93,14 +106,17 @@ def isNestingOp(ctx: ParseCtx) -> bool:
     ops = ['.', '(', '<', '{', '[', ';', ',', '#', '@', ':']
     return any(map(lambda op: remaining_src.startswith(op), ops))
 
+
 def parseNestingOp(ctx: ParseCtx) -> bool:
     op = ctx.remaining_src[0]
-    ctx.loc += 1 # nesting ops are same size
+    ctx.loc += 1  # nesting ops are same size
     skipLeadingSpace(ctx)
     return op
 
+
 def parseIdentifier(ctx: ParseCtx) -> str:
-    if not ctx.remaining_src: raise RejectedParseErr("expected an identifier")
+    if not ctx.remaining_src:
+        raise RejectedParseErr("expected an identifier")
     identifier_pattern = re.compile(r'[a-zA-Z_][a-zA-Z0-9_]*')
     match = identifier_pattern.search(ctx.remaining_src)
     identifier = ctx.remaining_src[match.start():match.end()]
@@ -110,6 +126,8 @@ def parseIdentifier(ctx: ParseCtx) -> str:
 
 # TODO: follow python iterator convention
 # i.e. let ctx have like an 'iter_parse_scope_props' method to do this repeatedly
+
+
 def parseScopeProp(ctx: ParseCtx) -> ScopeProp:
     token_end = nextTokenEndOffset(ctx)
     if_boolean_sentence = ctx.remaining_src[:token_end]
@@ -132,10 +150,13 @@ def parseScopeProp(ctx: ParseCtx) -> ScopeProp:
         value = parseValue(ctx)
         return ScopeProp(key, value)
 
+
 def isScopeProp(ctx: ParseCtx) -> bool:
-    if not ctx.remaining_src: return False
+    if not ctx.remaining_src:
+        return False
     firstchar = ctx.remaining_src[0]
     return firstchar == '!' or firstchar.isalpha()
+
 
 def parseScopeExpr(ctx: ParseCtx) -> ScopeExpr:
     expr = ScopeExpr()
@@ -153,10 +174,13 @@ def parseScopeExpr(ctx: ParseCtx) -> ScopeExpr:
         expr.nesting_op = parseNestingOp(ctx)
     return expr
 
+
 def isQuery(ctx: ParseCtx) -> bool:
     return isScopeProp(ctx) or isCapture(ctx)
 
+
 isScopeExpr = isQuery
+
 
 def parseQuery(ctx: ParseCtx) -> Query:
     query = Query()
@@ -166,22 +190,26 @@ def parseQuery(ctx: ParseCtx) -> Query:
         query.nested_scopes.append(expr)
     return query
 
+
 def isTransformOp(ctx: ParseCtx):
-    ops = ['>>>', '>>!'] # probably ought to make these referenceable variables in upper scope
+    # probably ought to make these referenceable variables in upper scope
+    ops = ['>>>', '>>!']
     return any(map(lambda op: ctx.remaining_src.startswith(op), ops))
+
 
 def parseTransformOp(ctx: ParseCtx):
     op = ctx.remaining_src[:3]
-    ctx.loc += 3 # transform ops are same size
+    ctx.loc += 3  # transform ops are same size
     skipLeadingSpace(ctx)
     return op
+
 
 def parseTransform(src: str) -> Transform:
     ctx = ParseCtx(src)
     selector = assertion = destructive = None
     if isQuery(ctx):
         selector = parseQuery(ctx)
-    if isTransformOp(ctx): # assert isTransformOp
+    if isTransformOp(ctx):  # assert isTransformOp
         destructive = parseTransformOp(ctx) == ">>!"
     if isQuery(ctx):
         assertion = parseQuery(ctx)
