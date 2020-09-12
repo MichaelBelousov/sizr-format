@@ -81,8 +81,9 @@ def parseCapture(ctx: ParseCtx):
         unescaped_slash_pattern = re.compile(r'(?<!\\)/')
         end_slash_offset = unescaped_slash_pattern.search(
             remaining_src[2:]).end() + 2
-        regex_src = remaining_src[2:end_slash_offset]
+        regex_src = remaining_src[2:end_slash_offset - 1]
         ctx.loc += end_slash_offset
+        print('remaining src:', ctx.remaining_src)
         skipLeadingSpace(ctx)
         return CaptureExpr(re.compile(regex_src))
     elif is_named_capture:

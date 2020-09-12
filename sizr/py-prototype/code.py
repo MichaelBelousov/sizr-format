@@ -8,22 +8,6 @@ sizr language code, currently slow and interpreted, hopefully eventually JITed
 import re
 
 
-class ParseCtx:
-    def __init__(self, src: str, loc: int = 0):
-        self.src = src
-        self.loc = loc
-    __repr__ = __str__ = lambda s: f'''\
-<ParseCtx
-| loc={s.loc}
-, src={repr(s.src)}>
-, remaining_src{repr(s.remaining_src)}
->'''
-
-    @property
-    def remaining_src(self):
-        return self.src[self.loc:]
-
-
 class ScopeProp:  # TODO: make these namespaces, or mypy dict interfaces?
     def __init__(self, key: str, val=True):
         self.key = key

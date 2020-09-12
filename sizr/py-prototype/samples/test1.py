@@ -5,6 +5,7 @@ test sample module
 
 class C:
     def f(self): pass
+    def g(self): pass
 
 
 class D:

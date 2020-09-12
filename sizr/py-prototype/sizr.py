@@ -3,9 +3,11 @@
 Sizr REPL
 """
 
+from pprint import pprint
+import astor
+
 from parser import parseTransform
 from engine import select
-from pprint import pprint
 
 
 def main():
@@ -16,8 +18,9 @@ def main():
             print('Parsed:', parsed)
             sample_src = open('samples/test1.py', 'r').read()
             selection = select(sample_src, parsed.selector)
-            print('Selected:')
-            pprint(selection)
+            print('\nSelected:')
+            for s in selection:
+                print(astor.to_source(s))
     except KeyboardInterrupt:
         print()
     except EOFError:

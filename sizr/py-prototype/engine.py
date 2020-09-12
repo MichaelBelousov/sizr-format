@@ -37,21 +37,12 @@ def select(py_src: str, selector: Query):
     def search(node: ast.AST, scopes, nesting_op: str or None = None):
         cur_scope, *rest_scopes = scopes
         for node in nesting_op_filters[nesting_op](node):
-            if node is None:  # optional
-                pass
-            elif isinstance(node, list):  # is one-or-more
-                pass
-            else:  # singular/required
-                pass
-            print('node ###################################')
-            print(cur_scope)
-            print(astor.to_source(node))
             # FIXME: autopep8 is making this really ugly...
             if ((cur_scope.capture == capture_any
                  or ('name' in node.__dict__
                      and cur_scope.capture.pattern.match(node.name) is not None))
                     # TODO: abstract to literate function "matchesScopeProps"?
-                    and all(lambda p: property_testers[p.key](p.val, node), cur_scope.properties)):
+                    and all(map(lambda p: property_testers[p.key](p.val, node), cur_scope.properties))):
                 if rest_scopes:
                     search(node, rest_scopes, cur_scope.nesting_op)
                 else:
