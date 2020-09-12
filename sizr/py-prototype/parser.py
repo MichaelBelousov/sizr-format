@@ -39,6 +39,7 @@ def nextTokenEndOffset(ctx: ParseCtx) -> int:
     return space_match.start() if space_match is not None else len(ctx.remaining_src)
 
 
+# TODO: parse value,value,value as list of values
 def parseValue(ctx: ParseCtx):
     remaining_src = ctx.src[ctx.loc:]
     is_quote = remaining_src[0] == '"'
@@ -125,8 +126,7 @@ def parseIdentifier(ctx: ParseCtx) -> str:
     skipLeadingSpace(ctx)
     return identifier
 
-# TODO: follow python iterator convention
-# i.e. let ctx have like an 'iter_parse_scope_props' method to do this repeatedly
+# TODO: parse prop|prop as OR
 
 
 def parseScopeProp(ctx: ParseCtx) -> ScopeProp:
