@@ -6,5 +6,6 @@ TODO
 - probably ready to start doing TDD
 """
 
-from .code import *
-from .engine import *
+# from . import code
+# from . import engine
+# from . import sizr

@@ -8,14 +8,7 @@ sizr language code, currently slow and interpreted, hopefully eventually JITed
 import re
 
 
-class ScopeProp:  # TODO: make these namespaces, or mypy dict interfaces?
-    def __init__(self, key: str, val=True):
-        self.key = key
-        self.val = val
-    __repr__ = __str__ = lambda s: f'<ScopeProp|{s.key}={repr(s.val)}>'
-
-
-capture_any = re.compile('.*')
+capture_any = re.compile('')
 
 
 class CaptureExpr:
@@ -29,7 +22,7 @@ class ScopeExpr:
     def __init__(self, nesting_op: str or None = None):
         self.capture = CaptureExpr()
         self.nesting_op = nesting_op
-        self.properties: list(ScopeProp) = []
+        self.properties = {}
     __repr__ = __str__ = lambda s: f'<ScopeExpr|capture={s.capture},props={repr(s.properties)}>'
 
 

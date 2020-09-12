@@ -5,7 +5,9 @@ Parser prototype for Sizr transform language
 # TODO: pep8
 
 import re
+# TODO: figure out package relative imports
 from code import *
+from typing import Tuple, Any
 
 
 class ParseCtx:
@@ -129,27 +131,27 @@ def parseIdentifier(ctx: ParseCtx) -> str:
 # TODO: parse prop|prop as OR
 
 
-def parseScopeProp(ctx: ParseCtx) -> ScopeProp:
+def parseScopeProp(ctx: ParseCtx) -> Tuple[str, Any]:
     token_end = nextTokenEndOffset(ctx)
     if_boolean_sentence = ctx.remaining_src[:token_end]
     is_boolean_no_prop = ctx.remaining_src[0] == '!'
     if is_boolean_no_prop:
         ctx.loc += len(if_boolean_sentence)
         skipLeadingSpace(ctx)
-        return ScopeProp(if_boolean_sentence[1:], False)
+        return if_boolean_sentence[1:], False
     is_specific_value_prop = '=' in if_boolean_sentence
     is_boolean_yes_prop = not is_specific_value_prop
     if is_boolean_yes_prop:
         ctx.loc += len(if_boolean_sentence)
         skipLeadingSpace(ctx)
-        return ScopeProp(if_boolean_sentence)
+        return if_boolean_sentence, True
     elif is_specific_value_prop:
         value_delim_index = ctx.remaining_src.find('=')
         key = ctx.remaining_src[:value_delim_index]
         ctx.loc += value_delim_index + 1
         skipLeadingSpace(ctx)
         value = parseValue(ctx)
-        return ScopeProp(key, value)
+        return key, value
 
 
 def isScopeProp(ctx: ParseCtx) -> bool:
@@ -161,15 +163,17 @@ def isScopeProp(ctx: ParseCtx) -> bool:
 
 def parseScopeExpr(ctx: ParseCtx) -> ScopeExpr:
     expr = ScopeExpr()
+    last_key = last_val = None
     while isScopeProp(ctx):
-        prop = parseScopeProp(ctx)
-        expr.properties.append(prop)
+        key, val = parseScopeProp(ctx)
+        expr.properties[key] = val
+        last_key, last_val = key, val
     if isCapture(ctx):
         expr.capture = parseCapture(ctx)
     else:
-        # FIXME: confusing logic
-        last_prop = expr.properties.pop()
-        identifier = last_prop.key
+        # FIXME: confusing logic, prefer lookahead
+        identifier = last_key
+        expr.properties.pop(last_key)
         expr.capture = CaptureExpr(re.compile(identifier))
     if isNestingOp(ctx):
         expr.nesting_op = parseNestingOp(ctx)

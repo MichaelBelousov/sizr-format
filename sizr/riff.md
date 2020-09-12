@@ -64,4 +64,6 @@ private|protected !func blah .
 
 ### when can it be empty?
 
+never for now afaik cuz grammer might be ambiguous between explicit names and a boolean/extant scope prop
 
+### I forget what I was going to write here
