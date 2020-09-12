@@ -34,6 +34,8 @@ class Capture:
     def __init__(self, node: ast.AST, name: Optional[str] = None):
         self.node = node
         self.name = name
+    # FIXME: fix CaptureExpr vs Capture[Ref?] name
+    __repr__ = __str__ = lambda s: f'<CaptureRef|name={s.name},node=\n{astor.to_source(s.node)}>'
 
 
 class SelectionMatch:
@@ -50,26 +52,28 @@ class SelectionMatch:
 
 
 # TODO: proof of the need to clarify a datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
-def astNodeFromAssertion(assertion: Query, selection: SelectionMatch) -> ast.AST:
-    # FIXME: only supports last for now
-    print('astNodeFromAssertion')
-    print(assertion)
-    expr = assertion.nested_scopes[-1]
-    print(expr)
-    name = assertion.nested_scopes[-1].capture.literal or selection.captures[-1].node.name
-    if 'class' in expr.properties and expr.properties['class']:
+def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> ast.AST:
+    print(len(assertion.nested_scopes), assertion.nested_scopes)
+    print(len(match.captures), match.captures)
+    if not assertion.nested_scopes:
+        return
+    cur_scope, *next_scopes = assertion.nested_scopes
+    cur_capture, *next_captures = match.captures
+    name = cur_scope.capture.literal or cur_capture.node.name
+    next_assertion = Query()
+    next_assertion.nested_scopes = next_scopes
+    inner = astNodeFromAssertion(next_assertion, SelectionMatch(next_captures))
+    if 'class' in cur_scope.properties and cur_scope.properties['class']:
         result = ast.ClassDef()
         result.name = name
         result.bases = []
         result.keywords = []
-        result.body = [ast.Pass()]
+        result.body = [ast.Pass() if inner is None else inner]
         result.decorator_list = []
-        print('class result')
-        print(astor.to_source(result))
         return result
-    if 'func' in expr.properties and expr.properties['func']:
+    if 'func' in cur_scope.properties and cur_scope.properties['func']:
         # TODO: need properties to be a dictionary that returns false for unknown keys
-        result = ast.AsyncFunctionDef() if expr.properties.get(
+        result = ast.AsyncFunctionDef() if cur_scope.properties.get(
             'async', False) else ast.FunctionDef()
         result.name = name
         result.args = ast.arguments()
@@ -79,11 +83,9 @@ def astNodeFromAssertion(assertion: Query, selection: SelectionMatch) -> ast.AST
         result.args.kw_default = []
         result.args.kwarg = None
         result.args.defaults = []
-        result.body = [ast.Pass()]
+        result.body = [ast.Pass() if inner is None else inner]
         result.decorator_list = []
         result.returns = None
-        print('func result')
-        print(astor.to_source(result))
         return result
     raise Exception("Could not determine a node type from the name properties")
 
@@ -111,11 +113,13 @@ def select(py_src: str, selector: Query) -> List[SelectionMatch]:
                     # TODO: abstract to literate function "matchesScopeProps"?
                     and all(map(lambda k, v: property_testers[k](v, node),
                                 *dictKeysAndValues(cur_scope.properties)))):
+                next_captures = [*captures,
+                                 Capture(node, cur_scope.capture.name)]
                 if rest_scopes:
-                    search(node, rest_scopes, cur_scope.nesting_op,
-                           [*captures, Capture(node, cur_scope.capture.name)])
+                    search(node, rest_scopes,
+                           cur_scope.nesting_op, next_captures)
                 else:
-                    selected.append(SelectionMatch(captures))
+                    selected.append(SelectionMatch(next_captures))
 
     search(root, selector.nested_scopes)
     return selected  # maybe should have search return the result list
@@ -150,18 +154,18 @@ def astEq(a: ast.AST, b: ast.AST) -> bool:
             )
 
 
-def assert_(py_src: str, assertion: Query, selection: Optional[Set[SelectionMatch]]) -> ast.AST or str:
+def assert_(py_src: str, assertion: Query, matches: Optional[Iterator[SelectionMatch]]) -> ast.AST or str:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
     perhaps a more active word should be chosen
     """
-    if selection is None:
-        selection = {}
+    if matches is None:
+        matches = set()
 
     class Transformer(ast.NodeTransformer):
         def visit(self, node):
-            target = find(lambda s: astEq(
-                s.captures[-1].node, node), selection)
+            target = find(lambda m: astEq(
+                m.captures[-1].node, node), matches)
             if target is not None:
                 transformed_node = astNodeFromAssertion(
                     assertion, target)
