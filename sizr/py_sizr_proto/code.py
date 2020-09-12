@@ -12,9 +12,10 @@ capture_any = re.compile('')
 
 
 class CaptureExpr:
-    def __init__(self, pattern=capture_any, name=None):
+    def __init__(self, pattern=capture_any, name=None, literal: str or None = None):
         self.pattern = pattern
-        self.name = name
+        self.name = name  # name to get the capture by
+        self.literal = literal  # set if the capture is not a wildcard or regex
     __repr__ = __str__ = lambda s: f'<Capture|name={s.name},pattern={s.pattern}>'
 
 

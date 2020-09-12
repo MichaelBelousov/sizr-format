@@ -51,27 +51,40 @@ class SelectionMatch:
 
 # TODO: proof of the need to clarify a datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
 def astNodeFromAssertion(assertion: Query, selection: SelectionMatch) -> ast.AST:
-    # FIXME: only support last for now
+    # FIXME: only supports last for now
+    print('astNodeFromAssertion')
+    print(assertion)
     expr = assertion.nested_scopes[-1]
-    for key, val in expr.properties.items():
-        name = selection.captures[-1].node.name
-        if key == 'class' and val:
-            result = ast.ClassDef()
-            result.name = name
-            result.bases = []
-            result.keywords = []
-            result.body = [ast.Pass()]
-            result.decorator_list = []
-            return result
-        elif key == 'func':
-            result = ast.AsyncFunctionDef() if expr.properties.get(
-                'async', False) else ast.FunctionDef()
-            result.name = name
-            result.args = ast.arguments()
-            result.body = [ast.Pass()]
-            result.decorator_list = []
-            result.returns = None
-            return result
+    print(expr)
+    name = assertion.nested_scopes[-1].capture.literal or selection.captures[-1].node.name
+    if 'class' in expr.properties and expr.properties['class']:
+        result = ast.ClassDef()
+        result.name = name
+        result.bases = []
+        result.keywords = []
+        result.body = [ast.Pass()]
+        result.decorator_list = []
+        print('class result')
+        print(astor.to_source(result))
+        return result
+    if 'func' in expr.properties and expr.properties['func']:
+        # TODO: need properties to be a dictionary that returns false for unknown keys
+        result = ast.AsyncFunctionDef() if expr.properties.get(
+            'async', False) else ast.FunctionDef()
+        result.name = name
+        result.args = ast.arguments()
+        result.args.args = []
+        result.args.vararg = None
+        result.args.kwonlyargs = []
+        result.args.kw_default = []
+        result.args.kwarg = None
+        result.args.defaults = []
+        result.body = [ast.Pass()]
+        result.decorator_list = []
+        result.returns = None
+        print('func result')
+        print(astor.to_source(result))
+        return result
     raise Exception("Could not determine a node type from the name properties")
 
 
@@ -112,8 +125,11 @@ def select(py_src: str, selector: Query) -> List[SelectionMatch]:
 # multiple language backends to communicate with the sizr engine.
 # Probably ought to look at the language-server-protocol (LSP) as well
 
+
 def mergeAsts(a: ast.AST, b: ast.AST) -> ast.AST:
     # FIXME: unimplemented
+    # NOTE: if I choose for this to fix locations while working, I cannot
+    # rely on locations for ast node value equality...
     return b
 
 
@@ -127,19 +143,29 @@ def find(func, itr: Iterator):
         pass
 
 
+def astEq(a: ast.AST, b: ast.AST) -> bool:
+    """because it doesn't seem to work have its own value equality"""
+    return ((a.col_offset, a.end_col_offset, a.lineno, a.end_lineno)
+            == (b.col_offset, b.end_col_offset, b.lineno, b.end_lineno)
+            )
+
+
 def assert_(py_src: str, assertion: Query, selection: Optional[Set[SelectionMatch]]) -> ast.AST or str:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
-          perhaps a more active word should be chosen
+    perhaps a more active word should be chosen
     """
     if selection is None:
         selection = {}
 
     class Transformer(ast.NodeTransformer):
         def visit(self, node):
-            target = find(lambda s: s.captures[-1].node == node, selection)
+            target = find(lambda s: astEq(
+                s.captures[-1].node, node), selection)
             if target is not None:
-                return mergeAsts(node, astNodeFromAssertion(assertion, target.captures[-1].node))
+                transformed_node = astNodeFromAssertion(
+                    assertion, target)
+                return mergeAsts(node, transformed_node)
             else:
                 return super().visit(node)
 
@@ -148,7 +174,6 @@ def assert_(py_src: str, assertion: Query, selection: Optional[Set[SelectionMatc
     fixed_tree = ast.fix_missing_locations(transformed_tree)
 
     result = astor.to_source(fixed_tree)
-    print(result)
     return result
 
     # NOTE: default to print to stdout, take a cli arg for target file for now
