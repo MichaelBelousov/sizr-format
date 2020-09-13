@@ -4,8 +4,40 @@ AST transformation engine prototype for Sizr transform language
 
 import ast
 import astor
-from code import Query, Transform, ScopeExpr, capture_any
 from typing import Optional, List, Set, Iterator, Dict
+from code import Query, Transform, ScopeExpr, capture_any
+
+
+class PathEquatableAst:
+    def __init__(self, node: ast.AST, path: ((PathEquatableAst, int),) = ()):
+        self.node = node
+        self.path = path
+
+    def __eq__(self, other: AstNode):
+        return self.path == other.path
+
+    def __getattr__(self, attr):
+        return getattr(self.node, attr)
+
+
+def parseAst(src: str) -> PathEquatableAst:
+    """produce an ast of custom PathEquatableAst nodes"""
+    root = ast.parse(src)
+
+    # NOTE: maybe it's a bad idea to use the type syntax willynilly without knowing how it works
+    # and ignoring it... a mypy experienced developer might come along and be thoroughly confused
+    def wrap(node: ast.AST, path: ((PathEquatableAst, int),) = ()):
+        for attr, val in node.__dict__.items():
+            if isinstance(val, ast.AST):
+                wrapped = PathEquatableAst()
+                setattr(node, attr, wrap(val, (*path, node)))
+            if isinstance(val, list):
+                setattr(node, attr, [wrap(n, (*path, node))
+                                     for n in enumerate(val) if isinstance(n, ast.AST)])
+        return PathEquatableAst(node, path)
+
+    return wrap(root)
+
 
 node_table = {
     ast.ClassDef: {
@@ -23,6 +55,7 @@ property_testers = {
     'class': lambda val, node: isinstance(node, ast.ClassDef),
 }
 
+# TODO: descend by nesting op?
 nesting_op_filters = {
     '.': lambda node: ast.iter_child_nodes(node) if isinstance(node, ast.ClassDef) else (),
     '(': lambda node: ast.iter_child_nodes(node.args) if isinstance(node, ast.FunctionDef, ast.AsyncFunctionDef) else (),
@@ -31,10 +64,10 @@ nesting_op_filters = {
 
 
 class Capture:
-    def __init__(self, node: ast.AST, name: Optional[str] = None):
+    def __init__(self, node: PathEquatableAst, name: Optional[str] = None):
         self.node = node
         self.name = name
-    # FIXME: fix CaptureExpr vs Capture[Ref?] name
+    # FIXME: fix CaptureExpr vs Capture[Ref?] naming
     __repr__ = __str__ = lambda s: f'<CaptureRef|name={s.name},node=\n{astor.to_source(s.node)}>'
 
 
@@ -52,7 +85,7 @@ class SelectionMatch:
 
 
 # TODO: proof of the need to clarify a datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
-def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> ast.AST:
+def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> PathEquatableAst:
     if not assertion.nested_scopes:
         return
     cur_scope, *next_scopes = assertion.nested_scopes
@@ -91,14 +124,14 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> ast.AST:
 def dictKeysAndValues(d): return d.keys(), d.values()
 
 
-def select(root: ast.AST, selector: Query) -> List[SelectionMatch]:
+def select(root: PathEquatableAst, selector: Query) -> List[SelectionMatch]:
     selected: List[SelectionMatch] = []
 
     # TODO: dont root search at global scope, that's not the original design
     #       I'll probably need to change the parser to store the prefixing nesting op
     # NOTE: I have no idea how mypy works yet, I'm just pretending it's typescript
     # NOTE: I saw other typing usage briefly and I'm pretty sure it doesn't work this way
-    def search(node: ast.AST, scopes, nesting_op: str or None = None, captures: Optional[List[ast.AST]] = None):
+    def search(node: PathEquatableAst, scopes, nesting_op: str or None = None, captures: Optional[List[PathEquatableAst]] = None):
         if captures is None:
             captures = []
         cur_scope, *rest_scopes = scopes
@@ -126,11 +159,78 @@ def select(root: ast.AST, selector: Query) -> List[SelectionMatch]:
 # multiple language backends to communicate with the sizr engine.
 # Probably ought to look at the language-server-protocol (LSP) as well
 
+def nextOrNone(itr: Iterator):
+    try:
+        return next(itr)
+    except StopIteration:
+        return None
 
-def mergeAsts(a: ast.AST, b: ast.AST) -> ast.AST:
-    # FIXME: unimplemented
+
+# XXX: relying on python 3.7 or whatever + ordered dictionaries
+def interleave_with_collisions(target: List, insert: List) -> Iterator:
+    """
+    zips `target` with `insert`, first aligning `insert` with any identical contents
+    in target, and yields all different insertion contents around the target
+    `stablezip('abce', 'ffcq') =='ffabceq'`
+    """
+    target_indices = {item: index for index, item in enumerate(target)}
+    insert_indices = {item: index for index, item in enumerate(insert)}
+    intersections = set(target_indices.keys()) & set(insert.keys())
+    if not intersections:
+        return target + insert
+
+    after = []
+    next_target_item = nextOrNone(target_iter)
+    t = nextOrNone(target_iter)
+    i = nextOrNone(insert_iter)
+    sorted()
+    while True:
+        if i in target_set:
+    for item in insert:
+        print(item, next_target_item)
+        if item == next_target_item:
+            next_target_item = nextOrNone(target)
+            both[next_target_item] = item
+        else:
+            if next_target_item is not None:
+                before.append(item)
+            else:
+                after.append(item)
+    for b in before:
+        yield None, b
+    for t in target:
+        yield t, both.get(t)
+    for a in after:
+        yield None, a
+
+
+def mergeAsts(a: PathEquatableAst, b: PathEquatableAst) -> PathEquatableAst:
+    assert type(a) == type(b), "can't merge separately typed nodes"
+    new = type(a)()
     # NOTE: if I choose for this to fix locations while working, I cannot
     # rely on locations for ast node value equality...
+    # NOTE: a decent ast node value equality comparison would be the tree path
+    a_iter = iter(list(ast.iter_child_nodes(a)))
+    b_iter = iter(list(ast.iter_child_nodes(b)))
+    while True:
+        a_child = b_child = None
+        # XXX: wish I could disable autopep8 for a few lines, need to look into it
+        try:
+            a_child = next(a_iter)
+        except:
+            pass
+        try:
+            b_child = next(b_iter)
+        except:
+            pass
+        if not (a_child and b_child):
+            break
+        if a_child or b_child:
+            child = a_child or b_child
+            new.body.append(child)
+        if a_child and b_child:
+            merged = mergeAsts(a_child, b_child)
+            new.body.append(child)
     return b
 
 
@@ -144,20 +244,12 @@ def find(func, itr: Iterator):
         pass
 
 
-def astEq(a: ast.AST, b: ast.AST) -> bool:
-    """because it doesn't seem to work have its own value equality"""
-    return ((a.col_offset, a.end_col_offset, a.lineno, a.end_lineno)
-            == (b.col_offset, b.end_col_offset, b.lineno, b.end_lineno)
-            )
-
-
-def destroy_selection(py_ast: ast.AST, matches: Iterator[SelectionMatch] = {}) -> ast.AST:
+def destroy_selection(py_ast: PathEquatableAst, matches: Iterator[SelectionMatch] = {}) -> PathEquatableAst:
     """ remove the selected nodes from the AST, for destructive queries """
 
     class DestroySelection(ast.NodeTransformer):
-        def visit(self, node: ast.AST):
-            target = find(lambda m: astEq(
-                m.captures[-1].node, node), matches)
+        def visit(self, node: PathEquatableAst):
+            target = find(lambda m: m.captures[-1].node == node, matches)
             # TODO: create a module tree from scratch for the assertion and merge the trees
             if target is not None:
                 return None
@@ -165,11 +257,11 @@ def destroy_selection(py_ast: ast.AST, matches: Iterator[SelectionMatch] = {}) -
                 return super().visit(node)
 
     class FixEmptyBodies(ast.NodeTransformer):
-        def visit(self, node: ast.AST):
+        def visit(self, node: PathEquatableAst):
             if (hasattr(node, 'body')
-                        and isinstance(node.body, list)
-                        and not node.body
-                    ):
+                and isinstance(node.body, list)
+                and not node.body
+                ):
                 node.body.append(ast.Pass())
             return super().visit(node)
 
@@ -179,7 +271,7 @@ def destroy_selection(py_ast: ast.AST, matches: Iterator[SelectionMatch] = {}) -
     return fixed_tree
 
 
-def assert_(py_ast: ast.AST, assertion: Query, matches: Optional[Iterator[SelectionMatch]]) -> ast.AST:
+def assert_(py_ast: PathEquatableAst, assertion: Query, matches: Optional[Iterator[SelectionMatch]]) -> PathEquatableAst:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
     perhaps a more active word should be chosen
@@ -195,8 +287,6 @@ def assert_(py_ast: ast.AST, assertion: Query, matches: Optional[Iterator[Select
             if target is not None:
                 transformed_node = astNodeFromAssertion(assertion, target)
                 # FIXME: needs to work with argument scopes as well...
-                # need to crawl the tree and mark all roots that need to be merged
-                # with the assertion tree
                 return mergeAsts(node, transformed_node)
             else:
                 return super().visit(node)
@@ -209,7 +299,7 @@ def assert_(py_ast: ast.AST, assertion: Query, matches: Optional[Iterator[Select
 
 # NOTE: default to print to stdout, take a cli arg for target file for now
 def exec_transform(src: str, transform: Transform) -> str:
-    py_ast = ast.parse(src)
+    py_ast = parseAst(src)
     selection = None
     if transform.selector:
         selection = select(py_ast, transform.selector)
