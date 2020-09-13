@@ -11,7 +11,7 @@ import operator
 
 
 # TODO: maybe make 'immutable'?, since hash should only be implemented on immutable objects?
-class PathEquatableAst:
+class PathEquatableAst(ast.AST):
     def __init__(self, node: ast.AST, path: Tuple[(str, int)] = ()):
         self.node = node
         self.path = path
@@ -25,6 +25,15 @@ class PathEquatableAst:
     def __getattr__(self, attr):
         return getattr(self.node, attr)
 
+    @staticmethod
+    def wrap(node, *rest: __init__):  # more typing abuse
+        class Wrapper(PathEquatableAst):
+            pass
+        Wrapper.__name__ = node.__class__.__name__
+        Wrapper.__name__ = node.__class__.__name__
+        Wrapper.__doc__ = node.__class__.__doc__
+        return Wrapper(node, *rest)
+
 
 def parseAst(src: str) -> PathEquatableAst:
     """produce an ast of custom PathEquatableAst nodes"""
@@ -32,14 +41,14 @@ def parseAst(src: str) -> PathEquatableAst:
 
     # NOTE: maybe it's a bad idea to use the type syntax willynilly without knowing how it works
     # and ignoring it... a mypy experienced developer might come along and be thoroughly confused
-    def wrap(node: ast.AST, path: ((PathEquatableAst, int),) = ()):
+    def wrap(node: ast.AST, path: Tuple[(str, int)] = ()):
         for attr, val in node.__dict__.items():
             if isinstance(val, ast.AST):
                 setattr(node, attr, wrap(val, (*path, (attr, 0))))
             if isinstance(val, list):
                 setattr(node, attr, [wrap(n, (*path, (attr, i)))
                                      for i, n in enumerate(val) if isinstance(n, ast.AST)])
-        return PathEquatableAst(node, path)
+        return PathEquatableAst.wrap(node, path)
 
     return wrap(root)
 
@@ -224,8 +233,8 @@ def destroy_selection(py_ast: PathEquatableAst, matches: Iterator[SelectionMatch
     class FixEmptyBodies(ast.NodeTransformer):
         def visit(self, node: PathEquatableAst):
             if (hasattr(node, 'body')
-                    and isinstance(node.body, list)
-                    and not node.body
+                and isinstance(node.body, list)
+                and not node.body
                 ):
                 node.body.append(ast.Pass())
             return super().visit(node)
@@ -246,8 +255,7 @@ def assert_(py_ast: PathEquatableAst, assertion: Query, matches: Optional[Iterat
 
     class Transformer(ast.NodeTransformer):
         def visit(self, node):
-            target = find(lambda m: astEq(
-                m.captures[0].node, node), matches)
+            target = find(lambda m: m.captures[0].node == node, matches)
             # TODO: create a module tree from scratch for the assertion and merge the trees
             if target is not None:
                 transformed_node = astNodeFromAssertion(assertion, target)
@@ -265,6 +273,9 @@ def assert_(py_ast: PathEquatableAst, assertion: Query, matches: Optional[Iterat
 # NOTE: default to print to stdout, take a cli arg for target file for now
 def exec_transform(src: str, transform: Transform) -> str:
     py_ast = parseAst(src)
+    print('pre-dump:')
+    print(ast.dump(py_ast, annotate_fields=True, include_attributes=True))
+    print("#########################################")
     selection = None
     if transform.selector:
         selection = select(py_ast, transform.selector)
@@ -279,6 +290,9 @@ def exec_transform(src: str, transform: Transform) -> str:
     if transform.assertion:
         py_ast = assert_(py_ast, transform.assertion, selection)
     print('Transformed:')
+    print("#########################################")
+    print('post-dump:')
+    print(ast.dump(py_ast))
     print("#########################################")
     result = astor.to_source(py_ast)
     print(result)
