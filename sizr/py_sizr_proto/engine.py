@@ -157,7 +157,7 @@ def destroy_selection(py_ast: ast.AST, matches: Iterator[SelectionMatch] = {}) -
     class DestroySelection(ast.NodeTransformer):
         def visit(self, node: ast.AST):
             target = find(lambda m: astEq(
-                m.captures[0].node, node), matches)
+                m.captures[-1].node, node), matches)
             # TODO: create a module tree from scratch for the assertion and merge the trees
             if target is not None:
                 return None
@@ -167,9 +167,10 @@ def destroy_selection(py_ast: ast.AST, matches: Iterator[SelectionMatch] = {}) -
     class FixEmptyBodies(ast.NodeTransformer):
         def visit(self, node: ast.AST):
             if (hasattr(node, 'body')
-                    and isinstance(node.body, list)
-                    and not bool(node.body)
-                    ): node.body.append(ast.Pass())
+                        and isinstance(node.body, list)
+                        and not node.body
+                    ):
+                node.body.append(ast.Pass())
             return super().visit(node)
 
     post_destroy_tree = DestroySelection().visit(py_ast)
@@ -209,16 +210,19 @@ def assert_(py_ast: ast.AST, assertion: Query, matches: Optional[Iterator[Select
 # NOTE: default to print to stdout, take a cli arg for target file for now
 def exec_transform(src: str, transform: Transform) -> str:
     py_ast = ast.parse(src)
-    selection = select(py_ast, transform.selector)
-    print('Selected:')
-    print("#########################################")
-    for s in selection:
-        for c in s.captures:
-            print(astor.to_source(c.node))
-            print("#########################################")
+    selection = None
+    if transform.selector:
+        selection = select(py_ast, transform.selector)
+        print('Selected:')
+        print("#########################################")
+        for s in selection:
+            for c in s.captures:
+                print(astor.to_source(c.node))
+                print("#########################################")
     if transform.destructive:
         py_ast = destroy_selection(py_ast, selection)
-    py_ast = assert_(py_ast, transform.assertion, selection)
+    if transform.assertion:
+        py_ast = assert_(py_ast, transform.assertion, selection)
     print('Transformed:')
     print("#########################################")
     result = astor.to_source(py_ast)
