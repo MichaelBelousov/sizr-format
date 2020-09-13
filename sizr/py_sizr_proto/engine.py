@@ -4,7 +4,6 @@ AST transformation engine prototype for Sizr transform language
 
 import ast
 import libcst as cst
-import astor
 from typing import Optional, List, Set, Iterator, Tuple
 from functools import reduce
 from .code import Query, Transform, ScopeExpr, capture_any
@@ -27,9 +26,9 @@ property_testers = {
     'class': lambda val, node: isinstance(node, cst.ClassDef),
 }
 
-# TODO: descend by nesting op?
+
 nesting_op_filters = {
-    '.': lambda node: node.children if isinstance(node, cst.ClassDef) else (),
+    '.': lambda node: node.body.body if isinstance(node, cst.ClassDef) else (),
     '(': lambda node: node.params if isinstance(node, cst.FunctionDef) else (),
     None: lambda node: node.children
 }
@@ -40,7 +39,7 @@ class Capture:
         self.node = node
         self.name = name
     # FIXME: fix CaptureExpr vs Capture[Ref?] naming
-    __repr__ = __str__ = lambda s: f'<CaptureRef|name={s.name},node=\n{astor.to_source(s.node)}>'
+    __repr__ = __str__ = lambda s: f'<CaptureRef|name={s.name}>'
 
 
 class SelectionMatch:
@@ -55,6 +54,8 @@ class SelectionMatch:
         first, *_ = filter(lambda c: c.name == name, self.captures)
         return first
 
+    __repr__ = __str__ = lambda s: f'<Match|{s.captures}>'
+
 
 # TODO: proof of the need to clarify a datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
 def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode:
@@ -68,26 +69,30 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode
     inner = astNodeFromAssertion(next_assertion, SelectionMatch(next_captures))
     if 'class' in cur_scope.properties and cur_scope.properties['class']:
         return cst.ClassDef(
-            name=name,
+            name=cst.Name(name),
+            body=cst.IndentedBlock(
+                body=[cst.Pass() if inner is None else inner],
+            ),
             bases=[],
             keywords=[],
-            body=[cst.Pass() if inner is None else inner],
-            decorator_list=[]
+            decorators=[]
         )
     if 'func' in cur_scope.properties and cur_scope.properties['func']:
         # TODO: need properties to be a dictionary that returns false for unknown keys
         return cst.FunctionDef(
-            name=name,
-            args=cst.Parameters(
-                args=[],
-                vararg=None,
-                kwonlyargs=[],
-                kw_default=[],
-                kwarg=None,
-                defaults=[]
+            name=cst.Name(name),
+            params=cst.Parameters(
+                params=[],
+                star_arg=None,
+                kwonly_params=[],
+                star_kwarg=None,
             ),
-            body=[cst.Pass() if inner is None else inner],
-            decorator_list=[],
+            body=cst.IndentedBlock(
+                body=[cst.Pass() if inner is None else inner],
+            ),
+            decorators=[],
+            asynchronous=cur_scope.properties.get(
+                'async') and cst.Asynchronous(),
             returns=None
         )
     raise Exception("Could not determine a node type from the name properties")
@@ -100,7 +105,7 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
     selected: List[SelectionMatch] = []
 
     # TODO: dont root search at global scope, that's not the original design
-    #       I'll probably need to change the parser to store the prefixing nesting op
+    # I'll probably need to change the parser to store the prefixing nesting op
     # NOTE: I have no idea how mypy works yet, I'm just pretending it's typescript
     # NOTE: I saw other typing usage briefly and I'm pretty sure it doesn't work this way
     def search(node: cst.CSTNode, scopes, nesting_op: str or None = None, captures: Optional[List[cst.CSTNode]] = None):
@@ -110,7 +115,7 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
         for node in nesting_op_filters[nesting_op](node):
             # FIXME: autopep8 is making this really ugly... (or maybe I am)
             if ((cur_scope.capture == capture_any
-                 or (hasattr(node, 'name')
+                 or (hasattr(node, 'name')  # TODO: prefer isinstance()
                      and cur_scope.capture.pattern.match(node.name.value) is not None))
                     # TODO: abstract to literate function "matchesScopeProps"?
                     and all(map(lambda k, v: property_testers[k](v, node),
@@ -173,26 +178,13 @@ def destroy_selection(py_ast: cst.CSTNode, matches: Iterator[SelectionMatch] = {
             else:
                 raise AttributeError(f"no such attribute '{attr}'")
 
-        def _visit(self, node: cst.CSTNode) -> bool: return True
-
         def _leave(self, prev: cst.CSTNode, next: cst.CSTNode) -> cst.CSTNode:
             # TODO: create a module tree from scratch for the assertion and merge the trees
             if any(lambda m: prev.deep_equals(m.captures[-1].node), matches):
+                # XXX: may need to fix the lack/gain of pass in bodies...
                 # return cst.RemoveFromParent()
-                # may need to fix the lack of pass in bodies...
                 return cst.Pass()
             return next
-
-    """
-    class FixEmptyBodies(cst.CSTTransformer):
-        def visit(self, node: cst.CSTNode):
-            if (hasattr(node, 'body')
-                    and isinstance(node.body, list)
-                    and not node.body
-                    ):
-                node.body.append(cst.Pass())
-            return super().visit(node)
-    """
 
     post_destroy_tree = py_ast.visit(DestroySelection())
     # bodies_fixed_tree = FixEmptyBodies().visit(post_destroy_tree)
@@ -216,8 +208,6 @@ def assert_(py_ast: cst.CSTNode, assertion: Query, matches: Optional[Iterator[Se
             else:
                 raise AttributeError(f"no such attribute '{attr}'")
 
-        def _visit(self, node: cst.CSTNode) -> bool: return True
-
         def _leave(self, prev: cst.CSTNode, next: cst.CSTNode) -> cst.CSTNode:
             # TODO: create a module tree from scratch for the assertion and merge the trees at the anchor point
             target = find(lambda m: prev.deep_equals(
@@ -227,6 +217,8 @@ def assert_(py_ast: cst.CSTNode, assertion: Query, matches: Optional[Iterator[Se
                 return mergeAsts(next, transformed_node)
             else:
                 return next
+
+        leave_FunctionDefinition = leave_ClassDef = _leave
 
     transformed_tree = py_ast.visit(Transformer())
 
@@ -239,10 +231,12 @@ def exec_transform(src: str, transform: Transform) -> str:
     selection = None
     if transform.selector:
         selection = select(py_ast, transform.selector)
+        print(selection)
     if transform.destructive:
         py_ast = destroy_selection(py_ast, selection)
     if transform.assertion:
         py_ast = assert_(py_ast, transform.assertion, selection)
+    print(py_ast.code)
     result = py_ast.code
     import difflib
     print(''.join(
