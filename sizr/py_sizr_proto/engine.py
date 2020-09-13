@@ -3,6 +3,7 @@ AST transformation engine prototype for Sizr transform language
 """
 
 import ast
+import libcst as cst
 import astor
 from typing import Optional, List, Set, Iterator, Tuple
 from functools import reduce
@@ -10,75 +11,32 @@ from .code import Query, Transform, ScopeExpr, capture_any
 import operator
 
 
-# TODO: maybe make 'immutable'?, since hash should only be implemented on immutable objects?
-class PathEquatableAst(ast.AST):
-    def __init__(self, node: ast.AST, path: Tuple[(str, int)] = ()):
-        self.node = node
-        self.path = path
-
-    def __eq__(self, other):
-        return self.path == other.path
-
-    def __hash__(self):
-        return hash(self.path)
-
-    def __getattr__(self, attr):
-        return getattr(self.node, attr)
-
-    @staticmethod
-    def wrap(node, *rest: __init__):  # more typing abuse
-        class Wrapper(PathEquatableAst):
-            pass
-        Wrapper.__name__ = node.__class__.__name__
-        Wrapper.__name__ = node.__class__.__name__
-        Wrapper.__doc__ = node.__class__.__doc__
-        return Wrapper(node, *rest)
-
-
-def parseAst(src: str) -> PathEquatableAst:
-    """produce an ast of custom PathEquatableAst nodes"""
-    root = ast.parse(src)
-
-    # NOTE: maybe it's a bad idea to use the type syntax willynilly without knowing how it works
-    # and ignoring it... a mypy experienced developer might come along and be thoroughly confused
-    def wrap(node: ast.AST, path: Tuple[(str, int)] = ()):
-        for attr, val in node.__dict__.items():
-            if isinstance(val, ast.AST):
-                setattr(node, attr, wrap(val, (*path, (attr, 0))))
-            if isinstance(val, list):
-                setattr(node, attr, [wrap(n, (*path, (attr, i)))
-                                     for i, n in enumerate(val) if isinstance(n, ast.AST)])
-        return PathEquatableAst.wrap(node, path)
-
-    return wrap(root)
-
-
 node_table = {
-    ast.ClassDef: {
+    cst.ClassDef: {
         'func': lambda n: True,
         'class': lambda n: True,
         'name': lambda node: node.name,
     },
-    ast.FunctionDef: {
+    cst.FunctionDef: {
         'func': True,
     },
 }
 
 property_testers = {
-    'func': lambda val, node: isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)),
-    'class': lambda val, node: isinstance(node, ast.ClassDef),
+    'func': lambda val, node: isinstance(node, cst.FunctionDef),
+    'class': lambda val, node: isinstance(node, cst.ClassDef),
 }
 
 # TODO: descend by nesting op?
 nesting_op_filters = {
-    '.': lambda node: ast.iter_child_nodes(node) if isinstance(node, ast.ClassDef) else (),
-    '(': lambda node: ast.iter_child_nodes(node.args) if isinstance(node, ast.FunctionDef, ast.AsyncFunctionDef) else (),
-    None: lambda node: ast.iter_child_nodes(node),
+    '.': lambda node: node.children if isinstance(node, cst.ClassDef) else (),
+    '(': lambda node: node.params if isinstance(node, cst.FunctionDef) else (),
+    None: lambda node: node.children
 }
 
 
 class Capture:
-    def __init__(self, node: PathEquatableAst, name: Optional[str] = None):
+    def __init__(self, node: cst.CSTNode, name: Optional[str] = None):
         self.node = node
         self.name = name
     # FIXME: fix CaptureExpr vs Capture[Ref?] naming
@@ -99,7 +57,7 @@ class SelectionMatch:
 
 
 # TODO: proof of the need to clarify a datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
-def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> PathEquatableAst:
+def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode:
     if not assertion.nested_scopes:
         return
     cur_scope, *next_scopes = assertion.nested_scopes
@@ -109,20 +67,18 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> PathEquatab
     next_assertion.nested_scopes = next_scopes
     inner = astNodeFromAssertion(next_assertion, SelectionMatch(next_captures))
     if 'class' in cur_scope.properties and cur_scope.properties['class']:
-        return ast.ClassDef(
+        return cst.ClassDef(
             name=name,
             bases=[],
             keywords=[],
-            body=[ast.Pass() if inner is None else inner],
+            body=[cst.Pass() if inner is None else inner],
             decorator_list=[]
         )
     if 'func' in cur_scope.properties and cur_scope.properties['func']:
         # TODO: need properties to be a dictionary that returns false for unknown keys
-        return (
-            ast.AsyncFunctionDef if cur_scope.properties.get('async')
-            else ast.FunctionDef)(
+        return cst.FunctionDef(
             name=name,
-            args=ast.arguments(
+            args=cst.Parameters(
                 args=[],
                 vararg=None,
                 kwonlyargs=[],
@@ -130,7 +86,7 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> PathEquatab
                 kwarg=None,
                 defaults=[]
             ),
-            body=[ast.Pass() if inner is None else inner],
+            body=[cst.Pass() if inner is None else inner],
             decorator_list=[],
             returns=None
         )
@@ -140,14 +96,14 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> PathEquatab
 def dictKeysAndValues(d): return d.keys(), d.values()
 
 
-def select(root: PathEquatableAst, selector: Query) -> List[SelectionMatch]:
+def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
     selected: List[SelectionMatch] = []
 
     # TODO: dont root search at global scope, that's not the original design
     #       I'll probably need to change the parser to store the prefixing nesting op
     # NOTE: I have no idea how mypy works yet, I'm just pretending it's typescript
     # NOTE: I saw other typing usage briefly and I'm pretty sure it doesn't work this way
-    def search(node: PathEquatableAst, scopes, nesting_op: str or None = None, captures: Optional[List[PathEquatableAst]] = None):
+    def search(node: cst.CSTNode, scopes, nesting_op: str or None = None, captures: Optional[List[cst.CSTNode]] = None):
         if captures is None:
             captures = []
         cur_scope, *rest_scopes = scopes
@@ -155,7 +111,7 @@ def select(root: PathEquatableAst, selector: Query) -> List[SelectionMatch]:
             # FIXME: autopep8 is making this really ugly... (or maybe I am)
             if ((cur_scope.capture == capture_any
                  or (hasattr(node, 'name')
-                     and cur_scope.capture.pattern.match(node.name) is not None))
+                     and cur_scope.capture.pattern.match(node.name.value) is not None))
                     # TODO: abstract to literate function "matchesScopeProps"?
                     and all(map(lambda k, v: property_testers[k](v, node),
                                 *dictKeysAndValues(cur_scope.properties)))):
@@ -171,19 +127,8 @@ def select(root: PathEquatableAst, selector: Query) -> List[SelectionMatch]:
     return selected  # maybe should have search return the result list
 
 
-# NOTE: probably will go with an IPC based architecture for enabling
-# multiple language backends to communicate with the sizr engine.
-# Probably ought to look at the language-server-protocol (LSP) as well
-
-def nextOrNone(itr: Iterator):
-    try:
-        return next(itr)
-    except StopIteration:
-        return None
-
-
 # maybe rename override, since it's really eclipsing/overriding
-def mergeAsts(a: PathEquatableAst, b: PathEquatableAst) -> PathEquatableAst:
+def mergeAsts(a: cst.CSTNode, b: cst.CSTNode) -> cst.CSTNode:
     """ merge b into a, mutating a """
     if type(a) != type(b):
         return b
@@ -191,8 +136,8 @@ def mergeAsts(a: PathEquatableAst, b: PathEquatableAst) -> PathEquatableAst:
     assert a._fields == b._fields, "to merge ast nodes must have same attrs"
 
     for attr, a_val, b_val in ((f, getattr(a, f), getattr(b, f)) for f in a._fields):
-        if isinstance(a_val, ast.AST):
-            assert isinstance(b_val, ast.AST)
+        if isinstance(a_val, cst.CSTNode):
+            assert isinstance(b_val, cst.CSTNode)
             setattr(a, attr, mergeAsts(a_val, b_val))
         if isinstance(a_val, list):
             assert isinstance(b_val, list)
@@ -218,34 +163,45 @@ def find(func, itr: Iterator):
         pass
 
 
-def destroy_selection(py_ast: PathEquatableAst, matches: Iterator[SelectionMatch] = {}) -> PathEquatableAst:
+def destroy_selection(py_ast: cst.CSTNode, matches: Iterator[SelectionMatch] = {}) -> cst.CSTNode:
     """ remove the selected nodes from the AST, for destructive queries """
 
-    class DestroySelection(ast.NodeTransformer):
-        def visit(self, node: PathEquatableAst):
-            target = find(lambda m: m.captures[-1].node == node, matches)
-            # TODO: create a module tree from scratch for the assertion and merge the trees
-            if target is not None:
-                return None
+    class DestroySelection(cst.CSTTransformer):
+        def __getattr__(self, attr):
+            if attr.startswith('leave_'):
+                return self._leave
             else:
-                return super().visit(node)
+                raise AttributeError(f"no such attribute '{attr}'")
 
-    class FixEmptyBodies(ast.NodeTransformer):
-        def visit(self, node: PathEquatableAst):
+        def _visit(self, node: cst.CSTNode) -> bool: return True
+
+        def _leave(self, prev: cst.CSTNode, next: cst.CSTNode) -> cst.CSTNode:
+            # TODO: create a module tree from scratch for the assertion and merge the trees
+            if any(lambda m: prev.deep_equals(m.captures[-1].node), matches):
+                # return cst.RemoveFromParent()
+                # may need to fix the lack of pass in bodies...
+                return cst.Pass()
+            return next
+
+    """
+    class FixEmptyBodies(cst.CSTTransformer):
+        def visit(self, node: cst.CSTNode):
             if (hasattr(node, 'body')
-                and isinstance(node.body, list)
-                and not node.body
-                ):
-                node.body.append(ast.Pass())
+                    and isinstance(node.body, list)
+                    and not node.body
+                    ):
+                node.body.append(cst.Pass())
             return super().visit(node)
+    """
 
-    post_destroy_tree = DestroySelection().visit(py_ast)
-    bodies_fixed_tree = FixEmptyBodies().visit(post_destroy_tree)
-    fixed_tree = ast.fix_missing_locations(bodies_fixed_tree)
+    post_destroy_tree = py_ast.visit(DestroySelection())
+    # bodies_fixed_tree = FixEmptyBodies().visit(post_destroy_tree)
+    # fixed_tree = cst.fix_missing_locations(bodies_fixed_tree)
+    fixed_tree = post_destroy_tree
     return fixed_tree
 
 
-def assert_(py_ast: PathEquatableAst, assertion: Query, matches: Optional[Iterator[SelectionMatch]]) -> PathEquatableAst:
+def assert_(py_ast: cst.CSTNode, assertion: Query, matches: Optional[Iterator[SelectionMatch]]) -> cst.CSTNode:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
     perhaps a more active word should be chosen
@@ -253,47 +209,49 @@ def assert_(py_ast: PathEquatableAst, assertion: Query, matches: Optional[Iterat
     if matches is None:
         matches = set()
 
-    class Transformer(ast.NodeTransformer):
-        def visit(self, node):
-            target = find(lambda m: m.captures[0].node == node, matches)
-            # TODO: create a module tree from scratch for the assertion and merge the trees
+    class Transformer(cst.CSTTransformer):
+        def __getattr__(self, attr):
+            if attr.startswith('leave_'):
+                return self._leave
+            else:
+                raise AttributeError(f"no such attribute '{attr}'")
+
+        def _visit(self, node: cst.CSTNode) -> bool: return True
+
+        def _leave(self, prev: cst.CSTNode, next: cst.CSTNode) -> cst.CSTNode:
+            # TODO: create a module tree from scratch for the assertion and merge the trees at the anchor point
+            target = find(lambda m: prev.deep_equals(
+                m.captures[0].node), matches)
             if target is not None:
                 transformed_node = astNodeFromAssertion(assertion, target)
-                # FIXME: needs to work with argument scopes as well...
-                return mergeAsts(node, transformed_node)
+                return mergeAsts(next, transformed_node)
             else:
-                return super().visit(node)
+                return next
 
-    transformed_tree = Transformer().visit(py_ast)
-    fixed_tree = ast.fix_missing_locations(transformed_tree)
+    transformed_tree = py_ast.visit(Transformer())
 
-    return fixed_tree
+    return transformed_tree
 
 
 # NOTE: default to print to stdout, take a cli arg for target file for now
 def exec_transform(src: str, transform: Transform) -> str:
-    py_ast = parseAst(src)
-    print('pre-dump:')
-    print(ast.dump(py_ast, annotate_fields=True, include_attributes=True))
-    print("#########################################")
+    py_ast = cst.parse_module(src)
     selection = None
     if transform.selector:
         selection = select(py_ast, transform.selector)
-        print('Selected:')
-        print("#########################################")
-        for s in selection:
-            for c in s.captures:
-                print(astor.to_source(c.node))
-                print("#########################################")
     if transform.destructive:
         py_ast = destroy_selection(py_ast, selection)
     if transform.assertion:
         py_ast = assert_(py_ast, transform.assertion, selection)
-    print('Transformed:')
-    print("#########################################")
-    print('post-dump:')
-    print(ast.dump(py_ast))
-    print("#########################################")
-    result = astor.to_source(py_ast)
+    result = py_ast.code
+    import difflib
+    print(''.join(
+        difflib.unified_diff(
+            src.splitlines(1),
+            result.splitlines(1)
+        )
+    ))
     print(result)
     return result
+
+    # TODO: use difflib to show a diff of the changes and confirm unless in pre-confirmed mode
