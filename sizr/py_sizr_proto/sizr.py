@@ -4,11 +4,12 @@ Sizr REPL
 """
 
 from pprint import pprint
+import ast
 import astor
 import argparse
 
 from parser import parseTransform
-from engine import select, assert_
+from engine import exec_transform
 
 
 def repl(input_file):
@@ -18,19 +19,8 @@ def repl(input_file):
             if not command:
                 break
             parsed = parseTransform(command)
-            print('Parsed:', parsed)
             input_src = input_file.read()
-            selection = select(input_src, parsed.selector)
-            print('Selected:')
-            print("#########################################")
-            for s in selection:
-                for c in s.captures:
-                    print(astor.to_source(c.node))
-                    print("#########################################")
-            transformed = assert_(input_src, parsed.assertion, selection)
-            print('Transformed:')
-            print("#########################################")
-            print(transformed)
+            exec_transform(input_src, parsed)
     except KeyboardInterrupt:
         pass
     print()

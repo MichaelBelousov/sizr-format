@@ -53,8 +53,6 @@ class SelectionMatch:
 
 # TODO: proof of the need to clarify a datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
 def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> ast.AST:
-    print(len(assertion.nested_scopes), assertion.nested_scopes)
-    print(len(match.captures), match.captures)
     if not assertion.nested_scopes:
         return
     cur_scope, *next_scopes = assertion.nested_scopes
@@ -93,14 +91,13 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> ast.AST:
 def dictKeysAndValues(d): return d.keys(), d.values()
 
 
-def select(py_src: str, selector: Query) -> List[SelectionMatch]:
+def select(root: ast.AST, selector: Query) -> List[SelectionMatch]:
     selected: List[SelectionMatch] = []
-    root = ast.parse(py_src)
 
     # TODO: dont root search at global scope, that's not the original design
     #       I'll probably need to change the parser to store the prefixing nesting op
     # NOTE: I have no idea how mypy works yet, I'm just pretending it's typescript
-    # NOTE: I saw the typing module briefly and I'm pretty sure it doesn't work this way
+    # NOTE: I saw other typing usage briefly and I'm pretty sure it doesn't work this way
     def search(node: ast.AST, scopes, nesting_op: str or None = None, captures: Optional[List[ast.AST]] = None):
         if captures is None:
             captures = []
@@ -154,7 +151,34 @@ def astEq(a: ast.AST, b: ast.AST) -> bool:
             )
 
 
-def assert_(py_src: str, assertion: Query, matches: Optional[Iterator[SelectionMatch]]) -> ast.AST or str:
+def destroy_selection(py_ast: ast.AST, matches: Iterator[SelectionMatch] = {}) -> ast.AST:
+    """ remove the selected nodes from the AST, for destructive queries """
+
+    class DestroySelection(ast.NodeTransformer):
+        def visit(self, node: ast.AST):
+            target = find(lambda m: astEq(
+                m.captures[0].node, node), matches)
+            # TODO: create a module tree from scratch for the assertion and merge the trees
+            if target is not None:
+                return None
+            else:
+                return super().visit(node)
+
+    class FixEmptyBodies(ast.NodeTransformer):
+        def visit(self, node: ast.AST):
+            if (hasattr(node, 'body')
+                    and isinstance(node.body, list)
+                    and not bool(node.body)
+                    ): node.body.append(ast.Pass())
+            return super().visit(node)
+
+    post_destroy_tree = DestroySelection().visit(py_ast)
+    bodies_fixed_tree = FixEmptyBodies().visit(post_destroy_tree)
+    fixed_tree = ast.fix_missing_locations(bodies_fixed_tree)
+    return fixed_tree
+
+
+def assert_(py_ast: ast.AST, assertion: Query, matches: Optional[Iterator[SelectionMatch]]) -> ast.AST:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
     perhaps a more active word should be chosen
@@ -165,19 +189,38 @@ def assert_(py_src: str, assertion: Query, matches: Optional[Iterator[SelectionM
     class Transformer(ast.NodeTransformer):
         def visit(self, node):
             target = find(lambda m: astEq(
-                m.captures[-1].node, node), matches)
+                m.captures[0].node, node), matches)
+            # TODO: create a module tree from scratch for the assertion and merge the trees
             if target is not None:
-                transformed_node = astNodeFromAssertion(
-                    assertion, target)
+                transformed_node = astNodeFromAssertion(assertion, target)
+                # FIXME: needs to work with argument scopes as well...
+                # need to crawl the tree and mark all roots that need to be merged
+                # with the assertion tree
                 return mergeAsts(node, transformed_node)
             else:
                 return super().visit(node)
 
-    py_ast = ast.parse(py_src)
     transformed_tree = Transformer().visit(py_ast)
     fixed_tree = ast.fix_missing_locations(transformed_tree)
 
-    result = astor.to_source(fixed_tree)
-    return result
+    return fixed_tree
 
-    # NOTE: default to print to stdout, take a cli arg for target file for now
+
+# NOTE: default to print to stdout, take a cli arg for target file for now
+def exec_transform(src: str, transform: Transform) -> str:
+    py_ast = ast.parse(src)
+    selection = select(py_ast, transform.selector)
+    print('Selected:')
+    print("#########################################")
+    for s in selection:
+        for c in s.captures:
+            print(astor.to_source(c.node))
+            print("#########################################")
+    if transform.destructive:
+        py_ast = destroy_selection(py_ast, selection)
+    py_ast = assert_(py_ast, transform.assertion, selection)
+    print('Transformed:')
+    print("#########################################")
+    result = astor.to_source(py_ast)
+    print(result)
+    return result
