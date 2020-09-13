@@ -7,9 +7,10 @@ from pprint import pprint
 import ast
 import astor
 import argparse
+import readline  # implicit gnu command line editing
 
-from parser import parseTransform
-from engine import exec_transform
+from .parser import parseTransform
+from .engine import exec_transform
 
 
 def repl(input_file):

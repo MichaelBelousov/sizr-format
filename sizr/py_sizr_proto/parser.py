@@ -6,7 +6,7 @@ Parser prototype for Sizr transform language
 
 import re
 # TODO: figure out package relative imports
-from code import *
+from .code import *
 from typing import Tuple, Any
 
 

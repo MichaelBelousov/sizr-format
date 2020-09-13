@@ -4,17 +4,23 @@ AST transformation engine prototype for Sizr transform language
 
 import ast
 import astor
-from typing import Optional, List, Set, Iterator, Dict
-from code import Query, Transform, ScopeExpr, capture_any
+from typing import Optional, List, Set, Iterator, Tuple
+from functools import reduce
+from .code import Query, Transform, ScopeExpr, capture_any
+import operator
 
 
+# TODO: maybe make 'immutable'?, since hash should only be implemented on immutable objects?
 class PathEquatableAst:
-    def __init__(self, node: ast.AST, path: ((PathEquatableAst, int),) = ()):
+    def __init__(self, node: ast.AST, path: Tuple[(str, int)] = ()):
         self.node = node
         self.path = path
 
-    def __eq__(self, other: AstNode):
+    def __eq__(self, other):
         return self.path == other.path
+
+    def __hash__(self):
+        return hash(self.path)
 
     def __getattr__(self, attr):
         return getattr(self.node, attr)
@@ -29,11 +35,10 @@ def parseAst(src: str) -> PathEquatableAst:
     def wrap(node: ast.AST, path: ((PathEquatableAst, int),) = ()):
         for attr, val in node.__dict__.items():
             if isinstance(val, ast.AST):
-                wrapped = PathEquatableAst()
-                setattr(node, attr, wrap(val, (*path, node)))
+                setattr(node, attr, wrap(val, (*path, (attr, 0))))
             if isinstance(val, list):
-                setattr(node, attr, [wrap(n, (*path, node))
-                                     for n in enumerate(val) if isinstance(n, ast.AST)])
+                setattr(node, attr, [wrap(n, (*path, (attr, i)))
+                                     for i, n in enumerate(val) if isinstance(n, ast.AST)])
         return PathEquatableAst(node, path)
 
     return wrap(root)
@@ -95,29 +100,31 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> PathEquatab
     next_assertion.nested_scopes = next_scopes
     inner = astNodeFromAssertion(next_assertion, SelectionMatch(next_captures))
     if 'class' in cur_scope.properties and cur_scope.properties['class']:
-        result = ast.ClassDef()
-        result.name = name
-        result.bases = []
-        result.keywords = []
-        result.body = [ast.Pass() if inner is None else inner]
-        result.decorator_list = []
-        return result
+        return ast.ClassDef(
+            name=name,
+            bases=[],
+            keywords=[],
+            body=[ast.Pass() if inner is None else inner],
+            decorator_list=[]
+        )
     if 'func' in cur_scope.properties and cur_scope.properties['func']:
         # TODO: need properties to be a dictionary that returns false for unknown keys
-        result = ast.AsyncFunctionDef() if cur_scope.properties.get(
-            'async', False) else ast.FunctionDef()
-        result.name = name
-        result.args = ast.arguments()
-        result.args.args = []
-        result.args.vararg = None
-        result.args.kwonlyargs = []
-        result.args.kw_default = []
-        result.args.kwarg = None
-        result.args.defaults = []
-        result.body = [ast.Pass() if inner is None else inner]
-        result.decorator_list = []
-        result.returns = None
-        return result
+        return (
+            ast.AsyncFunctionDef if cur_scope.properties.get('async')
+            else ast.FunctionDef)(
+            name=name,
+            args=ast.arguments(
+                args=[],
+                vararg=None,
+                kwonlyargs=[],
+                kw_default=[],
+                kwarg=None,
+                defaults=[]
+            ),
+            body=[ast.Pass() if inner is None else inner],
+            decorator_list=[],
+            returns=None
+        )
     raise Exception("Could not determine a node type from the name properties")
 
 
@@ -166,72 +173,30 @@ def nextOrNone(itr: Iterator):
         return None
 
 
-# XXX: relying on python 3.7 or whatever + ordered dictionaries
-def interleave_with_collisions(target: List, insert: List) -> Iterator:
-    """
-    zips `target` with `insert`, first aligning `insert` with any identical contents
-    in target, and yields all different insertion contents around the target
-    `stablezip('abce', 'ffcq') =='ffabceq'`
-    """
-    target_indices = {item: index for index, item in enumerate(target)}
-    insert_indices = {item: index for index, item in enumerate(insert)}
-    intersections = set(target_indices.keys()) & set(insert.keys())
-    if not intersections:
-        return target + insert
-
-    after = []
-    next_target_item = nextOrNone(target_iter)
-    t = nextOrNone(target_iter)
-    i = nextOrNone(insert_iter)
-    sorted()
-    while True:
-        if i in target_set:
-    for item in insert:
-        print(item, next_target_item)
-        if item == next_target_item:
-            next_target_item = nextOrNone(target)
-            both[next_target_item] = item
-        else:
-            if next_target_item is not None:
-                before.append(item)
-            else:
-                after.append(item)
-    for b in before:
-        yield None, b
-    for t in target:
-        yield t, both.get(t)
-    for a in after:
-        yield None, a
-
-
+# maybe rename override, since it's really eclipsing/overriding
 def mergeAsts(a: PathEquatableAst, b: PathEquatableAst) -> PathEquatableAst:
-    assert type(a) == type(b), "can't merge separately typed nodes"
-    new = type(a)()
-    # NOTE: if I choose for this to fix locations while working, I cannot
-    # rely on locations for ast node value equality...
-    # NOTE: a decent ast node value equality comparison would be the tree path
-    a_iter = iter(list(ast.iter_child_nodes(a)))
-    b_iter = iter(list(ast.iter_child_nodes(b)))
-    while True:
-        a_child = b_child = None
-        # XXX: wish I could disable autopep8 for a few lines, need to look into it
-        try:
-            a_child = next(a_iter)
-        except:
-            pass
-        try:
-            b_child = next(b_iter)
-        except:
-            pass
-        if not (a_child and b_child):
-            break
-        if a_child or b_child:
-            child = a_child or b_child
-            new.body.append(child)
-        if a_child and b_child:
-            merged = mergeAsts(a_child, b_child)
-            new.body.append(child)
-    return b
+    """ merge b into a, mutating a """
+    if type(a) != type(b):
+        return b
+
+    assert a._fields == b._fields, "to merge ast nodes must have same attrs"
+
+    for attr, a_val, b_val in ((f, getattr(a, f), getattr(b, f)) for f in a._fields):
+        if isinstance(a_val, ast.AST):
+            assert isinstance(b_val, ast.AST)
+            setattr(a, attr, mergeAsts(a_val, b_val))
+        if isinstance(a_val, list):
+            assert isinstance(b_val, list)
+            a_index = {n.path: n for n in a_val}
+            b_index = {n.path: n for n in b_val}
+            merged_dict = {**a_index, **b_index}
+            for node_path in a_index.keys() & b_index.keys():
+                merged_dict[node_path] = mergeAsts(
+                    a_index[node_path], b_index[node_path])
+            merged_list = [*merged_dict.values()]
+            setattr(a, attr, merged_list)
+
+    return a
 
 
 def find(func, itr: Iterator):
@@ -259,8 +224,8 @@ def destroy_selection(py_ast: PathEquatableAst, matches: Iterator[SelectionMatch
     class FixEmptyBodies(ast.NodeTransformer):
         def visit(self, node: PathEquatableAst):
             if (hasattr(node, 'body')
-                and isinstance(node.body, list)
-                and not node.body
+                    and isinstance(node.body, list)
+                    and not node.body
                 ):
                 node.body.append(ast.Pass())
             return super().visit(node)
