@@ -27,10 +27,17 @@ property_testers = {
 }
 
 
-nesting_op_filters = {
+nesting_op_children_getter = {
     '.': lambda node: node.body.body if isinstance(node, cst.ClassDef) else (),
     '(': lambda node: node.params if isinstance(node, cst.FunctionDef) else (),
     None: lambda node: node.children
+}
+
+possible_node_classes_per_prop = {
+    'type': lambda val: {},  # TODO: make a special "any" set
+    'func': lambda val: {cst.FunctionDef},
+    'class': lambda val: {cst.ClassDef},
+    'var': lambda val: {cst.Name}
 }
 
 
@@ -61,6 +68,8 @@ class SelectionMatch:
 def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode:
     if not assertion.nested_scopes:
         return
+    # TODO: mass intersect possible_nodes_per_prop and and raise on multiple
+    # results (some kind of "ambiguous error"). Also need to match with captured/anchored
     cur_scope, *next_scopes = assertion.nested_scopes
     cur_capture, *next_captures = match.captures
     name = cur_scope.capture.literal or cur_capture.node.name
@@ -71,7 +80,8 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode
         return cst.ClassDef(
             name=cst.Name(name),
             body=cst.IndentedBlock(
-                body=[cst.Pass() if inner is None else inner],
+                body=inner if inner is not None else [
+                    cst.SimpleStatementLine(body=[cst.Pass()])]
             ),
             bases=[],
             keywords=[],
@@ -81,19 +91,21 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode
         # TODO: need properties to be a dictionary that returns false for unknown keys
         return cst.FunctionDef(
             name=cst.Name(name),
-            params=cst.Parameters(
-                params=[],
-                star_arg=None,
-                kwonly_params=[],
-                star_kwarg=None,
-            ),
+            params=cst.Parameters(),
             body=cst.IndentedBlock(
-                body=[cst.Pass() if inner is None else inner],
+                body=inner if inner is not None else [
+                    cst.SimpleStatementLine(body=[cst.Pass()])]
             ),
             decorators=[],
             asynchronous=cur_scope.properties.get(
                 'async') and cst.Asynchronous(),
             returns=None
+        )
+    elif cur_scope.properties.get('var') != False:
+        # TODO: need properties to be a dictionary that returns false for unknown keys
+        return cst.Assign(
+            targets=(cst.AssignTarget(cst.Name(name))),
+            value=cst.Name("None")
         )
     raise Exception("Could not determine a node type from the name properties")
 
@@ -112,7 +124,7 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
         if captures is None:
             captures = []
         cur_scope, *rest_scopes = scopes
-        for node in nesting_op_filters[nesting_op](node):
+        for node in nesting_op_children_getter[nesting_op](node):
             # FIXME: autopep8 is making this really ugly... (or maybe I am)
             if ((cur_scope.capture == capture_any
                  or (hasattr(node, 'name')  # TODO: prefer isinstance()
@@ -236,8 +248,9 @@ def exec_transform(src: str, transform: Transform) -> str:
         py_ast = destroy_selection(py_ast, selection)
     if transform.assertion:
         py_ast = assert_(py_ast, transform.assertion, selection)
-    print(py_ast.code)
+    print(py_ast)
     result = py_ast.code
+    print(repr(result))
     import difflib
     print(''.join(
         difflib.unified_diff(
@@ -245,7 +258,6 @@ def exec_transform(src: str, transform: Transform) -> str:
             result.splitlines(1)
         )
     ))
-    print(result)
     return result
 
     # TODO: use difflib to show a diff of the changes and confirm unless in pre-confirmed mode
