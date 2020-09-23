@@ -86,14 +86,14 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode
         return cst.ClassDef(
             name=cst.Name(name),
             body=cst.IndentedBlock(
-                body=[
+                body=(
                     inner if inner is not None
-                    else cst.SimpleStatementLine(body=[cst.Pass()])
-                ]
+                    else cst.SimpleStatementLine(body=(cst.Pass(),)),
+                )
             ),
-            bases=[],
-            keywords=[],
-            decorators=[]
+            bases=(),
+            keywords=(),
+            decorators=()
         )
     if 'func' in cur_scope.properties and cur_scope.properties['func']:
         # TODO: need properties to be a dictionary subclass that returns false for unknown keys
@@ -102,20 +102,20 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode
             params=cst.Parameters(),
             body=cst.IndentedBlock(  # NOTE: wrapping in indented block may not be a good idea
                 # because nesting ops like `;` may return a block in the future spec
-                body=[
+                body=(
                     inner if inner is not None
-                    else cst.SimpleStatementLine(body=[cst.Pass()])
-                ]
+                    else cst.SimpleStatementLine(body=(cst.Pass(),)),
+                )
             ),
-            decorators=[],
+            decorators=(),
             asynchronous=cur_scope.properties.get(
                 'async') and cst.Asynchronous(),
-            returns=None
+            # returns=None
         )
     elif cur_scope.properties.get('var') != False:
         # TODO: need properties to be a dictionary that returns false for unknown keys
         return cst.Assign(
-            targets=([cst.AssignTarget(target=cst.Name(name))]),
+            targets=(cst.AssignTarget(target=cst.Name(name)),),
             value=cst.Name("None")
         )
     raise Exception("Could not determine a node type from the name properties")
@@ -163,21 +163,32 @@ def mergeAsts(a: cst.CSTNode, b: cst.CSTNode) -> cst.CSTNode:
 
     changes = {}
     for attr, a_val, b_val in ((s, getattr(a, s), getattr(b, s)) for s in a.__slots__):
-        if isinstance(a_val, cst.CSTNode):
-            assert isinstance(b_val, cst.CSTNode)
+        print(f"merging '{attr}'", type(a_val), type(b_val))
+        if isinstance(a_val, cst.CSTNode) and isinstance(b_val, cst.CSTNode):
             changes[attr] = mergeAsts(a_val, b_val)
-        if isinstance(a_val, list):
-            assert isinstance(b_val, Sequence)
-            a_index = {n.path: n for n in a_val}
-            b_index = {n.path: n for n in b_val}
+        if None in (a_val, b_val):
+            print('one is none:', a_val, b_val)
+            if a_val is not b_val:
+                changes[attr] = a_val or b_val
+        if isinstance(a_val, (tuple, list)):  # is Sequence and not str?
+            sequence_type = type(a_val)
+            assert isinstance(b_val, (tuple, list))
+            # using dict over set for guaranteed order in python>=3.7
+            a_index = {n: None for n in a_val}
+            # probably ought to use collections.OrderedDict and switch to 2to3 in general for backporting to python2
+            # maybe that I can do with the beta product :P
+            b_index = {n: None for n in b_val}
             merged_dict = {**a_index, **b_index}
-            for node_path in a_index.keys() & b_index.keys():
-                merged_dict[node_path] = mergeAsts(
-                    a_index[node_path], b_index[node_path])
-            merged_list = [*merged_dict.values()]
+            for n in a_index.keys() & b_index.keys():  # XXX: this shouldn't work because of reference equality...?
+                merged_dict[n] = mergeAsts(a_index[n], b_index[n])
+            merged_list = sequence_type(merged_dict.values())
             changes[attr] = merged_list
 
-    return a.with_changes(**changes)
+    if changes:
+        print('changes:', changes)
+        return a.with_changes(**changes)
+    else:
+        return b
 
 
 def find(func, itr: Iterator):
@@ -225,29 +236,16 @@ def assert_(py_ast: cst.CSTNode, assertion: Query, matches: Optional[Iterator[Se
 
     class Transformer(cst.CSTTransformer):
 
-        def __getattr__(self, attr):
-            if attr.startswith('leave_'):
-                return self._leave
-            elif attr.startswith('visit_'):
-                return self._visit
-            else:
-                raise AttributeError(f"no such attribute '{attr}'")
-
-        def _visit(self, node: cst.CSTNode):
-            return True
-
         def _leave(self, prev: cst.CSTNode, next: cst.CSTNode) -> cst.CSTNode:
             # TODO: if unanchored assertion create a module tree from scratch
             # NOTE: in the future can cache lib cst node comparisons for speed
             target = find(lambda m: prev.deep_equals(
                 m.captures[-1].node), matches)
-            # print('type:', type(prev))
             if target is not None:
-                print("TARGET VvvvvvvvvvvvvvvvvvvvvvvvvvV")
                 # XXX: need some TDD on the merge routine
                 transformed_node = astNodeFromAssertion(assertion, target)
                 merged_node = mergeAsts(next, transformed_node)
-                print(merged_node)
+                print(merged_node, 'prev:', prev, 'next:', next)
                 return merged_node
             else:
                 return next

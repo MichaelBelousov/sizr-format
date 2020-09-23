@@ -146,3 +146,29 @@ class * . func $ >>> $ ( x
 ```
 
 i.e., all functions defined in classes (methods) get a new argument, x
+
+## will I ever need to merge/diff asserted ASTs?
+
+#### case 1: mid-expression capture with
+
+all things (functions or functors) with a return type of `int` that have a variable named x in their implementation
+get get a lambda added in them named y
+
+```sizr
+ret=int $ { var x >>> lambda y
+```
+
+if a name `y` already exists in scope, the edit is rejected and the offending code is shown
+
+#### case 2: end-expression capture
+
+#### case 3: collision in later code
+
+```sizr
+class $c . class $ . func $/hello_(.*)/
+>>>
+class $c . class new_layer . $ . func $/world_\1/
+```
+
+for now, until the semantics are figured out, it will simply refuse to add a duplicate name, it must be
+a destructive operation
