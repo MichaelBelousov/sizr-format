@@ -2,15 +2,17 @@
 AST transformation engine prototype for Sizr transform language
 """
 
-from inspect import isclass
 import ast
 import libcst as cst
 from typing import Optional, List, Set, Iterator, Tuple, Sequence
 from functools import reduce
 from .code import Query, Transform, ScopeExpr, capture_any
+from .cst_util import unified_leave
+from .util import tryFind, notFound
 import operator
 
 
+# TODO: better name
 node_table = {
     cst.ClassDef: {
         'func': lambda n: True,
@@ -40,6 +42,15 @@ possible_node_classes_per_prop = {
     'class': lambda val: {cst.ClassDef},
     'var': lambda val: {cst.Name}
 }
+
+
+def elemNameFromNode(node: cst.CSTNode) -> Set[str]:
+    return {
+        cst.FunctionDef: lambda: {node.name.value},
+        cst.ClassDef: lambda: {node.name.value},
+        cst.Assign: lambda: {t.target.value for t in node.targets},
+    }[node.__class__]()
+
 
 # future code organization
 # default_prop_values = {}
@@ -131,13 +142,14 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
     # I'll probably need to change the parser to store the prefixing nesting op
     # NOTE: I have no idea how mypy works yet, I'm just pretending it's typescript
     # NOTE: I saw other typing usage briefly and I'm pretty sure it doesn't work this way
-    def search(node: cst.CSTNode, scopes, nesting_op: str or None = None, captures: Optional[List[cst.CSTNode]] = None):
+    def search(node: cst.CSTNode, scopes, nesting_op: Optional[str] = None, captures: Optional[List[cst.CSTNode]] = None):
         if captures is None:
             captures = []
         cur_scope, *rest_scopes = scopes
         for node in nesting_op_children_getter[nesting_op](node):
             # FIXME: autopep8 is making this really ugly... (or maybe I am)
             if ((cur_scope.capture == capture_any
+                 # TODO: switch to elemNameFromNode
                  or (hasattr(node, 'name')  # TODO: prefer isinstance()
                      and cur_scope.capture.pattern.match(node.name.value) is not None))
                     # TODO: abstract to literate function "matchesScopeProps"?
@@ -153,52 +165,6 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
 
     search(root, selector.nested_scopes)
     return selected  # maybe should have search return the result list
-
-
-# maybe rename override, since it's really eclipsing/overriding
-def mergeAsts(a: cst.CSTNode, b: cst.CSTNode) -> cst.CSTNode:
-    """ merge b into a, mutating a """
-    if type(a) != type(b):
-        return b
-
-    changes = {}
-    for attr, a_val, b_val in ((s, getattr(a, s), getattr(b, s)) for s in a.__slots__):
-        print(f"merging '{attr}'", type(a_val), type(b_val))
-        if isinstance(a_val, cst.CSTNode) and isinstance(b_val, cst.CSTNode):
-            changes[attr] = mergeAsts(a_val, b_val)
-        if None in (a_val, b_val):
-            print('one is none:', a_val, b_val)
-            if a_val is not b_val:
-                changes[attr] = a_val or b_val
-        if isinstance(a_val, (tuple, list)):  # is Sequence and not str?
-            sequence_type = type(a_val)
-            assert isinstance(b_val, (tuple, list))
-            # using dict over set for guaranteed order in python>=3.7
-            a_index = {n: None for n in a_val}
-            # probably ought to use collections.OrderedDict and switch to 2to3 in general for backporting to python2
-            # maybe that I can do with the beta product :P
-            b_index = {n: None for n in b_val}
-            merged_dict = {**a_index, **b_index}
-            for n in a_index.keys() & b_index.keys():  # XXX: this shouldn't work because of reference equality...?
-                merged_dict[n] = mergeAsts(a_index[n], b_index[n])
-            merged_list = sequence_type(merged_dict.values())
-            changes[attr] = merged_list
-
-    if changes:
-        print('changes:', changes)
-        return a.with_changes(**changes)
-    else:
-        return b
-
-
-def find(func, itr: Iterator):
-    """
-    TODO: move to general utilities
-    """
-    try:
-        return next(filter(func, itr))
-    except:
-        pass
 
 
 def destroy_selection(py_ast: cst.CSTNode, matches: Iterator[SelectionMatch] = {}) -> cst.CSTNode:
@@ -234,27 +200,17 @@ def assert_(py_ast: cst.CSTNode, assertion: Query, matches: Optional[Iterator[Se
     if matches is None:
         matches = set()
 
+    @ unified_leave
     class Transformer(cst.CSTTransformer):
-
         def _leave(self, prev: cst.CSTNode, next: cst.CSTNode) -> cst.CSTNode:
             # TODO: if unanchored assertion create a module tree from scratch
             # NOTE: in the future can cache lib cst node comparisons for speed
-            target = find(lambda m: prev.deep_equals(
+            target = tryFind(lambda m: prev.deep_equals(
                 m.captures[-1].node), matches)
-            if target is not None:
-                # XXX: need some TDD on the merge routine
-                transformed_node = astNodeFromAssertion(assertion, target)
-                merged_node = mergeAsts(next, transformed_node)
-                print(merged_node, 'prev:', prev, 'next:', next)
-                return merged_node
-            else:
+            if target is notFound:
                 return next
-
-    # TODO: make this into a decorator for cst visitors
-    node_names = [c.__name__ for c in cst.__dict__.values(
-    ) if isclass(c) and issubclass(c, cst.CSTNode)]
-    for node_name in node_names:
-        setattr(Transformer, f'leave_{node_name}', Transformer._leave)
+            else:
+                return astNodeFromAssertion(assertion, target)
 
     transformed_tree = py_ast.visit(Transformer())
     print(transformed_tree)
