@@ -3,5 +3,5 @@ class C:
     def f(self): pass
     def G(self): pass
 
-# `C . f >>! class C` destroys the entire class C and replaces
-# would be solved with proper merge algorithm actually
+
+y = C.x

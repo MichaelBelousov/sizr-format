@@ -171,4 +171,6 @@ class $c . class new_layer . $ . func $/world_\1/
 ```
 
 for now, until the semantics are figured out, it will simply refuse to add a duplicate name, it must be
-a destructive operation
+a destructive operation (it might be allowed using the `;` nesting scope operator since order becomes known)
+
+## forget

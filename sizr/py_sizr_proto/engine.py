@@ -126,7 +126,8 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode
             'decorators': (),
         }
         if cur_scope.properties.get('async'):
-            node_props['asynchronous'] = cst.Asynchronous(),
+            node_props['asynchronous'] = cst.Asynchronous()
+        # TODO: need to check if this is defined in a class, defaults to having a self argument
         return cur_capture.node.with_changes(
             name=cst.Name(name),
             body=cst.IndentedBlock(  # NOTE: wrapping in indented block may not be a good idea
@@ -204,22 +205,15 @@ def destroy_selection(py_ast: cst.CSTNode, matches: Iterator[SelectionMatch] = {
 def assert_(py_ast: cst.CSTNode, assertion: Query, matches: Optional[Iterator[SelectionMatch]]) -> cst.CSTNode:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
-    perhaps a more active word should be chosen. Maybe ensure?
+    perhaps a more active word should be chosen. Maybe *ensure*?
     """
     if matches is None:
         matches = set()
 
     @ unified_visit
     class Transformer(cst.CSTTransformer):
-        def __init__(self):
-            self.stack = []
-            self.pending_transform = set()
-
-        def _visit(self, node: cst.CSTNode):
-            self.stack.append(node)
 
         def _leave(self, original: cst.CSTNode, updated: cst.CSTNode) -> cst.CSTNode:
-            self.stack.pop()
             # TODO: if global scope query create a module tree from scratch?
             # NOTE: in the future can cache lib cst node comparisons for speed
             match = tryFind(lambda m: original.deep_equals(
