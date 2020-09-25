@@ -20,3 +20,6 @@ def tryFind(func: Callable, itr: Iterable):
         return next(filter(func, itr))
     except StopIteration:
         return notFound
+
+
+def dictKeysAndValues(d): return d.keys(), d.values()

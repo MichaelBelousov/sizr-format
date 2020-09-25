@@ -2,13 +2,14 @@
 AST transformation engine prototype for Sizr transform language
 """
 
+from operator import and_
 import ast
 import libcst as cst
 from typing import Optional, List, Set, Iterator, Tuple, Sequence
 from functools import reduce
 from .code import Query, Transform, ScopeExpr, capture_any
-from .cst_util import unified_leave
-from .util import tryFind, notFound
+from .cst_util import unified_visit
+from .util import tryFind, notFound, dictKeysAndValues
 import operator
 
 
@@ -40,17 +41,25 @@ possible_node_classes_per_prop = {
     'type': lambda val: {},  # TODO: make a special "any" set
     'func': lambda val: {cst.FunctionDef},
     'class': lambda val: {cst.ClassDef},
-    'var': lambda val: {cst.Name}
+    'var': lambda val: {cst.Name, cst.Assign}
 }
 
 
+def possibleElemTypesFromScopeExpr(scope: ScopeExpr) -> Set[type(cst.CSTNode)]:
+    return set(
+        reduce(and_,
+               map(lambda key, val: possible_node_classes_per_prop[key](val),
+                   *dictKeysAndValues(scope.properties))))
+
+
 def elemNameFromNode(node: cst.CSTNode) -> Set[str]:
-    return {
+    node_class = node.__class__
+    per_node_class_name_accessors = {
         cst.FunctionDef: lambda: {node.name.value},
         cst.ClassDef: lambda: {node.name.value},
         cst.Assign: lambda: {t.target.value for t in node.targets},
-    }[node.__class__]()
-
+    }
+    return per_node_class_name_accessors.get(node_class, lambda: set())()
 
 # future code organization
 # default_prop_values = {}
@@ -83,8 +92,6 @@ class SelectionMatch:
 
 # TODO: proof of the need to clarify a datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
 def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode:
-    if not assertion.nested_scopes:
-        return
     # TODO: mass intersect possible_nodes_per_prop and and raise on multiple
     # results (some kind of "ambiguous error"). Also need to match with captured/anchored
     cur_scope, *next_scopes = assertion.nested_scopes
@@ -92,47 +99,45 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode
     name = cur_scope.capture.literal or cur_capture.node.name
     next_assertion = Query()
     next_assertion.nested_scopes = next_scopes
-    inner = astNodeFromAssertion(next_assertion, SelectionMatch(next_captures))
+    body = None
+    while not isinstance(body, tuple):
+        body = body.body if hasattr(body, 'body') else ()
+    if next_captures:
+        inner = astNodeFromAssertion(
+            next_assertion, SelectionMatch(next_captures))
+        body = (*body, inner)
+    if body == ():
+        body = (cst.SimpleStatementLine(body=(cst.Pass(),)),)
     if 'class' in cur_scope.properties and cur_scope.properties['class']:
-        return cst.ClassDef(
+        return cur_capture.node.with_changes(
             name=cst.Name(name),
             body=cst.IndentedBlock(
-                body=(
-                    inner if inner is not None
-                    else cst.SimpleStatementLine(body=(cst.Pass(),)),
-                )
+                body=body
             ),
-            bases=(),
-            keywords=(),
-            decorators=()
         )
     if 'func' in cur_scope.properties and cur_scope.properties['func']:
         # TODO: need properties to be a dictionary subclass that returns false for unknown keys
-        return cst.FunctionDef(
+        node_props = {
+            'params': cst.Parameters(),
+            'decorators': (),
+        }
+        if cur_scope.properties.get('async'):
+            node_props['asynchronous'] = cst.Asynchronous(),
+        return cur_capture.node.with_changes(
             name=cst.Name(name),
-            params=cst.Parameters(),
             body=cst.IndentedBlock(  # NOTE: wrapping in indented block may not be a good idea
                 # because nesting ops like `;` may return a block in the future spec
-                body=(
-                    inner if inner is not None
-                    else cst.SimpleStatementLine(body=(cst.Pass(),)),
-                )
+                body=body
             ),
-            decorators=(),
-            asynchronous=cur_scope.properties.get(
-                'async') and cst.Asynchronous(),
-            # returns=None
+            **node_props
         )
     elif cur_scope.properties.get('var') != False:
         # TODO: need properties to be a dictionary that returns false for unknown keys
-        return cst.Assign(
+        return cur_capture.node.with_changes(
             targets=(cst.AssignTarget(target=cst.Name(name)),),
             value=cst.Name("None")
         )
     raise Exception("Could not determine a node type from the name properties")
-
-
-def dictKeysAndValues(d): return d.keys(), d.values()
 
 
 def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
@@ -195,25 +200,32 @@ def destroy_selection(py_ast: cst.CSTNode, matches: Iterator[SelectionMatch] = {
 def assert_(py_ast: cst.CSTNode, assertion: Query, matches: Optional[Iterator[SelectionMatch]]) -> cst.CSTNode:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
-    perhaps a more active word should be chosen
+    perhaps a more active word should be chosen. Maybe ensure?
     """
     if matches is None:
         matches = set()
 
-    @ unified_leave
+    @ unified_visit
     class Transformer(cst.CSTTransformer):
-        def _leave(self, prev: cst.CSTNode, next: cst.CSTNode) -> cst.CSTNode:
-            # TODO: if unanchored assertion create a module tree from scratch
+        def __init__(self):
+            self.stack = []
+            self.pending_transform = set()
+
+        def _visit(self, node: cst.CSTNode):
+            self.stack.append(node)
+
+        def _leave(self, original: cst.CSTNode, updated: cst.CSTNode) -> cst.CSTNode:
+            self.stack.pop()
+            # TODO: if global scope query create a module tree from scratch?
             # NOTE: in the future can cache lib cst node comparisons for speed
-            target = tryFind(lambda m: prev.deep_equals(
-                m.captures[-1].node), matches)
-            if target is notFound:
-                return next
+            match = tryFind(lambda m: original.deep_equals(
+                m.captures[0].node), matches)
+            if match is notFound:
+                return updated
             else:
-                return astNodeFromAssertion(assertion, target)
+                return astNodeFromAssertion(assertion, match)
 
     transformed_tree = py_ast.visit(Transformer())
-    print(transformed_tree)
 
     return transformed_tree
 
