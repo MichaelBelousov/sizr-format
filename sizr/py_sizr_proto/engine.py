@@ -90,32 +90,36 @@ class SelectionMatch:
     __repr__ = __str__ = lambda s: f'<Match|{s.captures}>'
 
 
-# TODO: proof of the need to clarify a datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
+# TODO: proof of the need to clarify datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
 def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode:
     # TODO: mass intersect possible_nodes_per_prop and and raise on multiple
-    # results (some kind of "ambiguous error"). Also need to match with captured/anchored
+    # results (some kind of "ambiguous error"). Also need to match with anchor placement
     cur_scope, *next_scopes = assertion.nested_scopes
     cur_capture, *next_captures = match.captures
     name = cur_scope.capture.literal or cur_capture.node.name
     next_assertion = Query()
     next_assertion.nested_scopes = next_scopes
-    body = None
-    while not isinstance(body, tuple):
+
+    # TODO: currently the algorithm erroneously uses captures that are
+    # irrelevant to the assertion
+    body = cur_capture.node
+    while not isinstance(body, Sequence):
         body = body.body if hasattr(body, 'body') else ()
     if next_captures:
         inner = astNodeFromAssertion(
             next_assertion, SelectionMatch(next_captures))
         body = (*body, inner)
-    if body == ():
-        body = (cst.SimpleStatementLine(body=(cst.Pass(),)),)
-    if 'class' in cur_scope.properties and cur_scope.properties['class']:
+    if not body:
+        body = [cst.SimpleStatementLine(body=[cst.Pass()])]
+
+    if cur_scope.properties.get('class'):
         return cur_capture.node.with_changes(
             name=cst.Name(name),
             body=cst.IndentedBlock(
                 body=body
             ),
         )
-    if 'func' in cur_scope.properties and cur_scope.properties['func']:
+    if cur_scope.properties.get('func'):
         # TODO: need properties to be a dictionary subclass that returns false for unknown keys
         node_props = {
             'params': cst.Parameters(),
@@ -131,10 +135,10 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode
             ),
             **node_props
         )
-    elif cur_scope.properties.get('var') != False:
+    elif cur_scope.properties.get('var'):
         # TODO: need properties to be a dictionary that returns false for unknown keys
         return cur_capture.node.with_changes(
-            targets=(cst.AssignTarget(target=cst.Name(name)),),
+            targets=[cst.AssignTarget(target=cst.Name(name))],
             value=cst.Name("None")
         )
     raise Exception("Could not determine a node type from the name properties")
