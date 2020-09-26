@@ -9,8 +9,9 @@ from typing import Optional, List, Set, Iterator, Tuple, Sequence
 from functools import reduce
 from .code import Query, Transform, ScopeExpr, capture_any
 from .cst_util import unified_visit
-from .util import tryFind, notFound, dictKeysAndValues
+from .util import tryFind, notFound, dictKeysAndValues, first
 import operator
+import difflib
 
 
 # TODO: better name
@@ -91,34 +92,43 @@ class SelectionMatch:
 
 
 # TODO: proof of the need to clarify datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
-def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode:
-    # TODO: mass intersect possible_nodes_per_prop and and raise on multiple
-    # results (some kind of "ambiguous error"). Also need to match with anchor placement
+def astNodeFromAssertion(assertion: Query,
+                         match: SelectionMatch,
+                         destructive: bool) -> Sequence[cst.CSTNode]:
+    # TODO: aggregate intersect possible_nodes_per_prop and and raise on multiple
+    # results (some kind of "ambiguity error"). Also need to match with anchor placement
     cur_scope, *next_scopes = assertion.nested_scopes
     cur_capture, *next_captures = match.captures
     name = cur_scope.capture.literal or cur_capture.node.name
     next_assertion = Query()
     next_assertion.nested_scopes = next_scopes
 
-    # TODO: currently the algorithm erroneously uses captures that are
-    # irrelevant to the assertion
+    if destructive and not next_captures:
+        return []
+
     body = cur_capture.node
     while not isinstance(body, Sequence):
         body = body.body if hasattr(body, 'body') else ()
     if next_captures:
         inner = astNodeFromAssertion(
-            next_assertion, SelectionMatch(next_captures))
-        body = (*body, inner)
+            next_assertion, SelectionMatch(next_captures), destructive)
+        body = (*body, *inner)
     if not body:
         body = [cst.SimpleStatementLine(body=[cst.Pass()])]
 
+    BodyType = cst.IndentedBlock
+    try:
+        BodyType = type(cur_capture.node.body)
+    except AttributeError:
+        pass
+
     if cur_scope.properties.get('class'):
-        return cur_capture.node.with_changes(
+        return [cur_capture.node.with_changes(
             name=cst.Name(name),
-            body=cst.IndentedBlock(
+            body=BodyType(
                 body=body
             ),
-        )
+        )]
     if cur_scope.properties.get('func'):
         # TODO: need properties to be a dictionary subclass that returns false for unknown keys
         node_props = {
@@ -128,20 +138,20 @@ def astNodeFromAssertion(assertion: Query, match: SelectionMatch) -> cst.CSTNode
         if cur_scope.properties.get('async'):
             node_props['asynchronous'] = cst.Asynchronous()
         # TODO: need to check if this is defined in a class, defaults to having a self argument
-        return cur_capture.node.with_changes(
+        return [cur_capture.node.with_changes(
             name=cst.Name(name),
-            body=cst.IndentedBlock(  # NOTE: wrapping in indented block may not be a good idea
+            body=BodyType(  # NOTE: wrapping in indented block may not be a good idea
                 # because nesting ops like `;` may return a block in the future spec
                 body=body
             ),
             **node_props
-        )
+        )]
     elif cur_scope.properties.get('var'):
         # TODO: need properties to be a dictionary that returns false for unknown keys
-        return cur_capture.node.with_changes(
+        return [cur_capture.node.with_changes(
             targets=[cst.AssignTarget(target=cst.Name(name))],
             value=cst.Name("None")
-        )
+        )]
     raise Exception("Could not determine a node type from the name properties")
 
 
@@ -177,32 +187,10 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
     return selected  # maybe should have search return the result list
 
 
-def destroy_selection(py_ast: cst.CSTNode, matches: Iterator[SelectionMatch] = {}) -> cst.CSTNode:
-    """ remove the selected nodes from the AST, for destructive queries """
-
-    class DestroySelection(cst.CSTTransformer):
-        def __getattr__(self, attr):
-            if attr.startswith('leave_'):
-                return self._leave
-            else:
-                raise AttributeError(f"no such attribute '{attr}'")
-
-        def _leave(self, prev: cst.CSTNode, next: cst.CSTNode) -> cst.CSTNode:
-            # TODO: create a module tree from scratch for the assertion and merge the trees
-            if any(lambda m: prev.deep_equals(m.captures[-1].node), matches):
-                # XXX: may need to fix the lack/gain of pass in bodies...
-                # return cst.RemoveFromParent()
-                return cst.Pass()
-            return next
-
-    post_destroy_tree = py_ast.visit(DestroySelection())
-    # bodies_fixed_tree = FixEmptyBodies().visit(post_destroy_tree)
-    # fixed_tree = cst.fix_missing_locations(bodies_fixed_tree)
-    fixed_tree = post_destroy_tree
-    return fixed_tree
-
-
-def assert_(py_ast: cst.CSTNode, assertion: Query, matches: Optional[Iterator[SelectionMatch]]) -> cst.CSTNode:
+def assert_(py_ast: cst.CSTNode,
+            assertion: Query,
+            matches: Optional[Iterator[SelectionMatch]],
+            destructive: bool) -> cst.CSTNode:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
     perhaps a more active word should be chosen. Maybe *ensure*?
@@ -221,7 +209,9 @@ def assert_(py_ast: cst.CSTNode, assertion: Query, matches: Optional[Iterator[Se
             if match is notFound:
                 return updated
             else:
-                return astNodeFromAssertion(assertion, match)
+                from_assert = first(astNodeFromAssertion(
+                    assertion, match, destructive))
+                return from_assert
 
     transformed_tree = py_ast.visit(Transformer())
 
@@ -234,12 +224,10 @@ def exec_transform(src: str, transform: Transform) -> str:
     selection = None
     if transform.selector:
         selection = select(py_ast, transform.selector)
-    if transform.destructive:
-        py_ast = destroy_selection(py_ast, selection)
     if transform.assertion:
-        py_ast = assert_(py_ast, transform.assertion, selection)
+        py_ast = assert_(py_ast, transform.assertion,
+                         selection, transform.destructive)
     result = py_ast.code
-    import difflib
     diff = ''.join(
         difflib.unified_diff(
             src.splitlines(1),

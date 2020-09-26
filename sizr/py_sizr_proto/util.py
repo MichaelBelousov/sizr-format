@@ -23,3 +23,7 @@ def tryFind(func: Callable, itr: Iterable):
 
 
 def dictKeysAndValues(d): return d.keys(), d.values()
+
+
+def first(i: Iterable):
+    return next(iter(i))
