@@ -101,7 +101,7 @@ def parseCapture(ctx: ParseCtx):
         skipLeadingSpace(ctx)
         return CaptureExpr()
     else:
-        raise RejectedParse()
+        raise RejectedParseErr()
 
 
 def isNestingOp(ctx: ParseCtx) -> bool:

@@ -9,22 +9,10 @@ from typing import Optional, List, Set, Iterable, Tuple, Sequence
 from functools import reduce
 from .code import Query, Transform, ScopeExpr, pattern_any
 from .cst_util import unified_visit
-from .util import tryFind, notFound, dictKeysAndValues, first
+from .util import tryFind, notFound, first
 import operator
 import difflib
 
-
-# TODO: better name
-node_table = {
-    cst.ClassDef: {
-        'func': lambda n: True,
-        'class': lambda n: True,
-        'name': lambda node: node.name,
-    },
-    cst.FunctionDef: {
-        'func': True,
-    },
-}
 
 property_testers = {
     'func': lambda val, node: isinstance(node, cst.FunctionDef),
@@ -50,7 +38,8 @@ def possibleElemTypesFromScopeExpr(scope: ScopeExpr) -> Set[type(cst.CSTNode)]:
     return set(
         reduce(and_,
                map(lambda key, val: possible_node_classes_per_prop[key](val),
-                   *dictKeysAndValues(scope.properties))))
+                   scope.properties.keys(),
+                   scope.properties.values())))
 
 
 def elemNameFromNode(node: cst.CSTNode) -> Set[str]:
@@ -77,16 +66,8 @@ class Capture:
 
 
 class SelectionMatch:
-    CaptureType = Capture
-
-    def __init__(self, captures: List[CaptureType]):
+    def __init__(self, captures: List[Capture]):
         self.captures = captures
-
-    # probably want capture list to be retrievable by name,
-    # perhaps abstracting over int-indexable map/dict is in order
-    def getCaptureByName(self, name: str) -> CaptureType:
-        first, *_ = filter(lambda c: c.name == name, self.captures)
-        return first
 
     __repr__ = __str__ = lambda s: f'<Match|{s.captures}>'
 
@@ -99,27 +80,29 @@ def astNodeFromAssertion(transform: Transform,
     # TODO: aggregate intersect possible_nodes_per_prop and and raise on multiple
     # results (some kind of "ambiguity error"). Also need to match with anchor placement
     cur_scope = transform.assertion.nested_scopes[index]
-    cur_capture = match.captures[index]
+    cur_capture = transform.captures_by_ref.get(cur_scope)
 
-    name = cur_scope.capture.literal or cur_capture.node.name
-
-    body = cur_capture.node
-    while not isinstance(body, Sequence):
-        body = body.body if hasattr(body, 'body') else []
-    if index < len(match.captures) - 1:
-        inner = astNodeFromAssertion(transform, match, index+1)
-        if transform.destructive:
-            body = [s for s in body if not s.deep_equals(
-                match.captures[-1].node)]
-        body = (*body, *inner)
-    if not body:
-        body = [cst.SimpleStatementLine(body=[cst.Pass()])]
-
+    body = ()
     BodyType = cst.IndentedBlock
-    try:
-        BodyType = type(cur_capture.node.body)
-    except AttributeError:
-        pass
+
+    if cur_capture is not None:
+        name = elemNameFromNode(cur_capture.node)
+        body = cur_capture.node
+        while not isinstance(body, Sequence):
+            body = body.body if hasattr(body, 'body') else []
+        if index < len(match.captures) - 1:
+            inner = astNodeFromAssertion(transform, match, index+1)
+            if transform.destructive:
+                body = [s for s in body if not s.deep_equals(
+                    match.captures[-1].node)]
+            body = (*body, *inner)
+        if not body:
+            body = [cst.SimpleStatementLine(body=[cst.Pass()])]
+
+        try:
+            BodyType = type(cur_capture.node.body)
+        except AttributeError:
+            pass
 
     if cur_scope.properties.get('class'):
         return [cur_capture.node.with_changes(
@@ -173,7 +156,8 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
                      and cur_scope.capture.pattern.match(node.name.value) is not None))
                     # TODO: abstract to literate function "matchesScopeProps"?
                     and all(map(lambda k, v: property_testers[k](v, node),
-                                *dictKeysAndValues(cur_scope.properties)))):
+                                cur_scope.properties.keys(),
+                                cur_scope.properties.values()))):
                 next_captures = [*captures,
                                  Capture(node, cur_scope.capture.name)]
                 if rest_scopes:
