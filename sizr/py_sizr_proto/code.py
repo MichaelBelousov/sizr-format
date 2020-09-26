@@ -9,11 +9,11 @@ import re
 from typing import List, Optional
 
 
-capture_any = re.compile('')
+pattern_any = re.compile('')
 
 
 class CaptureExpr:
-    def __init__(self, pattern=capture_any, name=None, literal: str or None = None):
+    def __init__(self, pattern=pattern_any, name: Optional[str] = None, literal: Optional[str] = None):
         self.pattern = pattern
         self.name = name  # name to get the capture by
         self.literal = literal  # set if the capture is not a wildcard or regex
@@ -21,7 +21,7 @@ class CaptureExpr:
 
 
 class ScopeExpr:
-    def __init__(self, nesting_op: str or None = None):
+    def __init__(self, nesting_op: Optional[str] = None):
         self.capture = CaptureExpr()
         self.nesting_op = nesting_op
         self.properties = {}
@@ -34,14 +34,25 @@ class Query:
     of a transform
     """
 
-    def __init__(self, nested_scopes: List[ScopeExpr] or None = None):
-        self.nested_scopes = [] if nested_scopes is None else nested_scopes
+    def __init__(self, nested_scopes: Optional[List[ScopeExpr]] = None):
+        self.nested_scopes = nested_scopes or []
     __repr__ = __str__ = lambda s: f'<Query|scopes={s.nested_scopes}>'
 
 
+class ElementCapture:
+    references = set()
+
+
 class Transform:
-    def __init__(self, selector: Optional[Query] = None, assertion: Query or None = None, destructive: bool = False):
-        self.selector = selector
-        self.assertion = assertion
+    def __init__(self, selector: Optional[Query] = None, assertion: Optional[Query] = None, destructive=False):
+        self.selector = selector or Query()
+        self.assertion = assertion or Query()
         self.destructive = destructive
-    __repr__ = __str__ = lambda s: f'<Transform|selector={s.selector},assertion={s.assertion}>'
+        self.capture_per_ref = {}
+        self._findRefs()
+    __repr__ = __str__ = lambda s: f'<Transform{"!" if s.destructive else ""}|selector={s.selector},assertion={s.assertion}>'
+
+    def _findRefs(self):
+        """prepare capture_per_ref cache"""
+        for scope in self.selector.nested_scopes:
+            pass

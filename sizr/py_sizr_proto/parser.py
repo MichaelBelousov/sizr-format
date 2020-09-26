@@ -95,7 +95,7 @@ def parseCapture(ctx: ParseCtx):
         ctx.loc += next_space_offset
         skipLeadingSpace(ctx)
         # TODO: escape regex metachars and/or disallow some chars
-        return CaptureExpr(capture_any, name)
+        return CaptureExpr(name=name)
     elif is_anonymous_capture:
         ctx.loc += 1
         skipLeadingSpace(ctx)

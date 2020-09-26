@@ -7,7 +7,7 @@ import ast
 import libcst as cst
 from typing import Optional, List, Set, Iterable, Tuple, Sequence
 from functools import reduce
-from .code import Query, Transform, ScopeExpr, capture_any
+from .code import Query, Transform, ScopeExpr, pattern_any
 from .cst_util import unified_visit
 from .util import tryFind, notFound, dictKeysAndValues, first
 import operator
@@ -100,6 +100,7 @@ def astNodeFromAssertion(transform: Transform,
     # results (some kind of "ambiguity error"). Also need to match with anchor placement
     cur_scope = transform.assertion.nested_scopes[index]
     cur_capture = match.captures[index]
+
     name = cur_scope.capture.literal or cur_capture.node.name
 
     body = cur_capture.node
@@ -166,7 +167,7 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
         cur_scope, *rest_scopes = scopes
         for node in nesting_op_children_getter[nesting_op](node):
             # FIXME: autopep8 is making this really ugly... (or maybe I am)
-            if ((cur_scope.capture == capture_any
+            if ((cur_scope.capture.pattern == pattern_any
                  # TODO: switch to elemNameFromNode
                  or (hasattr(node, 'name')  # TODO: prefer isinstance()
                      and cur_scope.capture.pattern.match(node.name.value) is not None))
