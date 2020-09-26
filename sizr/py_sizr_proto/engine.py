@@ -7,7 +7,7 @@ import ast
 import libcst as cst
 from typing import Optional, List, Set, Iterable, Tuple, Sequence
 from functools import reduce
-from .code import Query, Transform, ScopeExpr, pattern_any
+from .code import Query, TransformExpr, ScopeExpr, pattern_any
 from .cst_util import unified_visit
 from .util import tryFind, notFound, first
 import operator
@@ -74,13 +74,14 @@ class SelectionMatch:
 # TODO: proof of the need to clarify datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
 
 
-def astNodeFromAssertion(transform: Transform,
+def astNodeFromAssertion(transform: TransformExpr,
                          match: SelectionMatch,
                          index=0) -> Sequence[cst.CSTNode]:
     # TODO: aggregate intersect possible_nodes_per_prop and and raise on multiple
     # results (some kind of "ambiguity error"). Also need to match with anchor placement
     cur_scope = transform.assertion.nested_scopes[index]
-    cur_capture = transform.captures_by_ref.get(cur_scope)
+    # cur_capture = transform.captures_by_name.get(cur_scope)
+    cur_capture = None
 
     body = ()
     BodyType = cst.IndentedBlock
@@ -171,7 +172,7 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
 
 
 def assert_(py_ast: cst.CSTNode,
-            transform: Transform,
+            transform: TransformExpr,
             matches: Optional[Iterable[SelectionMatch]]) -> cst.CSTNode:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
@@ -200,7 +201,7 @@ def assert_(py_ast: cst.CSTNode,
 
 
 # NOTE: default to print to stdout, take a cli arg for target file for now
-def exec_transform(src: str, transform: Transform) -> str:
+def exec_transform(src: str, transform: TransformExpr) -> str:
     py_ast = cst.parse_module(src)
     selection = None
     if transform.selector:

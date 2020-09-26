@@ -209,7 +209,7 @@ def parseTransformOp(ctx: ParseCtx):
     return op
 
 
-def parseTransform(src: str) -> Transform:
+def parseTransform(src: str) -> TransformExpr:
     ctx = ParseCtx(src)
     selector = assertion = destructive = None
     if isQuery(ctx):
@@ -219,4 +219,4 @@ def parseTransform(src: str) -> Transform:
     if isQuery(ctx):
         assertion = parseQuery(ctx)
     assert selector or assertion, "a transform command must have either a selector or an assertion"
-    return Transform(selector, assertion, destructive)
+    return TransformExpr(selector, assertion, destructive)
