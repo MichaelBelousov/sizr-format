@@ -103,15 +103,15 @@ def astNodeFromAssertion(assertion: Query,
     next_assertion = Query()
     next_assertion.nested_scopes = next_scopes
 
-    if destructive and not next_captures:
-        return []
-
     body = cur_capture.node
     while not isinstance(body, Sequence):
-        body = body.body if hasattr(body, 'body') else ()
+        body = body.body if hasattr(body, 'body') else []
     if next_captures:
         inner = astNodeFromAssertion(
             next_assertion, SelectionMatch(next_captures), destructive)
+        if destructive:
+            body = [s for s in body if not s.deep_equals(
+                next_captures[-1].node)]
         body = (*body, *inner)
     if not body:
         body = [cst.SimpleStatementLine(body=[cst.Pass()])]
