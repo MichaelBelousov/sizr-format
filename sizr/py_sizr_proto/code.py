@@ -6,7 +6,7 @@ sizr language code, currently slow and interpreted, hopefully eventually JITed
 # TODO: pep8
 
 import re
-from typing import List
+from typing import List, Optional
 
 
 capture_any = re.compile('')
@@ -40,7 +40,7 @@ class Query:
 
 
 class Transform:
-    def __init__(self, selector: Query or None = None, assertion: Query or None = None, destructive: bool = False):
+    def __init__(self, selector: Optional[Query] = None, assertion: Query or None = None, destructive: bool = False):
         self.selector = selector
         self.assertion = assertion
         self.destructive = destructive

@@ -14,13 +14,13 @@ from .engine import exec_transform
 
 
 def repl(input_file):
+    input_src = input_file.read()
     try:
         while True:
             command = input('sizr> ')
             if not command:
                 break
             parsed = parseTransform(command)
-            input_src = input_file.read()
             exec_transform(input_src, parsed)
     except KeyboardInterrupt:
         pass

@@ -5,7 +5,7 @@ AST transformation engine prototype for Sizr transform language
 from operator import and_
 import ast
 import libcst as cst
-from typing import Optional, List, Set, Iterator, Tuple, Sequence
+from typing import Optional, List, Set, Iterable, Tuple, Sequence
 from functools import reduce
 from .code import Query, Transform, ScopeExpr, capture_any
 from .cst_util import unified_visit
@@ -90,28 +90,26 @@ class SelectionMatch:
 
     __repr__ = __str__ = lambda s: f'<Match|{s.captures}>'
 
-
 # TODO: proof of the need to clarify datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
-def astNodeFromAssertion(assertion: Query,
+
+
+def astNodeFromAssertion(transform: Transform,
                          match: SelectionMatch,
-                         destructive: bool) -> Sequence[cst.CSTNode]:
+                         index=0) -> Sequence[cst.CSTNode]:
     # TODO: aggregate intersect possible_nodes_per_prop and and raise on multiple
     # results (some kind of "ambiguity error"). Also need to match with anchor placement
-    cur_scope, *next_scopes = assertion.nested_scopes
-    cur_capture, *next_captures = match.captures
+    cur_scope = transform.assertion.nested_scopes[index]
+    cur_capture = match.captures[index]
     name = cur_scope.capture.literal or cur_capture.node.name
-    next_assertion = Query()
-    next_assertion.nested_scopes = next_scopes
 
     body = cur_capture.node
     while not isinstance(body, Sequence):
         body = body.body if hasattr(body, 'body') else []
-    if next_captures:
-        inner = astNodeFromAssertion(
-            next_assertion, SelectionMatch(next_captures), destructive)
-        if destructive:
+    if index < len(match.captures) - 1:
+        inner = astNodeFromAssertion(transform, match, index+1)
+        if transform.destructive:
             body = [s for s in body if not s.deep_equals(
-                next_captures[-1].node)]
+                match.captures[-1].node)]
         body = (*body, *inner)
     if not body:
         body = [cst.SimpleStatementLine(body=[cst.Pass()])]
@@ -188,9 +186,8 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
 
 
 def assert_(py_ast: cst.CSTNode,
-            assertion: Query,
-            matches: Optional[Iterator[SelectionMatch]],
-            destructive: bool) -> cst.CSTNode:
+            transform: Transform,
+            matches: Optional[Iterable[SelectionMatch]]) -> cst.CSTNode:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
     perhaps a more active word should be chosen. Maybe *ensure*?
@@ -209,8 +206,7 @@ def assert_(py_ast: cst.CSTNode,
             if match is notFound:
                 return updated
             else:
-                from_assert = first(astNodeFromAssertion(
-                    assertion, match, destructive))
+                from_assert = first(astNodeFromAssertion(transform, match))
                 return from_assert
 
     transformed_tree = py_ast.visit(Transformer())
@@ -225,8 +221,7 @@ def exec_transform(src: str, transform: Transform) -> str:
     if transform.selector:
         selection = select(py_ast, transform.selector)
     if transform.assertion:
-        py_ast = assert_(py_ast, transform.assertion,
-                         selection, transform.destructive)
+        py_ast = assert_(py_ast, transform, selection)
     result = py_ast.code
     diff = ''.join(
         difflib.unified_diff(
