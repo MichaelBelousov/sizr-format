@@ -78,21 +78,23 @@ def astNodeFromAssertion(transform: TransformContext,
     cur_capture = match.by_name(cur_scope_expr.capture.name)
 
     name = cur_scope_expr.capture.name
-    node = body = BodyType = None
+    body = ()
+    node = BodyType = None
 
     if cur_capture is not None:
         node = cur_capture.node
         name = only(elemNameFromNode(node))
-        body = node
         body, BodyType = getNodeBody(node)
-        if index < len(match.elem_path) - 1:
-            inner = astNodeFromAssertion(transform, match, index+1)
-            if transform.destructive:
-                body = [s for s in body if not s.deep_equals(
-                    match.elem_path[-1].node)]
-            body = (*body, *inner)
-        if not body:
-            body = [cst.SimpleStatementLine(body=[cst.Pass()])]
+
+    if index < len(match.elem_path):
+        inner = astNodeFromAssertion(transform, match, index+1)
+        if transform.destructive:
+            body = [s for s in body if not s.deep_equals(
+                match.elem_path[-1].node)]
+        body = (*body, *inner)
+
+    if not body:
+        body = [cst.SimpleStatementLine(body=[cst.Pass()])]
 
     body = body or ()
     BodyType = BodyType or cst.IndentedBlock

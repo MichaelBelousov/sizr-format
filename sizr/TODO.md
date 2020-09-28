@@ -13,6 +13,10 @@ func element_name$capture_name
 /like\/this/ >>!
 
 ## nesting op order
+
+## ast eval selections
+func likeThis  { `$a + $b`
+func likeThis2 { `$a $+ $b`
 ```
 
 # Engine
