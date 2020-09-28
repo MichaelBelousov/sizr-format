@@ -7,9 +7,9 @@ import ast
 import libcst as cst
 from typing import Optional, List, Set, Iterable, Tuple, Sequence
 from functools import reduce
-from .code import Query, TransformExpr, ScopeExpr, pattern_any
+from .code import Query, TransformExpr, TransformContext, ScopeExpr, pattern_any, CapturedElement, Match
 from .cst_util import unified_visit
-from .util import tryFind, notFound, first
+from .util import tryFind, notFound, first, only
 import operator
 import difflib
 
@@ -56,70 +56,64 @@ def elemNameFromNode(node: cst.CSTNode) -> Set[str]:
 # node_from_prop_builders = {cst.ClassDef: lambda props: cst.ClassDef }
 
 
-class Capture:
-    def __init__(self, node: cst.CSTNode, name: Optional[str] = None):
-        self.node = node
-        self.name = name
-    # FIXME: fix CaptureExpr vs Capture[Ref?] naming
-    # maybe I can leave this to be fixed by the alpha phase :)
-    __repr__ = __str__ = lambda s: f'<CaptureRef|name={s.name},node={s.node}>'
+def getNodeBody(node: cst.CSTNode):
+    if not hasattr(node, 'body'):
+        return None, None
+
+    body = node.body
+    BodyType = None
+    while not isinstance(body, Sequence):
+        BodyType = type(body)
+        body = body.body if hasattr(body, 'body') else []
+
+    return body, BodyType
 
 
-class SelectionMatch:
-    def __init__(self, captures: List[Capture]):
-        self.captures = captures
-
-    __repr__ = __str__ = lambda s: f'<Match|{s.captures}>'
-
-# TODO: proof of the need to clarify datum names, as `Element` or `ProgramElement` or `Unit` or `Name`
-
-
-def astNodeFromAssertion(transform: TransformExpr,
-                         match: SelectionMatch,
+def astNodeFromAssertion(transform: TransformContext,
+                         match: Match,
                          index=0) -> Sequence[cst.CSTNode]:
     # TODO: aggregate intersect possible_nodes_per_prop and and raise on multiple
     # results (some kind of "ambiguity error"). Also need to match with anchor placement
-    cur_scope = transform.assertion.nested_scopes[index]
-    # cur_capture = transform.captures_by_name.get(cur_scope)
-    cur_capture = None
+    cur_scope_expr = transform.assertion.nested_scopes[index]
+    cur_capture = match.by_name(cur_scope_expr.capture.name)
 
-    body = ()
-    BodyType = cst.IndentedBlock
+    body = BodyType = None
 
     if cur_capture is not None:
-        name = elemNameFromNode(cur_capture.node)
+        name = only(elemNameFromNode(cur_capture.node))
         body = cur_capture.node
-        while not isinstance(body, Sequence):
-            body = body.body if hasattr(body, 'body') else []
-        if index < len(match.captures) - 1:
+        body, BodyType = getNodeBody(cur_capture.node)
+        print('CUR:', cur_scope_expr, cur_capture, body, BodyType)
+        if index < len(match.elem_path) - 1:
             inner = astNodeFromAssertion(transform, match, index+1)
             if transform.destructive:
                 body = [s for s in body if not s.deep_equals(
-                    match.captures[-1].node)]
+                    match.elem_path[-1].node)]
             body = (*body, *inner)
         if not body:
             body = [cst.SimpleStatementLine(body=[cst.Pass()])]
 
-        try:
-            BodyType = type(cur_capture.node.body)
-        except AttributeError:
-            pass
+    body = body or ()
+    BodyType = BodyType or cst.IndentedBlock
 
-    if cur_scope.properties.get('class'):
+    if cur_scope_expr.properties.get('class'):
         return [cur_capture.node.with_changes(
             name=cst.Name(name),
             body=BodyType(
                 body=body
             ),
         )]
-    if cur_scope.properties.get('func'):
+    if cur_scope_expr.properties.get('func'):
         # TODO: need properties to be a dictionary subclass that returns false for unknown keys
         node_props = {
             'params': cst.Parameters(),
             'decorators': (),
         }
-        if cur_scope.properties.get('async'):
+        if cur_scope_expr.properties.get('async'):
             node_props['asynchronous'] = cst.Asynchronous()
+        # TODO: need a rigorous way to determine defaults for a node type given context
+        # e.g. python functions in classes contain a first argument, 'self' by default
+        # e.g. C++ 'interface' scope property is a context where all methods are by default pure virtual
         # TODO: need to check if this is defined in a class, defaults to having a self argument
         return [cur_capture.node.with_changes(
             name=cst.Name(name),
@@ -129,7 +123,7 @@ def astNodeFromAssertion(transform: TransformExpr,
             ),
             **node_props
         )]
-    elif cur_scope.properties.get('var'):
+    elif cur_scope_expr.properties.get('var'):
         # TODO: need properties to be a dictionary that returns false for unknown keys
         return [cur_capture.node.with_changes(
             targets=[cst.AssignTarget(target=cst.Name(name))],
@@ -138,8 +132,8 @@ def astNodeFromAssertion(transform: TransformExpr,
     raise Exception("Could not determine a node type from the name properties")
 
 
-def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
-    selected: List[SelectionMatch] = []
+def select(root: cst.CSTNode, transform: TransformExpr) -> TransformContext:
+    result = TransformContext(transform)
 
     # TODO: dont root search at global scope, that's not the original design
     # I'll probably need to change the parser to store the prefixing nesting op
@@ -160,39 +154,44 @@ def select(root: cst.CSTNode, selector: Query) -> List[SelectionMatch]:
                                 cur_scope.properties.keys(),
                                 cur_scope.properties.values()))):
                 next_captures = [*captures,
-                                 Capture(node, cur_scope.capture.name)]
+                                 CapturedElement(cur_scope.capture, node)]
                 if rest_scopes:
                     search(node, rest_scopes,
                            cur_scope.nesting_op, next_captures)
                 else:
-                    selected.append(SelectionMatch(next_captures))
+                    result.add_match(next_captures)
 
-    search(root, selector.nested_scopes)
-    return selected  # maybe should have search return the result list
+    search(root, transform.selector.nested_scopes)
+    return result  # maybe should have search return the result list
 
 
-def assert_(py_ast: cst.CSTNode,
-            transform: TransformExpr,
-            matches: Optional[Iterable[SelectionMatch]]) -> cst.CSTNode:
+def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
     perhaps a more active word should be chosen. Maybe *ensure*?
     """
+    matches = transformCtx.matches
+
     if matches is None:
         matches = set()
 
-    @ unified_visit
+    first_ref_index = None
+    find_attempt = first(transformCtx.capture_reference_indices)
+    if find_attempt is not notFound:
+        _, (first_ref_index, _) = first(transformCtx.capture_reference_indices)
+
+    @unified_visit
     class Transformer(cst.CSTTransformer):
 
         def _leave(self, original: cst.CSTNode, updated: cst.CSTNode) -> cst.CSTNode:
             # TODO: if global scope query create a module tree from scratch?
             # NOTE: in the future can cache lib cst node comparisons for speed
             match = tryFind(lambda m: original.deep_equals(
-                m.captures[0].node), matches)
+                m.elem_path[first_ref_index].node), matches)
             if match is notFound:
                 return updated
             else:
-                from_assert = first(astNodeFromAssertion(transform, match))
+                from_assert = first(astNodeFromAssertion(transformCtx, match))
                 return from_assert
 
     transformed_tree = py_ast.visit(Transformer())
@@ -203,11 +202,12 @@ def assert_(py_ast: cst.CSTNode,
 # NOTE: default to print to stdout, take a cli arg for target file for now
 def exec_transform(src: str, transform: TransformExpr) -> str:
     py_ast = cst.parse_module(src)
-    selection = None
+    transformCtx = None
     if transform.selector:
-        selection = select(py_ast, transform.selector)
+        transformCtx = select(py_ast, transform)
     if transform.assertion:
-        py_ast = assert_(py_ast, transform, selection)
+        py_ast = assert_(py_ast, transformCtx)
+    print('AST #######:', py_ast)
     result = py_ast.code
     diff = ''.join(
         difflib.unified_diff(

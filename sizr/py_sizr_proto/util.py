@@ -30,6 +30,16 @@ def first(i: Iterable):
     return next(iter(i))
 
 
+def only(i: Iterable):
+    itr = iter(i)
+    first = next(itr)
+    try:
+        next(itr)
+    except StopIteration:
+        return first
+    raise ValueError("'only' requires one element be in the entire iteratable")
+
+
 class FrozenDict(dict, collections.Mapping):
     def __init__(self, other: Dict):
         self._hash = None

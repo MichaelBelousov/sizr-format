@@ -174,7 +174,7 @@ def parseScopeExpr(ctx: ParseCtx) -> ScopeExpr:
         # FIXME: confusing logic, prefer lookahead
         identifier = last_key
         expr.properties.pop(last_key)
-        expr.capture = CaptureExpr(re.compile(identifier), literal=identifier)
+        expr.capture = CaptureExpr(re.compile(identifier), name=identifier)
     if isNestingOp(ctx):
         expr.nesting_op = parseNestingOp(ctx)
     return expr
