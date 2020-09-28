@@ -86,7 +86,7 @@ def astNodeFromAssertion(transform: TransformContext,
         name = only(elemNameFromNode(node))
         body, BodyType = getNodeBody(node)
 
-    if index < len(match.elem_path):
+    if index < len(transform.assertion.nested_scopes) - 1:
         inner = astNodeFromAssertion(transform, match, index+1)
         if transform.destructive:
             body = [s for s in body if not s.deep_equals(

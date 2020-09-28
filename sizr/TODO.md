@@ -12,7 +12,7 @@ func element_name$capture_name
 ## regexes with escaped slashes (maybe for lisp lol)
 /like\/this/ >>!
 
-## nesting op order
+## nesting op order (should be prefix to support global scope idiom)
 
 ## ast eval selections
 func likeThis  { `$a + $b`
