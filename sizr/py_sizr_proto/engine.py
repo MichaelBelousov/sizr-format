@@ -77,13 +77,14 @@ def astNodeFromAssertion(transform: TransformContext,
     cur_scope_expr = transform.assertion.nested_scopes[index]
     cur_capture = match.by_name(cur_scope_expr.capture.name)
 
-    body = BodyType = None
+    name = cur_scope_expr.capture.name
+    node = body = BodyType = None
 
     if cur_capture is not None:
-        name = only(elemNameFromNode(cur_capture.node))
-        body = cur_capture.node
-        body, BodyType = getNodeBody(cur_capture.node)
-        print('CUR:', cur_scope_expr, cur_capture, body, BodyType)
+        node = cur_capture.node
+        name = only(elemNameFromNode(node))
+        body = node
+        body, BodyType = getNodeBody(node)
         if index < len(match.elem_path) - 1:
             inner = astNodeFromAssertion(transform, match, index+1)
             if transform.destructive:
@@ -97,7 +98,7 @@ def astNodeFromAssertion(transform: TransformContext,
     BodyType = BodyType or cst.IndentedBlock
 
     if cur_scope_expr.properties.get('class'):
-        return [cur_capture.node.with_changes(
+        return [(node.with_changes if node else cst.ClassDef)(
             name=cst.Name(name),
             body=BodyType(
                 body=body
@@ -115,7 +116,7 @@ def astNodeFromAssertion(transform: TransformContext,
         # e.g. python functions in classes contain a first argument, 'self' by default
         # e.g. C++ 'interface' scope property is a context where all methods are by default pure virtual
         # TODO: need to check if this is defined in a class, defaults to having a self argument
-        return [cur_capture.node.with_changes(
+        return [(node.with_changes if node else cst.FunctionDef)(
             name=cst.Name(name),
             body=BodyType(  # NOTE: wrapping in indented block may not be a good idea
                 # because nesting ops like `;` may return a block in the future spec
@@ -125,7 +126,7 @@ def astNodeFromAssertion(transform: TransformContext,
         )]
     elif cur_scope_expr.properties.get('var'):
         # TODO: need properties to be a dictionary that returns false for unknown keys
-        return [cur_capture.node.with_changes(
+        return [(node.with_changes if node else cst.Assign)(
             targets=[cst.AssignTarget(target=cst.Name(name))],
             value=cst.Name("None")
         )]
@@ -207,7 +208,6 @@ def exec_transform(src: str, transform: TransformExpr) -> str:
         transformCtx = select(py_ast, transform)
     if transform.assertion:
         py_ast = assert_(py_ast, transformCtx)
-    print('AST #######:', py_ast)
     result = py_ast.code
     diff = ''.join(
         difflib.unified_diff(
