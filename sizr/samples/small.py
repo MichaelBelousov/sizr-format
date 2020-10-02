@@ -4,4 +4,4 @@ class C:
     def G(self): pass
 
 
-y = C.x
+y = C.f

@@ -30,6 +30,13 @@ def first(i: Iterable):
     return next(iter(i))
 
 
+def tryFirst(i: Iterable):
+    try:
+        return next(iter(i))
+    except StopIteration:
+        return notFound
+
+
 def only(i: Iterable):
     itr = iter(i)
     first = next(itr)

@@ -34,7 +34,6 @@ class CapturedElement(CaptureExpr):
     def __init__(self, base: CaptureExpr, node: cst.CSTNode):
         super().__init__(base.pattern, base.name)
         self.node = node
-        self.references: Set[cst.CSTNode] = set()
 
     def __eq__(self, r):
         return self.pattern == r.pattern and self.name == r.name
@@ -106,9 +105,10 @@ class Match():
 
 class TransformContext(TransformExpr):
     # XXX: maybe replace captured_nodes with direct captured_selection
-    def __init__(self, base: TransformExpr):
+    def __init__(self, base: TransformExpr, module: cst.Module):
         super().__init__(base.selector, base.assertion, base.destructive)
         self.matches: List[Match] = []
+        self._init_reference_structure(module)
 
     def add_match(self, match: Match or List[CapturedElement]):
         if not isinstance(match, Match):
@@ -124,3 +124,18 @@ class TransformContext(TransformExpr):
         return filter(lambda pair: pair[0][1].capture.name == pair[1][1].capture.name,
                       product(enumerate(self.assertion.nested_scopes),
                               enumerate(self.selector.nested_scopes)))
+
+    def _init_reference_structure(self, module: cst.Module):
+        wrapper = cst.metadata.MetadataWrapper(module)
+        scopes = set(wrapper.resolve(cst.metadata.ScopeProvider).values())
+        # ranges = wrapper.resolve(cst.metadata.PositionProvider)
+        self.references: Dict[cst.CSTNode, Set[cst.metadata.Access]] = {}
+        # XXX: O(n^4)
+        for scope in scopes:
+            for assignment in scope.assignments:
+                for ref in assignment.references:
+                    for match in self.matches:
+                        capture = match.elem_path[-1]
+                        if ref.node == capture.node:
+                            self.references.get(
+                                assignment.node, set()).add(ref)

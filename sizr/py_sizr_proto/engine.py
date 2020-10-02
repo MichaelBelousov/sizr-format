@@ -9,7 +9,7 @@ from typing import Optional, List, Set, Iterable, Tuple, Sequence
 from functools import reduce
 from .code import Query, TransformExpr, TransformContext, ScopeExpr, pattern_any, CapturedElement, Match
 from .cst_util import unified_visit
-from .util import tryFind, notFound, first, only
+from .util import tryFind, notFound, first, only, tryFirst
 import operator
 import difflib
 
@@ -135,8 +135,8 @@ def astNodeFromAssertion(transform: TransformContext,
     raise Exception("Could not determine a node type from the name properties")
 
 
-def select(root: cst.CSTNode, transform: TransformExpr) -> TransformContext:
-    result = TransformContext(transform)
+def select(root: cst.Module, transform: TransformExpr) -> TransformContext:
+    result = TransformContext(transform, root)
 
     # TODO: dont root search at global scope, that's not the original design
     # I'll probably need to change the parser to store the prefixing nesting op
@@ -179,7 +179,7 @@ def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
         matches = set()
 
     first_ref_index = None
-    find_attempt = first(transformCtx.capture_reference_indices)
+    find_attempt = tryFirst(transformCtx.capture_reference_indices)
     if find_attempt is not notFound:
         _, (first_ref_index, _) = first(transformCtx.capture_reference_indices)
 
@@ -191,11 +191,14 @@ def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
             # NOTE: in the future can cache lib cst node comparisons for speed
             match = tryFind(lambda m: original.deep_equals(
                 m.elem_path[first_ref_index].node), matches)
-            if match is notFound:
-                return updated
-            else:
+            if match is not notFound:
                 from_assert = first(astNodeFromAssertion(transformCtx, match))
                 return from_assert
+            elif original in transformCtx.references:
+                # need to replace the reference
+                pass
+            else:
+                return updated
 
     transformed_tree = py_ast.visit(Transformer())
 
