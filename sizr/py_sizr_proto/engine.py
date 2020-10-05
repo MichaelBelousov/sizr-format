@@ -7,7 +7,7 @@ import ast
 import libcst as cst
 from typing import Optional, List, Set, Iterable, Tuple, Sequence
 from functools import reduce
-from .code import Query, TransformExpr, TransformContext, ScopeExpr, pattern_any, CapturedElement, Match
+from .code import Query, TransformExpr, TransformContext, ScopeExpr, pattern_any, CapturedElement, CaptureExpr, Match
 from .cst_util import unified_visit
 from .util import tryFind, notFound, first, only, tryFirst
 import operator
@@ -145,6 +145,9 @@ def select(root: cst.Module, transform: TransformExpr) -> TransformContext:
     def search(node: cst.CSTNode, scopes, nesting_op: Optional[str] = None, captures: Optional[List[cst.CSTNode]] = None):
         if captures is None:
             captures = []
+        # XXX: need to think out this algorithm slightly more (base cases are lacking)
+        if not scopes:
+            return
         cur_scope, *rest_scopes = scopes
         for node in nesting_op_children_getter[nesting_op](node):
             # FIXME: autopep8 is making this really ugly... (or maybe I am)
@@ -175,9 +178,6 @@ def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
     """
     matches = transformCtx.matches
 
-    if matches is None:
-        matches = set()
-
     first_ref_index = None
     find_attempt = tryFirst(transformCtx.capture_reference_indices)
     if find_attempt is not notFound:
@@ -197,6 +197,9 @@ def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
             elif original in transformCtx.references:
                 # need to replace the reference
                 pass
+            elif find_attempt is notFound and isinstance(updated, cst.Module):
+                module_match = Match([CapturedElement(CaptureExpr(), updated)])
+                return updated.with_changes(body=(*updated.body, *astNodeFromAssertion(transformCtx, module_match)))
             else:
                 return updated
 
