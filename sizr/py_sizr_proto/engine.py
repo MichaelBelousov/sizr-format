@@ -3,7 +3,6 @@ AST transformation engine prototype for Sizr transform language
 """
 
 from operator import and_
-import ast
 import libcst as cst
 from typing import Optional, List, Set, Iterable, Tuple, Sequence
 from functools import reduce
@@ -12,6 +11,7 @@ from .cst_util import unified_visit
 from .util import tryFind, notFound, first, only, tryFirst
 import operator
 import difflib
+from os import environ as env
 
 
 property_testers = {
@@ -211,11 +211,24 @@ def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
 # NOTE: default to print to stdout, take a cli arg for target file for now
 def exec_transform(src: str, transform: TransformExpr) -> str:
     py_ast = cst.parse_module(src)
-    transformCtx = None
+    old_ast = py_ast
+    if env.get('SIZR_DEBUG'):
+        print('<<<<< ORIGINAL:', py_ast)
+    transform_ctx = None
+
     if transform.selector:
-        transformCtx = select(py_ast, transform)
+        transform_ctx = select(py_ast, transform)
     if transform.assertion:
-        py_ast = assert_(py_ast, transformCtx)
+        py_ast = assert_(py_ast, transform_ctx)
+
+    if env.get('SIZR_DEBUG'):
+        print('>>>>> TRANSFORMED:', py_ast)
+        print('!!!!! DIFF', ''.join(
+            difflib.unified_diff(
+                str(old_ast).splitlines(1),
+                str(py_ast).splitlines(1)
+            )
+        ))
     result = py_ast.code
     diff = ''.join(
         difflib.unified_diff(
