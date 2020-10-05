@@ -99,6 +99,15 @@ def astNodeFromAssertion(transform: TransformContext,
     body = body or ()
     BodyType = BodyType or cst.IndentedBlock
 
+    print('cur scope', cur_scope_expr)
+
+    if cur_capture is not None:
+        return [node.with_changes(
+            name=cst.Name(name),
+            body=BodyType(
+                body=body
+            ),
+        )]
     if cur_scope_expr.properties.get('class'):
         return [(node.with_changes if node else cst.ClassDef)(
             name=cst.Name(name),
