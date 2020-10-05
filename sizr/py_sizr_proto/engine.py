@@ -76,6 +76,8 @@ def astNodeFromAssertion(transform: TransformContext,
     # results (some kind of "ambiguity error"). Also need to match with anchor placement
     cur_scope_expr = transform.assertion.nested_scopes[index]
     cur_capture = match.by_name(cur_scope_expr.capture.name)
+    if env.get('SIZR_DEBUG'):
+        print('astNodeFromAssertion', cur_scope_expr, cur_capture)
 
     name = cur_scope_expr.capture.name
     body = ()
@@ -98,8 +100,6 @@ def astNodeFromAssertion(transform: TransformContext,
 
     body = body or ()
     BodyType = BodyType or cst.IndentedBlock
-
-    print('cur scope', cur_scope_expr)
 
     if cur_capture is not None:
         return [node.with_changes(
@@ -194,17 +194,18 @@ def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
 
     @unified_visit
     class Transformer(cst.CSTTransformer):
-
         def _leave(self, original: cst.CSTNode, updated: cst.CSTNode) -> cst.CSTNode:
             # TODO: if global scope query create a module tree from scratch?
             # NOTE: in the future can cache lib cst node comparisons for speed
-            match = tryFind(lambda m: original.deep_equals(
-                m.elem_path[first_ref_index].node), matches)
+            match = notFound
+            if first_ref_index is not None:
+                match = tryFind(lambda m: original.deep_equals(
+                    m.elem_path[first_ref_index].node), matches)
             if match is not notFound:
                 from_assert = first(astNodeFromAssertion(transformCtx, match))
                 return from_assert
             elif original in transformCtx.references:
-                # need to replace the reference
+                # TODO: replace references to anything destroyed by the transform
                 pass
             elif find_attempt is notFound and isinstance(updated, cst.Module):
                 module_match = Match([CapturedElement(CaptureExpr(), updated)])

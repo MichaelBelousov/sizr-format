@@ -102,6 +102,8 @@ class Match():
     def by_name(self, name: str):
         return self._by_name.get(name)
 
+    __repr__ = __str__ = lambda s: f'''<{type(s).__name__}|{s.elem_path}>'''
+
 
 class TransformContext(TransformExpr):
     # XXX: maybe replace captured_nodes with direct captured_selection
