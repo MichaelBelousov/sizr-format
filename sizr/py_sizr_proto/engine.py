@@ -42,7 +42,7 @@ def iff_on_boolean(s: Set[cst.CSTNode]):
 possible_node_classes_per_prop = {
     'func': iff_on_boolean({cst.FunctionDef}),
     'class': iff_on_boolean({cst.ClassDef}),
-    'var': iff_on_boolean({cst.Name}),
+    'var': iff_on_boolean({cst.Assign}),
     'async': lambda _: {cst.FunctionDef}
 }
 
@@ -139,46 +139,32 @@ def astNodeFromAssertion(transform: TransformContext,
     if env.get('SIZR_DEBUG'):
         print('scope_stack:', scope_stack)
 
+    # TODO: probably ought to have a decidated object/class for this with an overriden __contains__
+    # magic method for selection paths
     for test_path, get_default_kwargs in per_path_default_kwargs.items():
         if stackPathMatches(test_path, scope_stack):
             scope_elem_extra_kwargs.update(get_default_kwargs(scope_stack))
 
-    print('pre-only scope_elem_types', scope_elem_types)
     scope_elem_type = only(scope_elem_types)  # ambiguity error if not only
 
-    if cur_scope_expr.properties.get('class'):
-        return [(node.with_changes if node else scope_elem_type)(
-            name=cst.Name(name),
-            body=BodyType(
-                body=body
-            ),
-        )]
-    elif cur_scope_expr.properties.get('func'):
-        # TODO: need properties to be a dictionary subclass that returns false for unknown keys
-        node_props = {
+    return [(node.with_changes if node else scope_elem_type)(
+        **({
+            'name': cst.Name(name),
+            'body': BodyType(body=body),
+        } if scope_elem_type in (cst.ClassDef, cst.FunctionDef) else {}),
+        **({
             'params': cst.Parameters(),
             'decorators': (),
-        }
-        if cur_scope_expr.properties.get('async'):
-            node_props['asynchronous'] = cst.Asynchronous()
-        # TODO: need a rigorous way to determine defaults for a node type given context
-        # e.g. python functions in classes contain a first argument, 'self' by default
-        # e.g. C++ 'interface' scope property is a context where all methods are by default pure virtual
-        # TODO: need to check if this is defined in a class, defaults to having a self argument
-        return [(node.with_changes if node else cst.FunctionDef)(
-            name=cst.Name(name),
-            body=BodyType(  # NOTE: wrapping in indented block may not be a good idea
-                # because nesting ops like `;` may return a block in the future spec
-                body=body
-            ),
-            **node_props
-        )]
-    # TODO: should get the intersection of possible types and default to var
-    elif not cur_scope_expr.properties or cur_scope_expr.properties.get('var'):
-        return [(node.with_changes if node else cst.Assign)(
-            targets=[cst.AssignTarget(target=cst.Name(name))],
-            value=cst.Name("None")
-        )]
+            **({
+                'asynchronous': cst.Asynchronous()
+            } if cur_scope_expr.properties.get('async') else {})
+        } if scope_elem_type is cst.FunctionDef else {}),
+        **({
+            'targets': [cst.AssignTarget(target=cst.Name(name))],
+            'value': cst.Name("None")
+        } if scope_elem_type is cst.Assign else {}),
+        **scope_elem_extra_kwargs
+    )]
     raise Exception("Could not determine a node type from the name properties")
 
 
