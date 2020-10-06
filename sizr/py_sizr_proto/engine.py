@@ -7,8 +7,8 @@ import libcst as cst
 from typing import Optional, List, Set, Iterable, Tuple, Sequence
 from functools import reduce
 from .code import Query, TransformExpr, TransformContext, ScopeExpr, pattern_any, CapturedElement, CaptureExpr, Match
-from .cst_util import unified_visit
-from .util import tryFind, notFound, first, only, tryFirst
+from .cst_util import unified_visit, node_types
+from .util import tryFind, notFound, first, only, tryFirst, stackPathMatches
 import operator
 import difflib
 from os import environ as env
@@ -26,23 +26,46 @@ nesting_op_children_getter = {
     None: lambda node: node.children
 }
 
+
+def iff_on_boolean(s: Set[cst.CSTNode]):
+    """return the set or its complement depending on the boolean value"""
+    def func(val):
+        if val == True:
+            return s
+        elif val == False:
+            return node_types - s
+        else:
+            return node_types
+    return func
+
+
 possible_node_classes_per_prop = {
-    'type': lambda val: {},  # TODO: make a special "any" set
-    'func': lambda val: {cst.FunctionDef},
-    'class': lambda val: {cst.ClassDef},
-    'var': lambda val: {cst.Name, cst.Assign}
+    'func': iff_on_boolean({cst.FunctionDef}),
+    'class': iff_on_boolean({cst.ClassDef}),
+    'var': iff_on_boolean({cst.Name}),
+    'async': lambda _: {cst.FunctionDef}
+}
+
+per_path_default_kwargs = {
+    (cst.ClassDef, cst.FunctionDef): lambda path: {
+        # TODO: if node is not decorated as staticmethod!
+        'params': cst.Parameters(params=[cst.Param(cst.Name('self'))])
+    },
 }
 
 
-def possibleElemTypesFromScopeExpr(scope: ScopeExpr) -> Set[type(cst.CSTNode)]:
-    return set(
-        reduce(and_,
-               map(lambda key, val: possible_node_classes_per_prop[key](val),
-                   scope.properties.keys(),
-                   scope.properties.values())))
+# NOTE: it is bad design to allow users to craft coincidentally unambiguous
+# scope expressions, instead, it would be better to have a plenty of unambigous
+# property keys (i.e. func, class, async, static, etc) for the user to craft with
+def possibleElemTypes(scope_expr: ScopeExpr) -> Set[cst.CSTNode]:
+    return reduce(and_,
+                  map(lambda key, val: possible_node_classes_per_prop[key](val),
+                      scope_expr.properties.keys(),
+                      scope_expr.properties.values()),
+                  node_types)
 
 
-def elemNameFromNode(node: cst.CSTNode) -> Set[str]:
+def elemName(node: cst.CSTNode) -> Set[str]:
     node_class = node.__class__
     per_node_class_name_accessors = {
         cst.FunctionDef: lambda: {node.name.value},
@@ -76,16 +99,13 @@ def astNodeFromAssertion(transform: TransformContext,
     # results (some kind of "ambiguity error"). Also need to match with anchor placement
     cur_scope_expr = transform.assertion.nested_scopes[index]
     cur_capture = match.by_name(cur_scope_expr.capture.name)
-    if env.get('SIZR_DEBUG'):
-        print('astNodeFromAssertion', cur_scope_expr, cur_capture)
-
     name = cur_scope_expr.capture.name
     body = ()
     node = BodyType = None
 
     if cur_capture is not None:
         node = cur_capture.node
-        name = only(elemNameFromNode(node))
+        name = only(elemName(node=node))
         body, BodyType = getNodeBody(node)
 
     if index < len(transform.assertion.nested_scopes) - 1:
@@ -106,8 +126,28 @@ def astNodeFromAssertion(transform: TransformContext,
                 body=body
             ),
         )]
+
+    scope_elem_types = possibleElemTypes(
+        scope_expr=cur_scope_expr)
+
+    scope_elem_extra_kwargs = {}
+
+    scope_stack = [match.by_name(s.capture.name)
+                   or tryFirst(possibleElemTypes(scope_expr=s))
+                   for s in transform.assertion.nested_scopes]
+
+    if env.get('SIZR_DEBUG'):
+        print('scope_stack:', scope_stack)
+
+    for test_path, get_default_kwargs in per_path_default_kwargs.items():
+        if stackPathMatches(test_path, scope_stack):
+            scope_elem_extra_kwargs.update(get_default_kwargs(scope_stack))
+
+    print('pre-only scope_elem_types', scope_elem_types)
+    scope_elem_type = only(scope_elem_types)  # ambiguity error if not only
+
     if cur_scope_expr.properties.get('class'):
-        return [(node.with_changes if node else cst.ClassDef)(
+        return [(node.with_changes if node else scope_elem_type)(
             name=cst.Name(name),
             body=BodyType(
                 body=body
@@ -159,7 +199,7 @@ def select(root: cst.Module, transform: TransformExpr) -> TransformContext:
         for node in nesting_op_children_getter[nesting_op](node):
             # FIXME: autopep8 is making this really ugly... (or maybe I am)
             if ((cur_scope.capture.pattern == pattern_any
-                 # TODO: switch to elemNameFromNode
+                 # TODO: switch to elemName(node=*)
                  or (hasattr(node, 'name')  # TODO: prefer isinstance()
                      and cur_scope.capture.pattern.match(node.name.value) is not None))
                     # TODO: abstract to literate function "matchesScopeProps"?

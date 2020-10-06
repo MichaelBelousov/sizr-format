@@ -44,6 +44,19 @@ namespace MyNamespace . MyClass
 
 ## Python
 
+#### Replace all `try/except` of a certain exception type with a tuple return type
+
+```sizr
+##  still don't know how to do two separate transforms in one session...
+## maybe & syntax is good for continuous expressions? heck, even `>!`, `>>`, `&` and `;`
+
+    $funcs { `raise myexception($...args)`
+&&  $funcs { `return $ret`
+>!  $funcs { `return None, $(...args)`
+    $funcs { `return $ret, None`
+>>>
+```
+
 -----------------------
 
 ## JavaScript

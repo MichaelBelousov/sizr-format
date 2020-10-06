@@ -7,8 +7,10 @@ from typing import Callable
 from functools import wraps
 from inspect import isclass
 
-node_names = [c.__name__ for c in cst.__dict__.values()
-              if isclass(c) and issubclass(c, cst.CSTNode)]
+node_types = {c for c in cst.__dict__.values()
+              if isclass(c) and issubclass(c, cst.CSTNode)}
+
+node_names = {c.__name__ for c in node_types}
 
 
 def unified_visit(wrapped: Callable) -> Callable:
