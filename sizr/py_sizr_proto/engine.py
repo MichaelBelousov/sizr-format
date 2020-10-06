@@ -95,11 +95,9 @@ def astNodeFromAssertion(transform: TransformContext,
                 match.elem_path[-1].node)]
         body = (*body, *inner)
 
+    BodyType = BodyType or cst.IndentedBlock
     if not body:
         body = [cst.SimpleStatementLine(body=[cst.Pass()])]
-
-    body = body or ()
-    BodyType = BodyType or cst.IndentedBlock
 
     if cur_capture is not None:
         return [node.with_changes(
@@ -115,7 +113,7 @@ def astNodeFromAssertion(transform: TransformContext,
                 body=body
             ),
         )]
-    if cur_scope_expr.properties.get('func'):
+    elif cur_scope_expr.properties.get('func'):
         # TODO: need properties to be a dictionary subclass that returns false for unknown keys
         node_props = {
             'params': cst.Parameters(),
@@ -135,8 +133,8 @@ def astNodeFromAssertion(transform: TransformContext,
             ),
             **node_props
         )]
-    elif cur_scope_expr.properties.get('var'):
-        # TODO: need properties to be a dictionary that returns false for unknown keys
+    # TODO: should get the intersection of possible types and default to var
+    elif not cur_scope_expr.properties or cur_scope_expr.properties.get('var'):
         return [(node.with_changes if node else cst.Assign)(
             targets=[cst.AssignTarget(target=cst.Name(name))],
             value=cst.Name("None")
