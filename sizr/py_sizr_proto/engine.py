@@ -165,7 +165,6 @@ def astNodeFromAssertion(transform: TransformContext,
         } if scope_elem_type is cst.Assign else {}),
         **scope_elem_extra_kwargs
     )]
-    raise Exception("Could not determine a node type from the name properties")
 
 
 def select(root: cst.Module, transform: TransformExpr) -> TransformContext:
