@@ -17,6 +17,9 @@ func element_name$capture_name
 ## ast eval selections
 func likeThis  { `$a + $b`
 func likeThis2 { `$a $+ $b`
+
+## empty scope exprs
+func f ( , arg1
 ```
 
 # Engine
@@ -24,4 +27,7 @@ func likeThis2 { `$a $+ $b`
 ```sizr
 ## regex back-references
 $/log_(.*)/ >>! $/out_\1
+
+## nested argument scopes
+func f ( , arg1
 ```

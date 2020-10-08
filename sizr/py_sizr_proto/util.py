@@ -4,6 +4,8 @@ general utilities
 
 from typing import Callable, Iterator, Iterable, Dict, List
 import collections
+from operator import eq
+from functools import reduce
 
 
 def find(func: Callable, itr: Iterable):
@@ -73,9 +75,4 @@ def stackPathMatches(path: List, stack: List) -> bool:
     given a path, read down the stack and check that the path has been pushed on
     to the stack, matching if so
     """
-    if len(path) > len(stack):
-        return False
-    for i, vert in enumerate(path):
-        if stack[-i - 1] != vert:
-            return False
-    return True
+    return all(map(eq, path, stack))

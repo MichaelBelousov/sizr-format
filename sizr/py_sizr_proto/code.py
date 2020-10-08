@@ -74,6 +74,8 @@ class Query:
 
     __repr__ = __str__ = lambda s: f'<{type(s).__name__}|scopes={s.nested_scopes}>'
 
+    def __bool__(self): return bool(self.nested_scopes)
+
 
 # TODO: derived from import discovery, will need facility for direct references, like
 # C++ includes and

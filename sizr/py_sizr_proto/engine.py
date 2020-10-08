@@ -4,7 +4,7 @@ AST transformation engine prototype for Sizr transform language
 
 from operator import and_
 import libcst as cst
-from typing import Optional, List, Set, Iterable, Tuple, Sequence
+from typing import Optional, List, Set, Iterable, Tuple, Sequence, Union
 from functools import reduce
 from .code import Query, TransformExpr, TransformContext, ScopeExpr, pattern_any, CapturedElement, CaptureExpr, Match
 from .cst_util import unified_visit, node_types
@@ -14,17 +14,32 @@ import difflib
 from os import environ as env
 
 
+# for a property, check with its value if it matches a given node
 property_testers = {
-    'func': lambda val, node: isinstance(node, cst.FunctionDef),
-    'class': lambda val, node: isinstance(node, cst.ClassDef),
+    'func': lambda val, node: bool(val) == isinstance(node, cst.FunctionDef),
+    'class': lambda val, node: bool(val) == isinstance(node, cst.ClassDef),
+    'var': lambda val, node: bool(val) == isinstance(node, cst.Assign)
 }
 
 
-nesting_op_children_getter = {
-    '.': lambda node: node.body.body if isinstance(node, cst.ClassDef) else (),
-    '(': lambda node: node.params if isinstance(node, cst.FunctionDef) else (),
-    None: lambda node: node.children
-}
+def getParamChild(node: Union[cst.FunctionDef, cst.Parameters, cst.Param]) -> cst.Param:
+    params = None
+    index = None
+    if isinstance(node, cst.Param):
+        params = node._params
+        index = node._index
+    elif isinstance(node, cst.FunctionDef):
+        params = node.params.params
+        index = 0
+    else:
+        params = node.params
+        index = 0
+    try:
+        next_param = params[index+1]
+        next_param._params = params
+        return (next_param,)
+    except IndexError:
+        return ()
 
 
 def iff_on_boolean(s: Set[cst.CSTNode]):
@@ -45,6 +60,15 @@ possible_node_classes_per_prop = {
     'var': iff_on_boolean({cst.Assign}),
     'async': lambda _: {cst.FunctionDef}
 }
+
+
+nesting_op_children_getter = {
+    '.': lambda node: node.body.body if isinstance(node, cst.ClassDef) else (),
+    '(': getParamChild,
+    ',': getParamChild,
+    None: lambda node: node.children
+}
+
 
 per_path_default_kwargs = {
     (cst.ClassDef, cst.FunctionDef): lambda path: {
@@ -132,9 +156,18 @@ def astNodeFromAssertion(transform: TransformContext,
 
     scope_elem_extra_kwargs = {}
 
-    scope_stack = [match.by_name(s.capture.name)
-                   or tryFirst(possibleElemTypes(scope_expr=s))
-                   for s in transform.assertion.nested_scopes]
+    scope_stack = []
+    # TODO move to function?
+    for s in transform.assertion.nested_scopes:
+        item = None
+        capture_elem = match.by_name(s.capture.name)
+        if capture_elem is not None:
+            item = type(capture_elem.node)
+        else:
+            item = tryFirst(possibleElemTypes(scope_expr=s))
+            if item is notFound:
+                continue
+        scope_stack.append(item)
 
     if env.get('SIZR_DEBUG'):
         print('scope_stack:', scope_stack)
@@ -148,22 +181,24 @@ def astNodeFromAssertion(transform: TransformContext,
     scope_elem_type = only(scope_elem_types)  # ambiguity error if not only
 
     return [(node.with_changes if node else scope_elem_type)(
-        **({
-            'name': cst.Name(name),
-            'body': BodyType(body=body),
-        } if scope_elem_type in (cst.ClassDef, cst.FunctionDef) else {}),
-        **({
-            'params': cst.Parameters(),
-            'decorators': (),
+        **{
             **({
-                'asynchronous': cst.Asynchronous()
-            } if cur_scope_expr.properties.get('async') else {})
-        } if scope_elem_type is cst.FunctionDef else {}),
-        **({
-            'targets': [cst.AssignTarget(target=cst.Name(name))],
-            'value': cst.Name("None")
-        } if scope_elem_type is cst.Assign else {}),
-        **scope_elem_extra_kwargs
+                'name': cst.Name(name),
+                'body': BodyType(body=body),
+            } if scope_elem_type in (cst.ClassDef, cst.FunctionDef) else {}),
+            **({
+                'params': cst.Parameters(),
+                'decorators': (),
+                **({
+                    'asynchronous': cst.Asynchronous()
+                } if cur_scope_expr.properties.get('async') else {})
+            } if scope_elem_type is cst.FunctionDef else {}),
+            **({
+                'targets': [cst.AssignTarget(target=cst.Name(name))],
+                'value': cst.Name("None")
+            } if scope_elem_type is cst.Assign else {}),
+            **scope_elem_extra_kwargs
+        }
     )]
 
 
@@ -215,7 +250,7 @@ def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
     if find_attempt is not notFound:
         _, (first_ref_index, _) = first(transformCtx.capture_reference_indices)
 
-    @unified_visit
+    @ unified_visit
     class Transformer(cst.CSTTransformer):
         def _leave(self, original: cst.CSTNode, updated: cst.CSTNode) -> cst.CSTNode:
             # TODO: if global scope query create a module tree from scratch?
@@ -251,6 +286,9 @@ def exec_transform(src: str, transform: TransformExpr) -> str:
 
     if transform.selector:
         transform_ctx = select(py_ast, transform)
+        if env.get('SIZR_DEBUG'):
+            for m in transform_ctx.matches:
+                print(m)
     if transform.assertion:
         py_ast = assert_(py_ast, transform_ctx)
 
