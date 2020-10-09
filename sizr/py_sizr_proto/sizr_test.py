@@ -77,23 +77,25 @@ class CliTests(unittest.TestCase):
             | python3 -m sizr.py_sizr_proto sizr/samples/small.py\
         """)
         expected = bytes(dedent_on_nextline("""\
-        sizr> --- class D
+        sizr> --- 
         +++ 
         @@ -1,9 +1,10 @@
-        class C:
-            x = 2
+         class C:
+             x = 2
         -    def f(self): return 5
-        
-            def G(self):
-                return self.f() + C.x
+         
+             def G(self):
+                 return self.f() + C.x
         +    class A:
         +        def f(self): return 5
+         
+         
+         y = C.f
         
-        
-        y = C.f
-
         sizr> 
         """), encoding='utf8')
+        print('recieved:', repr(received))
+        print('expected:', repr(expected))
         self.assertEqual(received, expected)
 
     def test_destroy_func(self):
