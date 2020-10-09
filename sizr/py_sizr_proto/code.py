@@ -99,9 +99,10 @@ class TransformExpr:
 class Match():
     def __init__(self, elem_path: Optional[List[CapturedElement]]):
         self.elem_path = elem_path or []
-        self._by_name = {s.name: s for s in self.elem_path}
+        self._by_name: Dict[str, CapturedElement] = {
+            s.name: s for s in self.elem_path}
 
-    def by_name(self, name: str):
+    def by_name(self, name: str) -> Optional[CapturedElement]:
         return self._by_name.get(name)
 
     __repr__ = __str__ = lambda s: f'''<{type(s).__name__}|{s.elem_path}>'''

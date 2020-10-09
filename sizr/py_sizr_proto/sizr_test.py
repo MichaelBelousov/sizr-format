@@ -73,21 +73,24 @@ class CliTests(unittest.TestCase):
 
     def test_move_captured_func(self):
         received = sh("""\
-            echo $'C . f >>> class D . f \n' \
+            echo $'C . f >>! C . class A . f \n' \
             | python3 -m sizr.py_sizr_proto sizr/samples/small.py\
         """)
         expected = bytes(dedent_on_nextline("""\
-        sizr> --- 
+        sizr> --- class D
         +++ 
-        @@ -4,6 +4,8 @@
-         
-             def G(self):
-                 return self.f() + C.x
-        +    def g(self):
-        +        pass
-         
-         
-         y = C.f
+        @@ -1,9 +1,10 @@
+        class C:
+            x = 2
+        -    def f(self): return 5
+        
+            def G(self):
+                return self.f() + C.x
+        +    class A:
+        +        def f(self): return 5
+        
+        
+        y = C.f
 
         sizr> 
         """), encoding='utf8')

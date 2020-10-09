@@ -72,7 +72,7 @@ nesting_op_children_getter = {
 
 per_path_default_kwargs = {
     (cst.ClassDef, cst.FunctionDef): lambda path: {
-        # TODO: if node is not decorated as staticmethod!
+        # TODO: if node is not decorated as staticmethod or class method!
         'params': cst.Parameters(params=[cst.Param(cst.Name('self'))])
     },
 }
@@ -287,12 +287,14 @@ def exec_transform(src: str, transform: TransformExpr) -> str:
     if transform.selector:
         transform_ctx = select(py_ast, transform)
         if env.get('SIZR_DEBUG'):
+            print('#> Matches <#########################')
             for m in transform_ctx.matches:
                 print(m)
+            print('#####################################')
     if transform.assertion:
         py_ast = assert_(py_ast, transform_ctx)
 
-    if env.get('SIZR_DEBUG'):
+    if env.get('SIZR_DEBUG') and transform.assertion:
         print('>>>>> TRANSFORMED:', py_ast)
         print('!!!!! DIFF', ''.join(
             difflib.unified_diff(
