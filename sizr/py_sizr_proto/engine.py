@@ -14,12 +14,15 @@ import difflib
 from os import environ as env
 
 
-# for a property, check with its value if it matches a given node
-property_testers = {
-    'func': lambda val, node: bool(val) == isinstance(node, cst.FunctionDef),
-    'class': lambda val, node: bool(val) == isinstance(node, cst.ClassDef),
-    'var': lambda val, node: bool(val) == isinstance(node, cst.Assign)
-}
+def matchesScopeProps(node: cst.CSTNode, scope_expr: ScopeExpr) -> bool:
+    property_testers = {
+        'func': lambda val, node: bool(val) == isinstance(node, cst.FunctionDef),
+        'class': lambda val, node: bool(val) == isinstance(node, cst.ClassDef),
+        'var': lambda val, node: bool(val) == isinstance(node, cst.Assign)
+    }
+    return all(map(lambda k, v: property_testers[k](v, node),
+                   scope_expr.properties.keys(),
+                   scope_expr.properties.values()))
 
 
 def getParamChild(node: Union[cst.FunctionDef, cst.Parameters, cst.Param]) -> cst.Param:
@@ -89,14 +92,15 @@ def possibleElemTypes(scope_expr: ScopeExpr) -> Set[cst.CSTNode]:
                   node_types)
 
 
-def elemName(node: cst.CSTNode) -> Set[str]:
+def elemName(node: cst.CSTNode) -> Optional[str]:
     node_class = node.__class__
     per_node_class_name_accessors = {
-        cst.FunctionDef: lambda: {node.name.value},
-        cst.ClassDef: lambda: {node.name.value},
-        cst.Assign: lambda: {t.target.value for t in node.targets},
+        cst.FunctionDef: lambda: node.name.value,
+        cst.ClassDef: lambda: node.name.value,
+        cst.Assign: lambda: node.targets[0] if len(node.targets) == 1 else None,
+        cst.AssignTarget: lambda: node.target
     }
-    return per_node_class_name_accessors.get(node_class, lambda: set())()
+    return per_node_class_name_accessors.get(node_class)()
 
 # future code organization
 # default_prop_values = {}
@@ -129,7 +133,7 @@ def astNodeFromAssertion(transform: TransformContext,
 
     if cur_capture is not None:
         node = cur_capture.node
-        name = only(elemName(node=node))
+        name = elemName(node=node)
         body, BodyType = getNodeBody(node)
 
     if index < len(transform.assertion.nested_scopes) - 1:
@@ -218,14 +222,11 @@ def select(root: cst.Module, transform: TransformExpr) -> TransformContext:
         cur_scope, *rest_scopes = scopes
         for node in nesting_op_children_getter[nesting_op](node):
             # FIXME: autopep8 is making this really ugly... (or maybe I am)
+            name = elemName(node=node)
             if ((cur_scope.capture.pattern == pattern_any
                  # TODO: switch to elemName(node=*)
-                 or (hasattr(node, 'name')  # TODO: prefer isinstance()
-                     and cur_scope.capture.pattern.match(node.name.value) is not None))
-                    # TODO: abstract to literate function "matchesScopeProps"?
-                    and all(map(lambda k, v: property_testers[k](v, node),
-                                cur_scope.properties.keys(),
-                                cur_scope.properties.values()))):
+                 or (name and cur_scope.capture.pattern.match(name) is not None))
+                    and matchesScopeProps(node, cur_scope)):
                 next_captures = [*captures,
                                  CapturedElement(cur_scope.capture, node)]
                 if rest_scopes:

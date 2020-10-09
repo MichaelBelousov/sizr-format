@@ -50,6 +50,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(received, expected)
 
     def test_add_uncaptured_global_func(self):
+        # failing
         received = sh("""\
             echo $'>>> func x\n' \
             | python3 -m sizr.py_sizr_proto sizr/samples/small.py\
@@ -99,6 +100,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(received, expected)
 
     def test_destroy_func(self):
+        # failing
         received = sh("""\
             echo $'C . f >>!\n' \
             | python3 -m sizr.py_sizr_proto sizr/samples/small.py\
