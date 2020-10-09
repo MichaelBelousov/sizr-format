@@ -1,53 +1,119 @@
 #!/usr/bin/python3
 """
-test merge.py
+test sizr stuff
 """
 
 # TODO: figure out python unittest project organization conventions
 
 import unittest
-from textwrap import dedent
-import merge
 import libcst as cst
+import subprocess
 
 
-block_1 = """
-pass
-def myfunc(arg1):
-    pass
-x = 5
-"""
-
-block_2 = """
-pass
-def myfunc(arg1):
-    y = 10
-x = 5
-"""
-
-block_3 = """
-pass
-def myfunc(arg1):
-    pass
-x = 5
-
-class C:
-    pass
-"""
-
-block_4 = """
-class C:
-    pass
-pass
-def myfunc(arg1):
-    pass
-x = 5
-"""
+def sh(*args, **kwargs):
+    return subprocess.check_output(*args, **kwargs, shell=True)
 
 
-class MergeTests(unittest.TestCase):
-    def test_1(self):
-        self.assertEqual("")
+def dedent_on_nextline(text: str):
+    """textwrap.dedent doesn't seem to be working for my purposes"""
+    lines = text.splitlines()
+    first_indented_line = lines[1]
+    finish_indent = 0
+    for c in first_indented_line:
+        if not c.isspace():
+            break
+        finish_indent += 1
+    return '\n'.join(l[finish_indent:] for l in lines)
+
+
+class CliTests(unittest.TestCase):
+    def test_add_method(self):
+        received = sh("""\
+            echo $'C . f >>> class C . func g\n' \
+            | python3 -m sizr.py_sizr_proto sizr/samples/small.py\
+        """)
+        expected = bytes(dedent_on_nextline("""\
+        sizr> --- 
+        +++ 
+        @@ -4,6 +4,8 @@
+         
+             def G(self):
+                 return self.f() + C.x
+        +    def g(self):
+        +        pass
+         
+         
+         y = C.f
+
+        sizr> 
+        """), encoding='utf8')
+        self.assertEqual(received, expected)
+
+    def test_add_uncaptured_global_func(self):
+        received = sh("""\
+            echo $'>>> func x\n' \
+            | python3 -m sizr.py_sizr_proto sizr/samples/small.py\
+        """)
+        expected = bytes(dedent_on_nextline("""\
+        sizr> --- 
+        +++ 
+        @@ -4,6 +4,8 @@
+         
+             def G(self):
+                 return self.f() + C.x
+        +    def g(self):
+        +        pass
+         
+         
+         y = C.f
+
+        sizr> 
+        """), encoding='utf8')
+        self.assertEqual(received, expected)
+
+    def test_move_captured_func(self):
+        received = sh("""\
+            echo $'C . f >>> class D . f \n' \
+            | python3 -m sizr.py_sizr_proto sizr/samples/small.py\
+        """)
+        expected = bytes(dedent_on_nextline("""\
+        sizr> --- 
+        +++ 
+        @@ -4,6 +4,8 @@
+         
+             def G(self):
+                 return self.f() + C.x
+        +    def g(self):
+        +        pass
+         
+         
+         y = C.f
+
+        sizr> 
+        """), encoding='utf8')
+        self.assertEqual(received, expected)
+
+    def test_destroy_func(self):
+        received = sh("""\
+            echo $'C . f >>!\n' \
+            | python3 -m sizr.py_sizr_proto sizr/samples/small.py\
+        """)
+        expected = bytes(dedent_on_nextline("""\
+        sizr> --- 
+        +++ 
+        @@ -4,6 +4,8 @@
+         
+             def G(self):
+                 return self.f() + C.x
+        +    def g(self):
+        +        pass
+         
+         
+        y = C.f
+
+        sizr> 
+        """), encoding='utf8')
+        self.assertEqual(received, expected)
 
 
 if __name__ == '__main__':
