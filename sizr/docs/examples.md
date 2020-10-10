@@ -49,12 +49,30 @@ namespace MyNamespace . MyClass
 ```sizr
 ##  still don't know how to do two separate transforms in one session...
 ## maybe & syntax is good for continuous expressions? heck, even `>!`, `>>`, `&` and `;`
+## are operators I should be open to
 
     $funcs { `raise myexception($...args)`
 &&  $funcs { `return $ret`
 >!  $funcs { `return None, $(...args)`
     $funcs { `return $ret, None`
 >>>
+```
+
+#### Switch argument spaces
+
+```sizr
+## IDEA?:
+## special circumstance, if you have no properties in the '(' scope, it always matches
+## the first argument only
+C . f ( $arg1 , $arg2 >>> f ( $arg2, $arg1
+```
+
+#### rename all arguments
+
+```sizr
+## rename operation
+## but this contradicts switching arguments design :(
+C . f ( $// >>> $/in_\0/
 ```
 
 -----------------------
