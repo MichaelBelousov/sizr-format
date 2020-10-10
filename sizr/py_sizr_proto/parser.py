@@ -62,7 +62,7 @@ def parseValue(ctx: ParseCtx):
         skipLeadingSpace(ctx)
         return float(number_sentence)
     else:
-        next_space_offset = remaining_src.find(' ')
+        next_space_offset = nextTokenEndOffset(ctx)
         ctx.loc += next_space_offset
         skipLeadingSpace(ctx)
         # NOTE: when switching to ctx.remaining_src this won't work anymore
@@ -79,7 +79,7 @@ def parseCapture(ctx: ParseCtx):
     remaining_src = ctx.src[ctx.loc:]
     is_regex_capture = remaining_src[:2] == '$/'
     is_named_capture = remaining_src[1:2].isalpha()
-    is_anonymous_capture = remaining_src[0] == '$'
+    is_anonymous_capture = remaining_src[0] == '$' and not is_named_capture
     if is_regex_capture:
         unescaped_slash_pattern = re.compile(r'(?<!\\)/')
         end_slash_offset = unescaped_slash_pattern.search(
@@ -90,7 +90,7 @@ def parseCapture(ctx: ParseCtx):
         skipLeadingSpace(ctx)
         return CaptureExpr(re.compile(regex_src))
     elif is_named_capture:
-        next_space_offset = remaining_src.find(' ')
+        next_space_offset = nextTokenEndOffset(ctx)
         name = remaining_src[1:next_space_offset]
         ctx.loc += next_space_offset
         skipLeadingSpace(ctx)
