@@ -25,24 +25,27 @@ def matchesScopeProps(node: cst.CSTNode, scope_expr: ScopeExpr) -> bool:
                    scope_expr.properties.values()))
 
 
-def getParamChild(node: Union[cst.FunctionDef, cst.Parameters, cst.Param]) -> cst.Param:
-    params = None
-    index = None
-    if isinstance(node, cst.Param):
-        params = node._params
-        index = node._index
-    elif isinstance(node, cst.FunctionDef):
-        params = node.params.params
-        index = 0
+# XXX: should be cleared between selections on ASTs
+_next_param_cache = {}
+
+
+def getNextParam(node: Union[cst.FunctionDef, cst.Parameters, cst.Param]) -> cst.Param:
+    if isinstance(node, (cst.FunctionDef, cst.Parameters)):
+        params = None
+        if isinstance(node, cst.FunctionDef):
+            params = node.params.params
+        else:  # isinstance(node, cst.Parameters):
+            params = node.params
+        _next_param_cache.update(
+            {p for p in zip(params[::1], params[1::1])})
+        if len(params) > 0:
+            return (params[0],)
     else:
-        params = node.params
-        index = 0
-    try:
-        next_param = params[index+1]
-        next_param._params = params
-        return (next_param,)
-    except IndexError:
-        return ()
+        try:
+            next_param = _next_param_cache[node]
+            return (next_param,)
+        except KeyError:
+            return ()
 
 
 def iff_on_boolean(s: Set[cst.CSTNode]):
@@ -67,8 +70,8 @@ possible_node_classes_per_prop = {
 
 nesting_op_children_getter = {
     '.': lambda node: node.body.body if isinstance(node, cst.ClassDef) else (),
-    '(': getParamChild,
-    ',': getParamChild,
+    '(': getNextParam,
+    ',': getNextParam,
     None: lambda node: node.children
 }
 
@@ -97,10 +100,11 @@ def elemName(node: cst.CSTNode) -> Optional[str]:
     per_node_class_name_accessors = {
         cst.FunctionDef: lambda: node.name.value,
         cst.ClassDef: lambda: node.name.value,
+        cst.Param: lambda: node.name.value,
         cst.Assign: lambda: node.targets[0] if len(node.targets) == 1 else None,
-        cst.AssignTarget: lambda: node.target
+        cst.AssignTarget: lambda: node.target,
     }
-    return per_node_class_name_accessors.get(node_class)()
+    return per_node_class_name_accessors.get(node_class, lambda: None)()
 
 # future code organization
 # default_prop_values = {}
