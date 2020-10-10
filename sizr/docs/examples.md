@@ -64,7 +64,7 @@ namespace MyNamespace . MyClass
 ## IDEA?:
 ## special circumstance, if you have no properties in the '(' scope, it always matches
 ## the first argument only
-C . f ( $arg1 , $arg2 >>> f ( $arg2, $arg1
+C . f (, $arg1 , $arg2 >>> f ( $arg2, $arg1
 ```
 
 #### rename all arguments
@@ -73,6 +73,11 @@ C . f ( $arg1 , $arg2 >>> f ( $arg2, $arg1
 ## rename operation
 ## but this contradicts switching arguments design :(
 C . f ( $// >>> $/in_\0/
+## probably ought to use a separate nesting op for accessing all args vs singular...
+## `,` is the 'next arg' nesting scope,
+## `( , arg1` is first arg,
+## `( type=double $argx` is all double args
+## `( type=double $ , $argx` is args after double args
 ```
 
 -----------------------

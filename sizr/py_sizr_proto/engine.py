@@ -70,7 +70,7 @@ possible_node_classes_per_prop = {
 
 nesting_op_children_getter = {
     '.': lambda node: node.body.body if isinstance(node, cst.ClassDef) else (),
-    '(': getNextParam,
+    '(': lambda node: node.params.params if isinstance(node, cst.FunctionDef) else (),
     ',': getNextParam,
     None: lambda node: node.children
 }

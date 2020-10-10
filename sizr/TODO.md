@@ -26,8 +26,6 @@ func f ( , arg1
 
 ```sizr
 ## regex back-references
-$/log_(.*)/ >>! $/out_\1
+$/log_(.*)/ >>! $/out_\1/
 
-## nested argument scopes
-func f ( , arg1
 ```
