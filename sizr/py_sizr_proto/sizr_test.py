@@ -37,8 +37,8 @@ class CliTests(unittest.TestCase):
         +++ 
         @@ -4,6 +4,8 @@
          
-             def G(self):
-                 return self.f() + C.x
+             def G(self, arg2):
+                 return self.f() + C.x + arg2
         +    def g(self):
         +        pass
          
@@ -60,8 +60,8 @@ class CliTests(unittest.TestCase):
         +++ 
         @@ -4,6 +4,8 @@
          
-             def G(self):
-                 return self.f() + C.x
+             def G(self, arg2):
+                 return self.f() + C.x + arg2
         +    def g(self):
         +        pass
          
@@ -85,8 +85,8 @@ class CliTests(unittest.TestCase):
              x = 2
         -    def f(self): return 5
          
-             def G(self):
-                 return self.f() + C.x
+             def G(self, arg2):
+                 return self.f() + C.x + arg2
         +    class A:
         +        def f(self): return 5
          
@@ -110,8 +110,8 @@ class CliTests(unittest.TestCase):
         +++ 
         @@ -4,6 +4,8 @@
          
-             def G(self):
-                 return self.f() + C.x
+             def G(self, arg2):
+                 return self.f() + C.x + arg2
         +    def g(self):
         +        pass
          
