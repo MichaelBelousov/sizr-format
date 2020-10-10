@@ -113,7 +113,7 @@ def elemName(node: cst.CSTNode) -> Optional[str]:
 
 def getNodeBody(node: cst.CSTNode):
     if not hasattr(node, 'body'):
-        return None, None
+        return (), None
 
     body = node.body
     BodyType = None
@@ -141,6 +141,7 @@ def astNodeFromAssertion(transform: TransformContext,
         body, BodyType = getNodeBody(node)
 
     if index < len(transform.assertion.nested_scopes) - 1:
+        # inner doesn'make sense for ( and , nesting scopes...
         inner = astNodeFromAssertion(transform, match, index+1)
         if transform.destructive:
             body = [s for s in body if not s.deep_equals(
@@ -154,13 +155,13 @@ def astNodeFromAssertion(transform: TransformContext,
     if cur_capture is not None:
         return [node.with_changes(
             name=cst.Name(name),
-            body=BodyType(
-                body=body
-            ),
+            **({
+                'body': BodyType(body=body),
+                # probably need a better way to do this, ideally just ignore excess kwargs
+            } if isinstance(node, (cst.FunctionDef, cst.ClassDef)) else {})
         )]
 
-    scope_elem_types = possibleElemTypes(
-        scope_expr=cur_scope_expr)
+    scope_elem_types = possibleElemTypes(scope_expr=cur_scope_expr)
 
     scope_elem_extra_kwargs = {}
 

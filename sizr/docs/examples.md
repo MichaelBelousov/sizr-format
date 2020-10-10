@@ -65,6 +65,8 @@ namespace MyNamespace . MyClass
 ## special circumstance, if you have no properties in the '(' scope, it always matches
 ## the first argument only
 C . f (, $arg1 , $arg2 >>> f ( $arg2, $arg1
+## yeah I think `(,` will be an idiom for the first argument scope, but perhaps it will be implemented
+## as `(` followed by `,`
 ```
 
 #### rename all arguments
