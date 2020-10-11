@@ -19,8 +19,11 @@ pattern_any = re.compile('')
 class Capturable(ABC):
     """An expression that can be 'captured', giving it data contextual to the target AST"""
     @abstractmethod
-    def contextualize(self, capture_info):
-        """provide context for this Capturable, enabling its contextual API"""
+    def contextualize(self, capture_info) -> "self":
+        """
+        provide context for this Capturable, enabling its contextual API
+        returns itself for in-place usage
+        """
         pass
 
 
@@ -47,11 +50,13 @@ class CaptureExpr(Capturable):
             self.node = node
         if target is not None:
             self.target = target
+        return self
 
 
 class ScopeExpr(Capturable):
     def __init__(self, nesting_op: Optional[str] = None):
         self.capture = CaptureExpr()
+        # the nesting op after this scope expr
         self.nesting_op = nesting_op
         self.properties = {}
 
@@ -77,6 +82,7 @@ class ScopeExpr(Capturable):
 
     def contextualize(self, node=None, target=None):
         self.capture.contextualize(node=node, target=target)
+        return self
 
 
 class Query(Capturable):
@@ -93,6 +99,7 @@ class Query(Capturable):
     def contextualize(self, nodes: List[cst.CSTNode] = [], targets: List[CaptureExpr] = []):
         for scope, node, target in zip(self.nested_scopes, nodes, targets):
             scope.contextualize(node=node, target=target)
+        return self
 
     # would be nice to have is_selector and is_assertion validators, but they're somewhat pointless
     # since the design  of the program identifies them, the type system ideally would be able to derive that
@@ -108,15 +115,12 @@ class ProgramContext:
 
 
 class Match():
-    def __init__(self, elem_path: Optional[List[CaptureExpr]]):
-        self.elem_path = elem_path or []
-        self._by_name: Dict[str, CaptureExpr] = {
-            s.name: s for s in self.elem_path}
+    def __init__(self, path: Optional[List[CaptureExpr]]):
+        self.path = path or []
+        self.by_name: Dict[str, CaptureExpr] = {s.name: s for s in self.path}
 
-    def by_name(self, name: str) -> Optional[CaptureExpr]:
-        return self._by_name.get(name)
-
-    __repr__ = __str__ = lambda s: f'''<{type(s).__name__}|{s.elem_path}>'''
+    # referencing the `s` here as self will be a great test of sizr (s.path)
+    __repr__ = __str__ = lambda s: f'''<{type(s).__name__}|{s.path}>'''
 
 
 class Transform(Capturable):
@@ -125,20 +129,23 @@ class Transform(Capturable):
         self.assertion = assertion or Query()
         self.destructive = destructive
 
-    def contextualize(self, module_ast: cst.Module):
-        self.matches: List[Match] = []
+    def contextualize(self, module_ast: cst.Module, matches: List[Match] = None):
+        # probably ought to wrap contextual attributes in @property's so they can raise errors when the object
+        # has not been contextualized yet...
+        self.matches = matches or []
         self._init_reference_structure(module_ast)
-
-    def add_match(self, match: Match or List[CaptureExpr]):
-        if not isinstance(match, Match):
-            match = Match(match)
-        self.matches.append(match)
+        # XXX: need to figure how to per-match contextualize selectors and assertions.
+        # Probably need to have separate selectors, assertors, Selections, Assertions
+        # each match will have a selection, from which an assertor can generate an assertion?
+        # self.selector.contextualize()
+        # self.assertion.contextualize()
+        return self
 
     __repr__ = __str__ = lambda s: f'''<{type(s).__name__}{
         '!' if s.destructive else ''
     }|selector={s.selector},assertion={s.assertion}>'''
 
-    @property
+    @ property
     def capture_reference_indices(self):
         # XXX: probably much better to use an actual mapping/dict
         # XXX: for now assumes capture unique capture names, in the future intersecting
@@ -159,7 +166,7 @@ class Transform(Capturable):
             for assignment in scope.assignments:
                 for ref in assignment.references:
                     for match in self.matches:
-                        capture = match.elem_path[-1]
+                        capture = match.path[-1]
                         if ref.node == capture.node:
                             self.references.get(
                                 assignment.node, set()).add(ref)

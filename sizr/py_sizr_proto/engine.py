@@ -6,7 +6,7 @@ from operator import and_
 import libcst as cst
 from typing import Optional, List, Set, Iterable, Tuple, Sequence, Union
 from functools import reduce
-from .code import Query, TransformExpr, TransformContext, ScopeExpr, pattern_any, CapturedElement, CaptureExpr, Match
+from .code import Query, Transform, ScopeExpr, pattern_any, CaptureExpr, Match
 from .cst_util import unified_visit, node_types
 from .util import tryFind, notFound, first, only, tryFirst, partialPathMatch, RelativePathDict
 import operator
@@ -124,13 +124,13 @@ def getNodeBody(node: cst.CSTNode):
     return body, BodyType
 
 
-def astNodeFromAssertion(transform: TransformContext,
+def astNodeFromAssertion(transform: Transform,
                          match: Match,
                          index=0) -> Sequence[cst.CSTNode]:
     # TODO: aggregate intersect possible_nodes_per_prop and and raise on multiple
     # results (some kind of "ambiguity error"). Also need to match with anchor placement
     cur_scope_expr = transform.assertion.nested_scopes[index]
-    cur_capture = match.by_name(cur_scope_expr.capture.name)
+    cur_capture = match.by_name.get(cur_scope_expr.capture.name)
     name = cur_scope_expr.capture.name
     body = ()
     node = BodyType = None
@@ -145,7 +145,7 @@ def astNodeFromAssertion(transform: TransformContext,
         inner = astNodeFromAssertion(transform, match, index+1)
         if transform.destructive:
             body = [s for s in body if not s.deep_equals(
-                match.elem_path[-1].node)]
+                match.path[-1].node)]
         body = (*body, *inner)
 
     BodyType = BodyType or cst.IndentedBlock
@@ -163,11 +163,11 @@ def astNodeFromAssertion(transform: TransformContext,
 
 
 # TODO: have this check type and dispatch to astNodeFromAssertion
-def astNodeFrom(scope_expr: ScopeExpr, ctx: TransformContext, match: Match) -> cst.CSTNode:
+def astNodeFrom(scope_expr: ScopeExpr, ctx: Transform, match: Match) -> cst.CSTNode:
     scope_elem_types = possibleElemTypes(scope_expr=scope_expr)
 
     scope_stack = [
-        m := match.by_name(s.capture.name)
+        m := match.by_name.get(s.capture.name)
         or type(m)
         or first(possibleElemTypes(scope_expr=s))
         for s in ctx.assertion.nested_scopes
@@ -204,8 +204,9 @@ def astNodeFrom(scope_expr: ScopeExpr, ctx: TransformContext, match: Match) -> c
     )]
 
 
-def select(root: cst.Module, transform: TransformExpr) -> TransformContext:
-    result = TransformContext(transform, root)
+# TODO: may be preferable to convert the selector into a bytecode of path manip instructions
+def select(root: cst.Module, transform: Transform) -> Transform:
+    matches: List[Match] = []
 
     # TODO: dont root search at global scope, that's not the original design
     # I'll probably need to change the parser to store the prefixing nesting op
@@ -226,28 +227,30 @@ def select(root: cst.Module, transform: TransformExpr) -> TransformContext:
                  or (name and cur_scope.capture.pattern.match(name) is not None))
                     and matchesScopeProps(node, cur_scope)):
                 next_captures = [*captures,
-                                 CapturedElement(cur_scope.capture, node)]
+                                 cur_scope.capture.contextualize(node=node)]
                 if rest_scopes:
                     search(node, rest_scopes,
                            cur_scope.nesting_op, next_captures)
                 else:
-                    result.add_match(next_captures)
+                    matches.append(Match(next_captures))
 
     search(root, transform.selector.nested_scopes)
-    return result  # maybe should have search return the result list
+
+    # maybe should have search return the result list
+    return transform.contextualize(root, matches)
 
 
-def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
+def assert_(py_ast: cst.CSTNode, transform: Transform) -> cst.CSTNode:
     """
     TODO: in programming `assert` has a context of being passive, not fixing if it finds that it's incorrect,
     perhaps a more active word should be chosen. Maybe *ensure*?
     """
-    matches = transformCtx.matches
+    matches = transform.matches
 
     first_ref_index = None
-    find_attempt = tryFirst(transformCtx.capture_reference_indices)
+    find_attempt = tryFirst(transform.capture_reference_indices)
     if find_attempt is not notFound:
-        _, (first_ref_index, _) = first(transformCtx.capture_reference_indices)
+        _, (first_ref_index, _) = first(transform.capture_reference_indices)
 
     @ unified_visit
     class Transformer(cst.CSTTransformer):
@@ -257,16 +260,17 @@ def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
             match = notFound
             if first_ref_index is not None:
                 match = tryFind(lambda m: original.deep_equals(
-                    m.elem_path[first_ref_index].node), matches)
+                    m.path[first_ref_index].node), matches)
             if match is not notFound:
-                from_assert = first(astNodeFromAssertion(transformCtx, match))
+                from_assert = first(astNodeFromAssertion(transform, match))
                 return from_assert
-            elif original in transformCtx.references:
+            elif original in transform.references:
                 # TODO: replace references to anything destroyed by the transform
                 pass
             elif find_attempt is notFound and isinstance(updated, cst.Module):
-                module_match = Match([CapturedElement(CaptureExpr(), updated)])
-                return updated.with_changes(body=(*updated.body, *astNodeFromAssertion(transformCtx, module_match)))
+                module_match = Match(
+                    [CaptureExpr().contextualize(node=updated)])
+                return updated.with_changes(body=(*updated.body, *astNodeFromAssertion(transform, module_match)))
             else:
                 return updated
 
@@ -276,7 +280,7 @@ def assert_(py_ast: cst.CSTNode, transformCtx: TransformContext) -> cst.CSTNode:
 
 
 # NOTE: default to print to stdout, take a cli arg for target file for now
-def exec_transform(src: str, transform: TransformExpr) -> str:
+def exec_transform(src: str, transform: Transform) -> str:
     py_ast = cst.parse_module(src)
     old_ast = py_ast
     if env.get('SIZR_DEBUG'):
