@@ -161,7 +161,13 @@ def astNodeFromAssertion(transform: Transform,
             } if isinstance(node, (cst.FunctionDef, cst.ClassDef)) else {})
         )]
     else:
-        return astNodeFrom(scope_expr=cur_scope_expr, ctx=transform, match=match)
+        unrefed_node = astNodeFrom(
+            scope_expr=cur_scope_expr, ctx=transform, match=match)
+        # NOTE: need a generic way to "place" the next scope in a node
+        if index < len(transform.assertion.nested_scopes) - 1:
+            return [unrefed_node.with_changes(body=BodyType(body=body))]
+        else:
+            return [unrefed_node]
 
 
 # TODO: have this check type and dispatch to astNodeFromAssertion
@@ -184,7 +190,7 @@ def astNodeFrom(scope_expr: ScopeExpr, ctx: Transform, match: Match) -> cst.CSTN
 
     # XXX: switch to giving TransformCtx CaptureReference's get_name_for_match
     name = scope_expr.capture.pattern.pattern
-    return [scope_elem_type(
+    return scope_elem_type(
         **{
             **({'name': cst.Name(name), }
                if 'name' in scope_elem_type.__slots__ else {}),
@@ -203,7 +209,7 @@ def astNodeFrom(scope_expr: ScopeExpr, ctx: Transform, match: Match) -> cst.CSTN
             } if scope_elem_type is cst.Assign else {}),
             **scope_elem_extra_kwargs
         }
-    )]
+    )
 
 
 # TODO: may be preferable to convert the selector into a bytecode of path manip instructions
