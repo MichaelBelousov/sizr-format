@@ -173,25 +173,27 @@ def astNodeFrom(scope_expr: ScopeExpr, ctx: TransformContext, match: Match) -> c
         for s in ctx.assertion.nested_scopes
     ]
 
-    scope_elem_extra_kwargs = {}
-
-    scope_elem_extra_kwargs.update(
-        per_path_default_kwargs.get(scope_stack, {}))
+    # XXX: currently the path matching only takes the first match, probably it should merge all (excluding body)
+    # matches into one dict
+    scope_elem_extra_kwargs = per_path_default_kwargs.get(
+        scope_stack, lambda: {})(scope_stack)
 
     scope_elem_type = only(scope_elem_types)  # ambiguity error if not only
 
+    # XXX: switch to giving TransformCtx CaptureReference's get_name_for_match
+    name = scope_expr.capture.pattern.pattern
     return [scope_elem_type(
         **{
-            **({
-                'name': cst.Name(name),
-                'body': BodyType(body=body),
-            } if scope_elem_type in (cst.ClassDef, cst.FunctionDef) else {}),
+            **({'name': cst.Name(name), }
+               if 'name' in scope_elem_type.__slots__ else {}),
+            **({'body': cst.IndentedBlock(body=[cst.SimpleStatementLine(body=[cst.Pass()])]), }
+               if 'body' in scope_elem_type.__slots__ else {}),
             **({
                 'params': cst.Parameters(),
                 'decorators': (),
                 **({
                     'asynchronous': cst.Asynchronous()
-                } if cur_scope_expr.properties.get('async') else {})
+                } if scope_expr.properties.get('async') else {})
             } if scope_elem_type is cst.FunctionDef else {}),
             **({
                 'targets': [cst.AssignTarget(target=cst.Name(name))],

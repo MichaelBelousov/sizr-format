@@ -39,6 +39,18 @@ class CapturedElement(CaptureExpr):
         return self.pattern == r.pattern and self.name == r.name
 
 
+class CaptureReference(CaptureExpr):
+    """realized ast node from a capture expression"""
+
+    def __init__(self, base: CaptureExpr, target: CapturedElement):
+        super().__init__(base.pattern, base.name)
+        self.target = target
+
+    def get_name_for_match(self, match: "Match"):
+        # TODO: implement backreferences
+        return self.pattern.pattern
+
+
 class ScopeExpr:
     def __init__(self, nesting_op: Optional[str] = None):
         self.capture = CaptureExpr()
@@ -67,6 +79,7 @@ class ScopeExpr:
 
 
 class Query:
+    # TODO: can only be both an assertion or a selection when it's a Query Expression, need to clarify that
     """can be a selector or assertion when contextually on one side of a transform"""
 
     def __init__(self, nested_scopes: Optional[List[ScopeExpr]] = None):
@@ -122,6 +135,7 @@ class TransformContext(TransformExpr):
 
     @property
     def capture_reference_indices(self):
+        # XXX: probably much better to use an actual mapping/dict
         # XXX: for now assumes capture unique capture names, in the future intersecting
         # capture names will need to be explicitly disambiguated with syntax (i.e. MyClass$1).
         # It may however be possible to use a 'fully qualified' (pathed) name so only
