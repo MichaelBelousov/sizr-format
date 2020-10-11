@@ -8,7 +8,7 @@ from typing import Optional, List, Set, Iterable, Tuple, Sequence, Union
 from functools import reduce
 from .code import Query, TransformExpr, TransformContext, ScopeExpr, pattern_any, CapturedElement, CaptureExpr, Match
 from .cst_util import unified_visit, node_types
-from .util import tryFind, notFound, first, only, tryFirst, stackPathMatches
+from .util import tryFind, notFound, first, only, tryFirst, partialPathMatch, RelativePathDict
 import operator
 import difflib
 from os import environ as env
@@ -76,12 +76,12 @@ nesting_op_children_getter = {
 }
 
 
-per_path_default_kwargs = {
+per_path_default_kwargs = RelativePathDict({
     (cst.ClassDef, cst.FunctionDef): lambda path: {
         # TODO: if node is not decorated as staticmethod or class method!
         'params': cst.Parameters(params=[cst.Param(cst.Name('self'))])
     },
-}
+})
 
 
 # NOTE: it is bad design to allow users to craft coincidentally unambiguous
@@ -161,35 +161,26 @@ def astNodeFromAssertion(transform: TransformContext,
             } if isinstance(node, (cst.FunctionDef, cst.ClassDef)) else {})
         )]
 
-    scope_elem_types = possibleElemTypes(scope_expr=cur_scope_expr)
+
+# TODO: have this check type and dispatch to astNodeFromAssertion
+def astNodeFrom(scope_expr: ScopeExpr, ctx: TransformContext, match: Match) -> cst.CSTNode:
+    scope_elem_types = possibleElemTypes(scope_expr=scope_expr)
+
+    scope_stack = [
+        m := match.by_name(s.capture.name)
+        or type(m)
+        or first(possibleElemTypes(scope_expr=s))
+        for s in ctx.assertion.nested_scopes
+    ]
 
     scope_elem_extra_kwargs = {}
 
-    scope_stack = []
-    # TODO move to function?
-    for s in transform.assertion.nested_scopes:
-        item = None
-        capture_elem = match.by_name(s.capture.name)
-        if capture_elem is not None:
-            item = type(capture_elem.node)
-        else:
-            item = tryFirst(possibleElemTypes(scope_expr=s))
-            if item is notFound:
-                continue
-        scope_stack.append(item)
-
-    if env.get('SIZR_DEBUG'):
-        print('scope_stack:', scope_stack)
-
-    # TODO: probably ought to have a decidated object/class for this with an overriden __contains__
-    # magic method for selection paths
-    for test_path, get_default_kwargs in per_path_default_kwargs.items():
-        if stackPathMatches(test_path, scope_stack):
-            scope_elem_extra_kwargs.update(get_default_kwargs(scope_stack))
+    scope_elem_extra_kwargs.update(
+        per_path_default_kwargs.get(scope_stack, {}))
 
     scope_elem_type = only(scope_elem_types)  # ambiguity error if not only
 
-    return [(node.with_changes if node else scope_elem_type)(
+    return [scope_elem_type(
         **{
             **({
                 'name': cst.Name(name),

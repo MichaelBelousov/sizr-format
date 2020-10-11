@@ -2,10 +2,11 @@
 general utilities
 """
 
-from typing import Callable, Iterator, Iterable, Dict, List
+from typing import Callable, Iterator, Iterable, Dict, List, Tuple, Any
 import collections
 from operator import eq
 from functools import reduce
+import libcst as cst
 
 
 def find(func: Callable, itr: Iterable):
@@ -54,6 +55,16 @@ def only(i: Iterable):
     raise ValueError("'only' requires one element be in the entire iteratable")
 
 
+class Opt():
+    """ basically bad optional chaining ala typescript via proxy for python """
+
+    def __init__(self, obj):
+        self._obj = obj
+
+    def __getattr__(self, key):
+        return Opt(getattr(self._obj, key))
+
+
 class FrozenDict(dict, collections.Mapping):
     def __init__(self, other: Dict):
         self._hash = None
@@ -69,10 +80,35 @@ class FrozenDict(dict, collections.Mapping):
     __delattr__ = __setattr__ = __setitem__ = pop = update = setdefault = clear = popitem = _disabled
 
 
-# TODO: probably rename to something like "partialPathMatch"
-def stackPathMatches(path: List, stack: List) -> bool:
+def partialPathMatch(path: List, stack: List) -> bool:
     """
     given a path, read down the stack and check that the path has been pushed on
     to the stack, matching if so
     """
     return all(map(eq, path, stack))
+
+
+class RelativePathDict(dict):
+    """
+    like a dict but given a path will return the first matching relative
+    path entry i.e. {('a', 'b'): 5}[('a', 'b', 'c')] == 5
+    """
+
+    def __init__(self, in_dict: Dict[Tuple[cst.CSTNode], Any]):
+        self.update(in_dict)
+
+    def __contains__(self, key: Tuple[cst.CSTNode]):
+        # may want to think of a way to get actual dict search performance instead of linear...
+        return any(partialPathMatch(path, key) for path in self.keys())
+
+    def __getitem__(self, key: Tuple[cst.CSTNode]):
+        try:
+            return first(path for path in self.keys() if partialPathMatch(path, key))
+        except StopIteration:
+            raise KeyError(f"'{key}' not in dictionary")
+
+    def get(self, key: Tuple[cst.CSTNode], default):
+        try:
+            return self[key]
+        except KeyError:
+            return default
