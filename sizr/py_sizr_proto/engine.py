@@ -160,6 +160,8 @@ def astNodeFromAssertion(transform: Transform,
                 # probably need a better way to do this, ideally just ignore excess kwargs
             } if isinstance(node, (cst.FunctionDef, cst.ClassDef)) else {})
         )]
+    else:
+        return astNodeFrom(scope_expr=cur_scope_expr, ctx=transform, match=match)
 
 
 # TODO: have this check type and dispatch to astNodeFromAssertion
@@ -167,8 +169,8 @@ def astNodeFrom(scope_expr: ScopeExpr, ctx: Transform, match: Match) -> cst.CSTN
     scope_elem_types = possibleElemTypes(scope_expr=scope_expr)
 
     scope_stack = [
-        m := match.by_name.get(s.capture.name)
-        or type(m)
+        (m := match.by_name.get(s.capture.name))
+        and type(m)
         or first(possibleElemTypes(scope_expr=s))
         for s in ctx.assertion.nested_scopes
     ]
@@ -176,7 +178,7 @@ def astNodeFrom(scope_expr: ScopeExpr, ctx: Transform, match: Match) -> cst.CSTN
     # XXX: currently the path matching only takes the first match, probably it should merge all (excluding body)
     # matches into one dict
     scope_elem_extra_kwargs = per_path_default_kwargs.get(
-        scope_stack, lambda: {})(scope_stack)
+        scope_stack, lambda _: {})(scope_stack)
 
     scope_elem_type = only(scope_elem_types)  # ambiguity error if not only
 
