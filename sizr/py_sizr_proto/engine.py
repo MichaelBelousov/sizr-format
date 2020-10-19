@@ -153,6 +153,7 @@ def astNodeFromAssertion(transform: Transform,
         body = [cst.SimpleStatementLine(body=[cst.Pass()])]
 
     if cur_capture is not None:
+        # XXX: perhaps I should use tuples instead of lists to abide by the immutability of cst
         return [node.with_changes(
             name=cst.Name(name),
             **({
@@ -168,6 +169,15 @@ def astNodeFromAssertion(transform: Transform,
             return [unrefed_node.with_changes(body=BodyType(body=body))]
         else:
             return [unrefed_node]
+
+
+class AstSearchContext:
+    path = []
+    replacer_per_nesting_op = {
+        '(': lambda path, node: node.with_changes(params=node.params),
+        # need to use next_param_cache
+        ',': lambda path, node: path[-2].with_changes(params=(*path[-2].params,))
+    }
 
 
 # TODO: have this check type and dispatch to astNodeFromAssertion
