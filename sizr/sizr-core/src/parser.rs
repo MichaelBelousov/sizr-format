@@ -12,7 +12,7 @@ use std::cell::Cell;
 use std::option::Option;
 
 #[derive(Debug)]
-enum NestingType {
+pub(crate) enum NestingType {
     Arg,    // (
     Next,   // ,
     Member, // .
@@ -32,7 +32,7 @@ impl NestingType {
 }
 
 #[derive(Debug)]
-enum TransformType {
+pub(crate) enum TransformType {
     Additive, // >>>
     Replacing // >>!
 }
@@ -50,7 +50,7 @@ impl TransformType {
 }
 
 #[derive(Debug)]
-pub enum PropValue<'a> {
+pub(crate) enum PropValue<'a> {
     Boolean(bool),
     Integer(i64),
     Real(f64),
@@ -58,7 +58,7 @@ pub enum PropValue<'a> {
 }
 
 #[derive(Debug)]
-pub enum Ast<'a> {
+pub(crate) enum Ast<'a> {
     Transform {
         selector: Option<Box<Ast<'a>>>,
         r#type: TransformType,
@@ -120,49 +120,42 @@ impl<'a> ParseContext<'a> {
 }
 
 
-pub mod try_parse {
-    use super::*;
+fn try_parse_nesting_op(ctx: &ParseContext) -> Option<NestingType> {
+    NestingType::from_str(&ctx.remaining_src())
+}
 
-    pub fn nesting_op(ctx: &ParseContext) -> Option<NestingType> {
-        NestingType::from_str(&ctx.remaining_src())
-    }
+fn try_parse_transform_op(ctx: &ParseContext) -> Option<TransformType> {
+    TransformType::from_str(&ctx.remaining_src())
+}
 
-    pub fn transform_op(ctx: &ParseContext) -> Option<TransformType> {
-        TransformType::from_str(&ctx.remaining_src())
-    }
+fn try_parse_query<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
+    let result = Ast::Query{ path: vec![] };
+    println!("{:?}", result);
+    None
+}
 
-    pub fn query<'a>(ctx: &'a ParseContext) -> Option<Ast<'a>> {
-        let result = Ast::Query{ path: vec![] };
-        println!("{:?}", result);
-        None
-    }
-
-    pub fn transform<'a>(ctx: &'a ParseContext) -> Option<Ast<'a>> {
-        let maybe_selector = try_parse::query(&ctx);
-        let transform_op = try_parse::transform_op(&ctx)?;
-        let maybe_assertor = try_parse::query(&ctx);
-        let result = Ast::Transform {
-            selector: match maybe_selector {
-                Some(selector) => Some(Box::new(selector)),
-                _ => None
-            },
-            r#type: transform_op,
-            assertor: match maybe_assertor {
-                Some(assertor) => Some(Box::new(assertor)),
-                _ => None
-            },
-        };
-        println!("{:?}", result);
-        Some(result)
-    }
+fn try_parse_transform<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
+    let maybe_selector = try_parse_query(&ctx);
+    let transform_op = try_parse_transform_op(&ctx)?;
+    let maybe_assertor = try_parse_query(&ctx);
+    let result = Ast::Transform {
+        selector: match maybe_selector {
+            Some(selector) => Some(Box::new(selector)),
+            _ => None
+        },
+        r#type: transform_op,
+        assertor: match maybe_assertor {
+            Some(assertor) => Some(Box::new(assertor)),
+            _ => None
+        },
+    };
+    println!("{:?}", result);
+    Some(result)
 }
 
 
-pub fn parse_command<'a>(src: &'a str) -> Ast<'a> {
+pub(crate) fn parse_command<'a>(src: &'a str) -> Ast<'a> {
     let ctx = ParseContext::new(src);
-    if let Some(result) = try_parse::transform(&ctx) {
-        return result;
-    } else {
-        panic!("invalid transform");
-    }
+    let result = try_parse_transform(&ctx);
+    result.expect("invalid transform")
 }
