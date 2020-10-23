@@ -7,6 +7,7 @@ extern crate regex;
 use regex::Regex;
 use std::boxed::Box;
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::option::Option;
 use std::vec::Vec;
 
@@ -67,9 +68,9 @@ pub(crate) enum Ast<'a> {
         path: Vec<Box<Ast<'a>>>,
     },
     Elem {
-        capture: Box<Ast<'a>>,
-        nester: NestingType,
-        props: Vec<Box<Ast<'a>>>,
+        capture: Option<Box<Ast<'a>>>,
+        nester: Option<NestingType>,
+        props: HashMap<&'a str, PropValue<'a>>,
     },
     Prop {
         key: &'a str,
@@ -157,8 +158,29 @@ pub mod try_parse {
         TransformType::from_str(&ctx.remaining_src())
     }
 
+    pub(super) fn scope_prop<'a>(ctx: &ParseContext<'a>) -> Option<(&'a str, PropValue<'a>)> {
+        NestingType::from_str(&ctx.remaining_src())
+    }
+
     pub(super) fn scope_expr<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
-        None
+        // XXX: may need:
+        //if !matchers::is_scope_expr(&ctx) { return None };
+        let mut props = HashMap::new();
+        let mut capture = None;
+        while matchers::is_scope_prop(&ctx) {
+            let (key, val) = try_parse::scope_prop(&ctx).unwrap();
+            props.insert(key, val);
+            if matchers::is_capture(&ctx) {
+                capture = try_parse::capture(&ctx).map(|c| Box::new(c));
+                break;
+            }
+        }
+        let nester = try_parse::nesting_op(&ctx);
+        Some(Ast::Elem {
+            capture,
+            nester,
+            props,
+        })
     }
 
     pub(super) fn query<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
