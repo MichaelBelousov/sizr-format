@@ -147,6 +147,30 @@ pub mod matchers {
     }
 }
 
+// TODO: move to utils
+//end_slash_offset = ctx.remaining_src().find(|c, i| c == '/')
+trait StrUtils {
+    fn find_test<F>(&self, f: F) -> Option<usize>
+    where
+        F: Fn(char, usize) -> bool;
+}
+
+impl StrUtils for str {
+    fn find_test<F>(&self, f: F) -> Option<usize>
+    where
+        F: Fn(char, usize) -> bool,
+    {
+        // XXX: incorrect on unicode because str.find returns byte offset,
+        // this is character offset
+        for (i, c) in self.chars().enumerate() {
+            if f(c, i) {
+                return Some(i);
+            }
+        }
+        return None;
+    }
+}
+
 pub mod try_parse {
     use super::*;
 
@@ -158,13 +182,39 @@ pub mod try_parse {
         TransformType::from_str(&ctx.remaining_src())
     }
 
+    pub(super) fn capture<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
+        //if !ctx.remaining_src().len() > 0 panic!()
+        let is_regex_capture = &ctx.remaining_src()[..2] == "$/";
+        let is_named_capture = ctx
+            .remaining_src()
+            .chars()
+            .nth(1)
+            .map(|c| c.is_ascii_alphabetic())
+            .unwrap_or(false);
+        let is_anonymous_capture = ctx
+            .remaining_src()
+            .chars()
+            .nth(0)
+            .map(|c| c == '$')
+            .map(|b| b && !is_named_capture)
+            .unwrap_or(false);
+        if is_regex_capture {
+            let end_slash_offset = ctx.remaining_src().find_test(|c, i| {
+                c == '/' && ctx.remaining_src().chars().nth(i - 1).unwrap() != '\\'
+            });
+        } else if is_named_capture {
+        } else if is_anonymous_capture {
+        } else {
+            panic!("should be unreachable! a caller didn't check matchers::is_capture first")
+        }
+        None
+    }
+
     pub(super) fn scope_prop<'a>(ctx: &ParseContext<'a>) -> Option<(&'a str, PropValue<'a>)> {
-        NestingType::from_str(&ctx.remaining_src())
+        None
     }
 
     pub(super) fn scope_expr<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
-        // XXX: may need:
-        //if !matchers::is_scope_expr(&ctx) { return None };
         let mut props = HashMap::new();
         let mut capture = None;
         while matchers::is_scope_prop(&ctx) {
