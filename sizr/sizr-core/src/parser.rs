@@ -118,6 +118,34 @@ impl<'a> ParseContext<'a> {
     }
 }
 
+pub mod matchers {
+    use super::*;
+
+    pub(super) fn is_capture<'a>(ctx: &ParseContext<'a>) -> bool {
+        ctx.remaining_src()
+            .chars()
+            .nth(0)
+            .map(|c| c == '$')
+            .unwrap_or(false)
+    }
+
+    pub(super) fn is_scope_prop<'a>(ctx: &ParseContext<'a>) -> bool {
+        ctx.remaining_src()
+            .chars()
+            .nth(0)
+            .map(|c| c.is_ascii_alphabetic() || c == '!')
+            .unwrap_or(false)
+    }
+
+    pub(super) fn is_query<'a>(ctx: &ParseContext<'a>) -> bool {
+        is_scope_prop(&ctx) || is_capture(&ctx)
+    }
+
+    pub(super) fn is_scope_expr<'a>(ctx: &ParseContext<'a>) -> bool {
+        is_query(&ctx)
+    }
+}
+
 pub mod try_parse {
     use super::*;
 
@@ -129,16 +157,25 @@ pub mod try_parse {
         TransformType::from_str(&ctx.remaining_src())
     }
 
-    pub(super) fn query<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
-        let result = Ast::Query { path: vec![] };
-        println!("{:?}", result);
+    pub(super) fn scope_expr<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
         None
     }
 
+    pub(super) fn query<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
+        let mut path: Vec<Box<Ast>> = Vec::new();
+        while let Some(expr) = try_parse::scope_expr(&ctx) {
+            path.push(Box::new(expr));
+        }
+        Some(Ast::Query { path })
+    }
+
     pub(super) fn transform<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
-        let maybe_selector = query(&ctx);
-        let transform_op = transform_op(&ctx)?;
-        let maybe_assertor = query(&ctx);
+        let maybe_selector = try_parse::query(&ctx);
+        let transform_op = try_parse::transform_op(&ctx)?;
+        let maybe_assertor = try_parse::query(&ctx);
+        if maybe_selector.is_none() && maybe_assertor.is_none() {
+            return None;
+        }
         let result = Ast::Transform {
             selector: match maybe_selector {
                 Some(selector) => Some(Box::new(selector)),
