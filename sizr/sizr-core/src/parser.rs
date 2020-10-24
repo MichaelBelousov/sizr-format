@@ -77,7 +77,8 @@ pub(crate) enum Ast<'a> {
         value: PropValue<'a>,
     },
     Capture {
-        name: &'a str,
+        name: Option<&'a str>,
+        // TODO: probably need a Pattern enum containing regex or str or any
         pattern: Option<Regex>,
     },
 }
@@ -101,10 +102,6 @@ impl<'a> ParseContext<'a> {
         &self.src[self.loc.get()..]
     }
 
-    pub fn next_char(&self) -> Option<char> {
-        self.remaining_src().chars().nth(0)
-    }
-
     pub fn inc_loc(&self, inc: usize) -> usize {
         // FIXME: find idiomatic rust solution for this stuff
         // I think a mutex might be correct
@@ -112,10 +109,16 @@ impl<'a> ParseContext<'a> {
         self.loc.get()
     }
 
-    fn skip_whitespace(&mut self) {
+    fn skip_whitespace(&self) {
         if let Some(jump) = &self.remaining_src().find(|c: char| !c.is_whitespace()) {
             &self.inc_loc(*jump);
         }
+    }
+
+    fn cur_token_end(&self) -> usize {
+        self.remaining_src()
+            .find(|c: char| c.is_whitespace())
+            .unwrap_or(self.remaining_src().len())
     }
 }
 
@@ -171,6 +174,9 @@ impl StrUtils for str {
     }
 }
 
+// this whole module thing might demonstrate a need for an enum...
+// like impl<Ast> with parse methods... sounds way better but I'll do that
+// after the initial conversion
 pub mod try_parse {
     use super::*;
 
@@ -199,26 +205,50 @@ pub mod try_parse {
             .map(|b| b && !is_named_capture)
             .unwrap_or(false);
         if is_regex_capture {
-            let end_slash_offset = ctx.remaining_src().find_test(|c, i| {
-                c == '/' && ctx.remaining_src().chars().nth(i - 1).unwrap() != '\\'
+            let end_slash_offset = ctx
+                .remaining_src()
+                .find_test(|c, i| {
+                    c == '/' && ctx.remaining_src().chars().nth(i - 1).unwrap() != '\\'
+                })
+                .expect("end slash not found")
+                + 2;
+            let regex_src = &ctx.remaining_src()[2..end_slash_offset - 1];
+            ctx.inc_loc(end_slash_offset);
+            ctx.skip_whitespace();
+            // XXX: handle bad regex panic
+            return Some(Ast::Capture {
+                pattern: Some(Regex::new(regex_src).expect("illegal regular expression")),
+                name: None,
             });
         } else if is_named_capture {
+            let next_space_offset = ctx.cur_token_end();
+            let name = &ctx.remaining_src()[1..next_space_offset];
+            ctx.inc_loc(next_space_offset);
+            ctx.skip_whitespace();
+            return Some(Ast::Capture {
+                pattern: None,
+                name: Some(name),
+            });
         } else if is_anonymous_capture {
+            ctx.inc_loc(1);
+            ctx.skip_whitespace();
+            return Some(Ast::Capture {
+                pattern: None,
+                name: None,
+            });
         } else {
             panic!("should be unreachable! a caller didn't check matchers::is_capture first")
         }
-        None
     }
 
-    pub(super) fn scope_prop<'a>(ctx: &ParseContext<'a>) -> Option<(&'a str, PropValue<'a>)> {
-        None
-    }
+    pub(super) fn scope_prop<'a>(ctx: &ParseContext<'a>) -> Option<(&'a str, PropValue<'a>)> {}
 
     pub(super) fn scope_expr<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
         let mut props = HashMap::new();
         let mut capture = None;
         while matchers::is_scope_prop(&ctx) {
-            let (key, val) = try_parse::scope_prop(&ctx).unwrap();
+            let (key, val) = try_parse::scope_prop(&ctx)
+                .expect("checked it was a scope prop then parsed but it wasn't!");
             props.insert(key, val);
             if matchers::is_capture(&ctx) {
                 capture = try_parse::capture(&ctx).map(|c| Box::new(c));
