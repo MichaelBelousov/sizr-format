@@ -124,6 +124,10 @@ pub(crate) enum Ast<'a> {
 pub mod matchers {
     use super::*;
 
+    pub(super) fn is_nesting_op<'a>(ctx: &ParseContext<'a>) -> bool {
+        NestingType::from_str(&ctx.remaining_src()).is_some()
+    }
+
     pub(super) fn is_capture<'a>(ctx: &ParseContext<'a>) -> bool {
         &ctx.remaining_src()[0..=0] == "$"
     }
@@ -297,11 +301,20 @@ pub mod try_parse {
         while matchers::is_scope_prop(&ctx) {
             let (key, val) = try_parse::scope_prop(&ctx)
                 .expect("checked it was a scope prop then parsed but it wasn't!");
-            props.insert(key, val);
+            // switching to tokenizer ought to help clean this up weird bit
+            // where the last scope_expr might actually be an explicit name
             if matchers::is_capture(&ctx) {
                 capture = try_parse::capture(&ctx).map(|c| Box::new(c));
                 break;
             }
+            if matchers::is_nesting_op(&ctx) {
+                capture = Some(Box::new(Ast::Capture {
+                    name: Some(key),
+                    pattern: Some(Regex::new(key).expect("unreachable: identifiers are always valid regex"))
+                }));
+                break;
+            }
+            props.insert(key, val);
         }
         let nester = try_parse::nesting_op(&ctx);
         Some(Ast::Elem {
