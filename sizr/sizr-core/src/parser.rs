@@ -13,7 +13,7 @@ use std::vec::Vec;
 #[derive(Debug)]
 struct ParseContext<'a> {
     pub src: &'a str,
-    // TODO: replace with mutex?
+    // TODO: consider alternatives to cell
     pub loc: Cell<usize>,
 }
 
@@ -30,12 +30,11 @@ impl<'a> ParseContext<'a> {
     }
 
     pub fn inc_loc(&self, inc: usize) -> usize {
-        // FIXME: find idiomatic rust solution for this stuff
-        // I think a mutex might be correct
         &self.loc.set(self.loc.get() + inc);
         self.loc.get()
     }
 
+    // WHY aren't these ones pub?
     fn skip_whitespace(&self) {
         if let Some(jump) = &self.remaining_src().find(|c: char| !c.is_whitespace()) {
             &self.inc_loc(*jump);
@@ -145,8 +144,7 @@ pub mod matchers {
     }
 }
 
-// TODO: move to utils
-//end_slash_offset = ctx.remaining_src().find(|c, i| c == '/')
+// TODO: move to a separate module?
 trait StrUtils {
     fn find_test<F>(&self, f: F) -> Option<usize>
     where
@@ -158,7 +156,7 @@ impl StrUtils for str {
     where
         F: Fn(char, usize) -> bool,
     {
-        // XXX: incorrect on unicode because str.find returns byte offset,
+        // XXX: incorrect on multi-byte chars because str.find returns byte offset,
         // this is character offset
         for (i, c) in self.chars().enumerate() {
             if f(c, i) {
@@ -169,18 +167,21 @@ impl StrUtils for str {
     }
 }
 
-// this whole module thing might demonstrate a need for an enum...
-// like impl<Ast> with parse methods... sounds way better but I'll do that
-// after the initial conversion
+// would be nice if you could associate a function with an enum variant
+// like Ast::Transform::parse() but alas
 pub mod try_parse {
     use super::*;
 
     pub(super) fn nesting_op(ctx: &ParseContext) -> Option<NestingType> {
-        NestingType::from_str(&ctx.remaining_src())
+        let result = NestingType::from_str(&ctx.remaining_src());
+        if result.is_some() { ctx.inc_loc(1); }
+        result
     }
 
     pub(super) fn transform_op(ctx: &ParseContext) -> Option<TransformType> {
-        TransformType::from_str(&ctx.remaining_src())
+        let result = TransformType::from_str(&ctx.remaining_src());
+        if result.is_some() { ctx.inc_loc(1); }
+        result
     }
 
     pub(super) fn capture<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
@@ -316,7 +317,7 @@ pub mod try_parse {
         if maybe_selector.is_none() && maybe_assertor.is_none() {
             return None;
         }
-        let result = Ast::Transform {
+        Some(Ast::Transform {
             selector: match maybe_selector {
                 Some(selector) => Some(Box::new(selector)),
                 _ => None,
@@ -326,9 +327,7 @@ pub mod try_parse {
                 Some(assertor) => Some(Box::new(assertor)),
                 _ => None,
             },
-        };
-        println!("{:?}", result);
-        Some(result)
+        })
     }
 }
 
