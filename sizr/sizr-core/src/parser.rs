@@ -124,10 +124,6 @@ pub(crate) enum Ast<'a> {
 pub mod matchers {
     use super::*;
 
-    pub(super) fn is_nesting_op<'a>(ctx: &ParseContext<'a>) -> bool {
-        NestingType::from_str(&ctx.remaining_src()).is_some()
-    }
-
     pub(super) fn is_capture<'a>(ctx: &ParseContext<'a>) -> bool {
         &ctx.remaining_src()[0..=0] == "$"
     }
@@ -182,7 +178,7 @@ pub mod try_parse {
     pub(super) fn nesting_op(ctx: &ParseContext) -> Option<NestingType> {
         let result = NestingType::from_str(&ctx.remaining_src());
         if result.is_some() {
-            ctx.inc_loc(3);
+            ctx.inc_loc(1);
             ctx.skip_whitespace();
         }
         result
@@ -307,7 +303,7 @@ pub mod try_parse {
                 capture = try_parse::capture(&ctx).map(|c| Box::new(c));
                 break;
             }
-            if matchers::is_nesting_op(&ctx) {
+            if !matchers::is_scope_prop(&ctx) {
                 capture = Some(Box::new(Ast::Capture {
                     name: Some(key),
                     pattern: Some(Regex::new(key).expect("unreachable: identifiers are always valid regex"))
