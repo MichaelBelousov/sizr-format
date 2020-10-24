@@ -10,6 +10,9 @@ use std::collections::HashMap;
 use std::option::Option;
 use std::vec::Vec;
 
+// NOTE: I will add a tokenize function and rewrite this crud in
+// terms of tokens when rust adds stable coroutines/generators
+
 #[derive(Debug)]
 struct ParseContext<'a> {
     pub src: &'a str,
@@ -18,23 +21,23 @@ struct ParseContext<'a> {
 }
 
 impl<'a> ParseContext<'a> {
-    pub fn new(in_src: &'a str) -> Self {
+    // WHY aren't these functions pub?
+    fn new(in_src: &'a str) -> Self {
         ParseContext {
             src: in_src,
             loc: Cell::new(0),
         }
     }
 
-    pub fn remaining_src(&self) -> &'a str {
+    fn remaining_src(&self) -> &'a str {
         &self.src[self.loc.get()..]
     }
 
-    pub fn inc_loc(&self, inc: usize) -> usize {
+    fn inc_loc(&self, inc: usize) -> usize {
         &self.loc.set(self.loc.get() + inc);
         self.loc.get()
     }
 
-    // WHY aren't these ones pub?
     fn skip_whitespace(&self) {
         if let Some(jump) = &self.remaining_src().find(|c: char| !c.is_whitespace()) {
             &self.inc_loc(*jump);
@@ -174,13 +177,19 @@ pub mod try_parse {
 
     pub(super) fn nesting_op(ctx: &ParseContext) -> Option<NestingType> {
         let result = NestingType::from_str(&ctx.remaining_src());
-        if result.is_some() { ctx.inc_loc(1); }
+        if result.is_some() {
+            ctx.inc_loc(3);
+            ctx.skip_whitespace();
+        }
         result
     }
 
     pub(super) fn transform_op(ctx: &ParseContext) -> Option<TransformType> {
         let result = TransformType::from_str(&ctx.remaining_src());
-        if result.is_some() { ctx.inc_loc(1); }
+        if result.is_some() {
+            ctx.inc_loc(3);
+            ctx.skip_whitespace();
+        }
         result
     }
 
@@ -196,12 +205,12 @@ pub mod try_parse {
         let is_anonymous_capture = &ctx.remaining_src()[0..=0] == "$" && !is_named_capture;
         if is_regex_capture {
             let end_slash_offset = ctx
-                .remaining_src()
+                .remaining_src()[2..]
                 .find_test(|c, i| c == '/' && &ctx.remaining_src()[i - 1..i] != "\\")
                 .expect("end slash not found")
                 + 2;
-            let regex_src = &ctx.remaining_src()[2..end_slash_offset - 1];
-            ctx.inc_loc(end_slash_offset);
+            let regex_src = &ctx.remaining_src()[2..end_slash_offset];
+            ctx.inc_loc(end_slash_offset+1);
             ctx.skip_whitespace();
             // XXX: handle bad regex panic
             return Some(Ast::Capture {
