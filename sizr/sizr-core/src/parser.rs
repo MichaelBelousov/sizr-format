@@ -11,6 +11,45 @@ use std::option::Option;
 use std::vec::Vec;
 
 #[derive(Debug)]
+struct ParseContext<'a> {
+    pub src: &'a str,
+    // TODO: replace with mutex?
+    pub loc: Cell<usize>,
+}
+
+impl<'a> ParseContext<'a> {
+    pub fn new(in_src: &'a str) -> Self {
+        ParseContext {
+            src: in_src,
+            loc: Cell::new(0),
+        }
+    }
+
+    pub fn remaining_src(&self) -> &'a str {
+        &self.src[self.loc.get()..]
+    }
+
+    pub fn inc_loc(&self, inc: usize) -> usize {
+        // FIXME: find idiomatic rust solution for this stuff
+        // I think a mutex might be correct
+        &self.loc.set(self.loc.get() + inc);
+        self.loc.get()
+    }
+
+    fn skip_whitespace(&self) {
+        if let Some(jump) = &self.remaining_src().find(|c: char| !c.is_whitespace()) {
+            &self.inc_loc(*jump);
+        }
+    }
+
+    fn cur_token_end(&self) -> usize {
+        self.remaining_src()
+            .find(|c: char| c.is_whitespace())
+            .unwrap_or(self.remaining_src().len())
+    }
+}
+
+#[derive(Debug)]
 pub(crate) enum NestingType {
     Arg,    // (
     Next,   // ,
@@ -51,6 +90,7 @@ impl TransformType {
 #[derive(Debug)]
 pub(crate) enum PropValue<'a> {
     Boolean(bool),
+    #[allow(dead_code)]
     Integer(i64),
     Real(f64),
     String(&'a str),
@@ -71,10 +111,6 @@ pub(crate) enum Ast<'a> {
         nester: Option<NestingType>,
         props: HashMap<&'a str, PropValue<'a>>,
     },
-    Prop {
-        key: &'a str,
-        value: PropValue<'a>,
-    },
     Capture {
         name: Option<&'a str>,
         // TODO: probably need a Pattern enum containing regex or str or any
@@ -82,45 +118,7 @@ pub(crate) enum Ast<'a> {
     },
 }
 
-#[derive(Debug)]
-struct ParseContext<'a> {
-    pub src: &'a str,
-    // TODO: replace with mutex?
-    pub loc: Cell<usize>,
-}
-
-impl<'a> ParseContext<'a> {
-    pub fn new(in_src: &'a str) -> Self {
-        ParseContext {
-            src: in_src,
-            loc: Cell::new(0),
-        }
-    }
-
-    pub fn remaining_src(&self) -> &'a str {
-        &self.src[self.loc.get()..]
-    }
-
-    pub fn inc_loc(&self, inc: usize) -> usize {
-        // FIXME: find idiomatic rust solution for this stuff
-        // I think a mutex might be correct
-        &self.loc.set(self.loc.get() + inc);
-        self.loc.get()
-    }
-
-    fn skip_whitespace(&self) {
-        if let Some(jump) = &self.remaining_src().find(|c: char| !c.is_whitespace()) {
-            &self.inc_loc(*jump);
-        }
-    }
-
-    fn cur_token_end(&self) -> usize {
-        self.remaining_src()
-            .find(|c: char| c.is_whitespace())
-            .unwrap_or(self.remaining_src().len())
-    }
-}
-
+// probably ought to replace this in favor of just running try_parse and checking for None
 pub mod matchers {
     use super::*;
 
@@ -136,10 +134,12 @@ pub mod matchers {
             .unwrap_or(false)
     }
 
+    #[allow(dead_code)]
     pub(super) fn is_query<'a>(ctx: &ParseContext<'a>) -> bool {
         is_scope_prop(&ctx) || is_capture(&ctx)
     }
 
+    #[allow(dead_code)]
     pub(super) fn is_scope_expr<'a>(ctx: &ParseContext<'a>) -> bool {
         is_query(&ctx)
     }
