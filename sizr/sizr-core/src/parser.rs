@@ -279,6 +279,9 @@ pub mod try_parse {
     }
 
     pub(super) fn scope_expr<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
+        if !matchers::is_scope_expr(&ctx) {
+            return None;
+        }
         let mut props = HashMap::new();
         let mut capture = None;
         while matchers::is_scope_prop(&ctx) {
