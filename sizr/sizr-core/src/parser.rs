@@ -2,7 +2,6 @@
  * Parser for the sizr ast transformation language
  */
 extern crate regex;
-//extern crate lazy_static;
 
 use regex::Regex;
 use std::boxed::Box;
@@ -21,11 +20,11 @@ pub(crate) enum NestingType {
 
 impl NestingType {
     fn from_str(s: &str) -> Option<NestingType> {
-        match s.chars().nth(0) {
-            Some('(') => Some(NestingType::Arg),
-            Some(',') => Some(NestingType::Next),
-            Some('.') => Some(NestingType::Member),
-            Some('{') => Some(NestingType::Impl),
+        match &s[0..=0] {
+            "(" => Some(NestingType::Arg),
+            "," => Some(NestingType::Next),
+            "." => Some(NestingType::Member),
+            "{" => Some(NestingType::Impl),
             _ => None,
         }
     }
@@ -126,11 +125,7 @@ pub mod matchers {
     use super::*;
 
     pub(super) fn is_capture<'a>(ctx: &ParseContext<'a>) -> bool {
-        ctx.remaining_src()
-            .chars()
-            .nth(0)
-            .map(|c| c == '$')
-            .unwrap_or(false)
+        &ctx.remaining_src()[0..=0] == "$"
     }
 
     pub(super) fn is_scope_prop<'a>(ctx: &ParseContext<'a>) -> bool {
@@ -197,19 +192,11 @@ pub mod try_parse {
             .nth(1)
             .map(|c| c.is_ascii_alphabetic())
             .unwrap_or(false);
-        let is_anonymous_capture = ctx
-            .remaining_src()
-            .chars()
-            .nth(0)
-            .map(|c| c == '$')
-            .map(|b| b && !is_named_capture)
-            .unwrap_or(false);
+        let is_anonymous_capture = &ctx.remaining_src()[0..=0] == "$" && !is_named_capture;
         if is_regex_capture {
             let end_slash_offset = ctx
                 .remaining_src()
-                .find_test(|c, i| {
-                    c == '/' && ctx.remaining_src().chars().nth(i - 1).unwrap() != '\\'
-                })
+                .find_test(|c, i| c == '/' && &ctx.remaining_src()[i - 1..i] != "\\")
                 .expect("end slash not found")
                 + 2;
             let regex_src = &ctx.remaining_src()[2..end_slash_offset - 1];
@@ -241,7 +228,55 @@ pub mod try_parse {
         }
     }
 
-    pub(super) fn scope_prop<'a>(ctx: &ParseContext<'a>) -> Option<(&'a str, PropValue<'a>)> {}
+    pub(super) fn value<'a>(ctx: &ParseContext<'a>) -> Option<PropValue<'a>> {
+        let is_quote = &ctx.remaining_src()[0..=0] == "\"";
+        // should probably expect nth(0) since otherwise we're at EOF
+        let is_num = ctx.remaining_src().chars().nth(0).map(|c| c.is_numeric()).unwrap_or(false);
+        if is_quote {
+            let end_quote_offset = ctx.remaining_src().find_test(|c, i| c == '"' && &ctx.remaining_src()[i-1..i] != "\\").expect("unterminated quote") + 1;
+            ctx.inc_loc(end_quote_offset);
+            ctx.skip_whitespace();
+            Some(PropValue::String(&ctx.remaining_src()[1..end_quote_offset-1]))
+        } else {
+            let next_space_offset = ctx.cur_token_end();
+            ctx.inc_loc(next_space_offset);
+            ctx.skip_whitespace();
+            let sentence = &ctx.remaining_src()[..next_space_offset];
+            if is_num {
+                use std::str::FromStr;
+                let num = f64::from_str(sentence).expect("bad number literal");
+                Some(PropValue::Real(num))
+            } else {
+                Some(PropValue::String(sentence))
+            }
+        }
+    }
+
+    pub(super) fn scope_prop<'a>(ctx: &ParseContext<'a>) -> Option<(&'a str, PropValue<'a>)> {
+        let after_token = ctx.cur_token_end();
+        let if_boolean_sentence = &ctx.remaining_src()[..after_token];
+        let is_boolean_no_prop = &ctx.remaining_src()[0..=0] == "!";
+        if is_boolean_no_prop {
+            ctx.inc_loc(if_boolean_sentence.len());
+            ctx.skip_whitespace();
+            return Some((&if_boolean_sentence[1..], PropValue::Boolean(false)));
+        }
+        let is_specific_value_prop = if_boolean_sentence.contains("=");
+        let is_boolean_yes_prop = !is_specific_value_prop;
+        if is_boolean_yes_prop {
+            ctx.inc_loc(if_boolean_sentence.len());
+            ctx.skip_whitespace();
+            return Some((&if_boolean_sentence, PropValue::Boolean(true)));
+        } else if is_specific_value_prop {
+            let value_delim_index = ctx.remaining_src().find("=").expect("was supposed to have '='");
+            let key = &ctx.remaining_src()[..value_delim_index];
+            ctx.inc_loc(value_delim_index + 1);
+            ctx.skip_whitespace();
+            let value = try_parse::value(ctx).expect("expected prop value");
+            return Some((key, value));
+        }
+        None
+    }
 
     pub(super) fn scope_expr<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
         let mut props = HashMap::new();
@@ -299,3 +334,4 @@ pub(crate) fn parse_command<'a>(src: &'a str) -> Ast<'a> {
     let result = try_parse::transform(&ctx);
     result.expect("invalid transform")
 }
+
