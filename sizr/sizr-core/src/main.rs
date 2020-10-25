@@ -3,6 +3,7 @@ mod parser;
 //use std::fs;
 use std::io::{self, Read};
 mod code;
+mod backends { mod python; }
 
 fn main() -> io::Result<()> {
     let mut buffer = String::new();

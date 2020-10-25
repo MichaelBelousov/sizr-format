@@ -15,7 +15,7 @@
 
 // TODO: provide a macro for non-redundant implementation (or custom Derive!)
 /** language backends wrap */
-trait Elem<'a> {
+pub trait Elem<'a> {
     fn new(src: &'a str, start: usize) -> Self;
     fn src(&self) -> &'a str;
     fn start(&self) -> usize;
