@@ -2,6 +2,7 @@ mod parser;
 
 //use std::fs;
 use std::io::{self, Read};
+mod code;
 
 fn main() -> io::Result<()> {
     let mut buffer = String::new();

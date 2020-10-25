@@ -10,21 +10,15 @@
 // NOTE: I will add a tokenize function and rewrite this crud in
 // terms of tokens when rust adds stable coroutines/generators
 
-static pattern_any = Regex::new("").expect("trivial 'any' regex failed");
-
-/** a capturable is a blueprint for a program element that can be captured
- * by receiving a context
- */
-trait Capturable<T> {
-    fn contextualize(&self, capture_ctx: T) -> &Self;
-    fn context(&self) -> Option<T>;
-}
+// lazy_static!
+// static pattern_any: Regex = Regex::new("").expect("trivial 'any' regex failed");
 
 // TODO: provide a macro for non-redundant implementation (or custom Derive!)
 /** language backends wrap */
 trait Elem<'a> {
-    fn src(): &'a str;
-    fn start(): usize;
+    fn new(src: &'a str, start: usize) -> Self;
+    fn src(&self) -> &'a str;
+    fn start(&self) -> usize;
 }
 
 struct PythonElem<'a> {
@@ -32,13 +26,21 @@ struct PythonElem<'a> {
     _start: usize,
 }
 
-#[Derive(Debug)]
+impl<'a> Elem<'a> for PythonElem<'a> {
+    fn new(_src: &'a str, _start: usize) -> Self { PythonElem{ _src, _start } }
+    fn src(&self) -> &'a str { self._src }
+    fn start(&self) -> usize { self._start }
+}
+
+#[derive(Debug)]
 struct ElemExpr<'a> {
     pattern: Regex,
-    name: &'str
+    name: &'a str,
     // not sure yet how to in rust "move" this instance into the result, may be automatic
-    fn contextualize<T, R: Elem>(&self, capture_ctx: T) -> R {
-        hell
+}
+impl<'a> ElemExpr<'a> {
+    fn contextualize<T, R: Elem<'a>>(&self, capture_ctx: T) -> R {
+        R::new("none", 0)
     }
 }
 
