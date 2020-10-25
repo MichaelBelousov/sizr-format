@@ -173,12 +173,10 @@ pub mod matchers {
             .unwrap_or(false)
     }
 
-    #[allow(dead_code)]
     pub(super) fn is_query<'a>(ctx: &ParseContext<'a>) -> bool {
         is_scope_prop(&ctx) || is_capture(&ctx)
     }
 
-    #[allow(dead_code)]
     pub(super) fn is_scope_expr<'a>(ctx: &ParseContext<'a>) -> bool {
         is_query(&ctx)
     }
@@ -327,7 +325,7 @@ pub mod try_parse {
     }
 
     pub(super) fn scope_expr<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
-        if !matchers::is_scope_expr(&ctx) {
+        if !(matchers::is_scope_expr(&ctx) || matchers::is_nesting_op(&ctx)) {
             return None;
         }
         let mut props = HashMap::new();
@@ -352,6 +350,7 @@ pub mod try_parse {
             }
         }
         let nester = try_parse::nesting_op(&ctx);
+        ctx.skip_whitespace();
         Some(Ast::Elem {
             capture,
             nester,
@@ -364,9 +363,11 @@ pub mod try_parse {
         while let Some(expr) = try_parse::scope_expr(&ctx) {
             path.push(Box::new(expr));
         }
-        Some(Ast::Query { path })
+        // some option method is probably better
+        if !path.is_empty() { Some(Ast::Query { path }) } else { None }
     }
 
+    // TODO: make Result so can return Err
     pub(super) fn transform<'a>(ctx: &ParseContext<'a>) -> Option<Ast<'a>> {
         let maybe_selector = try_parse::query(&ctx);
         let transform_op = try_parse::transform_op(&ctx)?;
@@ -401,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_parse_full_command() {
-        assert_eq!(
+    assert_eq!(
             parse_command("class $c . !func $/log_.*/ >>! range=5.02 item"),
             Ast::Transform{
                 selector: Some(Box::new(Ast::Query{
@@ -449,6 +450,54 @@ mod tests {
                         })
                     ]
                 })),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_args() {
+    assert_eq!(
+            parse_command("func f ( , arg1 , arg2 >>>"),
+            Ast::Transform{
+                selector: Some(Box::new(Ast::Query{
+                    path: vec![
+                        Box::new(Ast::Elem{
+                            capture: Some(Box::new(Ast::Capture{
+                                name: Some("f"),
+                                pattern: Some(Regex::new("f").unwrap()),
+                            })),
+                            nester: Some(NestingType::Arg),
+                            props: {
+                                let mut map = HashMap::new();
+                                map.insert("func", PropValue::Boolean(true));
+                                map
+                            }
+                        }),
+                        Box::new(Ast::Elem{
+                            capture: None,
+                            nester: Some(NestingType::Next),
+                            props: HashMap::new()
+                        }),
+                        Box::new(Ast::Elem{
+                            capture: Some(Box::new(Ast::Capture{
+                                name: Some("arg1"),
+                                pattern: Some(Regex::new("arg1").unwrap())
+                            })),
+                            nester: Some(NestingType::Next),
+                            props: HashMap::new()
+                        }),
+                        Box::new(Ast::Elem{
+                            capture: Some(Box::new(Ast::Capture{
+                                name: Some("arg2"),
+                                pattern: Some(Regex::new("arg2").unwrap())
+                            })),
+                            nester: None,
+                            props: HashMap::new()
+                        })
+                    ]
+                })),
+                r#type: TransformType::Additive,
+                assertor: None
             }
         );
     }
