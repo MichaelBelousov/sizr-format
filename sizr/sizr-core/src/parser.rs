@@ -82,11 +82,9 @@ impl TransformType {
     // XXX: this matches for example ">>>@#$^$#", which should be unexpected
     // and yet I rely on it else where, should change
     fn from_str(s: &str) -> Option<TransformType> {
-        match &s[0..3] {
-            ">>>" => Some(TransformType::Additive),
-            ">>!" => Some(TransformType::Replacing),
-            _ => None,
-        }
+        if s.starts_with(">>>") { Some(TransformType::Additive) }
+        else if s.starts_with(">>!") { Some(TransformType::Replacing) }
+        else { None }
     }
 }
 
@@ -149,6 +147,19 @@ impl<'a> PartialEq for Ast<'a> {
 // probably ought to replace this in favor of just running try_parse and checking for None
 pub mod matchers {
     use super::*;
+
+    // tokenizer would remove the complexity here
+    pub(super) fn is_eof(ctx: &ParseContext) -> bool {
+        ctx.remaining_src().len() == 0 || ctx.remaining_src().find(|c: char| !c.is_whitespace()).is_none()
+    }
+
+    pub(super) fn is_nesting_op(ctx: &ParseContext) -> bool {
+        NestingType::from_str(&ctx.remaining_src()).is_some()
+    }
+
+    pub(super) fn is_transform_op(ctx: &ParseContext) -> bool {
+        TransformType::from_str(&ctx.remaining_src()).is_some()
+    }
 
     pub(super) fn is_capture<'a>(ctx: &ParseContext<'a>) -> bool {
         ctx.remaining_src().chars().nth(0).map(|c| c == '$').unwrap_or(false)
@@ -325,12 +336,9 @@ pub mod try_parse {
             let (key, val) = try_parse::scope_prop(&ctx)
                 .expect("checked it was a scope prop then parsed but it wasn't!");
             // switching to tokenizer ought to help clean this up weird bit
-            // where the last scope_expr might actually be an explicit name
-            if matchers::is_capture(&ctx) {
-                capture = try_parse::capture(&ctx).map(|c| Box::new(c));
-                break;
-            }
-            if !matchers::is_scope_prop(&ctx) {
+            // where the parsed scope_expr might actually have been an explicit name
+            if matchers::is_nesting_op(&ctx) || matchers::is_transform_op(&ctx) || matchers::is_eof(&ctx) {
+                // last parsed scope_prop was actually a capture, set the capture and break before adding the prop
                 capture = Some(Box::new(Ast::Capture {
                     name: Some(key),
                     pattern: Some(Regex::new(key).expect("unreachable: identifiers are always valid regex"))
@@ -338,6 +346,10 @@ pub mod try_parse {
                 break;
             }
             props.insert(key, val);
+            if matchers::is_capture(&ctx) {
+                capture = try_parse::capture(&ctx).map(|c| Box::new(c));
+                break;
+            }
         }
         let nester = try_parse::nesting_op(&ctx);
         Some(Ast::Elem {
@@ -382,12 +394,13 @@ pub(crate) fn parse_command<'a>(src: &'a str) -> Ast<'a> {
     result.expect("invalid transform")
 }
 
+// TODO: see about moving companion test module to a separate file
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_command() {
+    fn test_parse_full_command() {
         assert_eq!(
             parse_command("class $c . !func $/log_.*/ >>! range=5.02 item"),
             Ast::Transform{
