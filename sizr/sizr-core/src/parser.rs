@@ -61,11 +61,12 @@ pub(crate) enum NestingType {
 
 impl NestingType {
     fn from_str(s: &str) -> Option<NestingType> {
-        match &s[0..=0] {
-            "(" => Some(NestingType::Arg),
-            "," => Some(NestingType::Next),
-            "." => Some(NestingType::Member),
-            "{" => Some(NestingType::Impl),
+        // there's probably an Option method that can remove the double Some (filter+map)
+        match s.chars().nth(0) {
+            Some('(') => Some(NestingType::Arg),
+            Some(',') => Some(NestingType::Next),
+            Some('.') => Some(NestingType::Member),
+            Some('{') => Some(NestingType::Impl),
             _ => None,
         }
     }
@@ -120,6 +121,7 @@ pub(crate) enum Ast<'a> {
     },
 }
 
+// TODO: see if there's a way to only need to specify equivalence for Option<Regex>
 impl<'a> PartialEq for Ast<'a> {
     fn eq(&self, other: &Self) -> bool {
         use Ast::*;
@@ -149,7 +151,7 @@ pub mod matchers {
     use super::*;
 
     pub(super) fn is_capture<'a>(ctx: &ParseContext<'a>) -> bool {
-        &ctx.remaining_src()[0..=0] == "$"
+        ctx.remaining_src().chars().nth(0).map(|c| c == '$').unwrap_or(false)
     }
 
     pub(super) fn is_scope_prop<'a>(ctx: &ParseContext<'a>) -> bool {
@@ -227,7 +229,7 @@ pub mod try_parse {
             .nth(1)
             .map(|c| c.is_ascii_alphabetic())
             .unwrap_or(false);
-        let is_anonymous_capture = &ctx.remaining_src()[0..=0] == "$" && !is_named_capture;
+        let is_anonymous_capture = ctx.remaining_src().chars().nth(0).map(|c| c == '$').unwrap_or(false) && !is_named_capture;
         if is_regex_capture {
             let end_slash_offset = ctx
                 .remaining_src()[2..]
@@ -264,7 +266,7 @@ pub mod try_parse {
     }
 
     pub(super) fn value<'a>(ctx: &ParseContext<'a>) -> Option<PropValue<'a>> {
-        let is_quote = &ctx.remaining_src()[0..=0] == "\"";
+        let is_quote = ctx.remaining_src().chars().nth(0).map(|c| c == '"').unwrap_or(false);
         // should probably expect nth(0) since otherwise we're at EOF
         let is_num = ctx.remaining_src().chars().nth(0).map(|c| c.is_numeric()).unwrap_or(false);
         if is_quote {
@@ -274,9 +276,9 @@ pub mod try_parse {
             Some(PropValue::String(&ctx.remaining_src()[1..end_quote_offset-1]))
         } else {
             let next_space_offset = ctx.cur_token_end();
+            let sentence = &ctx.remaining_src()[..next_space_offset];
             ctx.inc_loc(next_space_offset);
             ctx.skip_whitespace();
-            let sentence = &ctx.remaining_src()[..next_space_offset];
             if is_num {
                 use std::str::FromStr;
                 let num = f64::from_str(sentence).expect("bad number literal");
@@ -290,7 +292,7 @@ pub mod try_parse {
     pub(super) fn scope_prop<'a>(ctx: &ParseContext<'a>) -> Option<(&'a str, PropValue<'a>)> {
         let after_token = ctx.cur_token_end();
         let if_boolean_sentence = &ctx.remaining_src()[..after_token];
-        let is_boolean_no_prop = &ctx.remaining_src()[0..=0] == "!";
+        let is_boolean_no_prop = ctx.remaining_src().chars().nth(0).map(|c| c == '!').unwrap_or(false);
         if is_boolean_no_prop {
             ctx.inc_loc(if_boolean_sentence.len());
             ctx.skip_whitespace();
