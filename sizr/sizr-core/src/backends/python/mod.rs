@@ -1,4 +1,5 @@
 
+extern crate pyo3;
 use crate::code::Elem;
 
 struct PythonElem<'a> {
@@ -6,8 +7,8 @@ struct PythonElem<'a> {
     _start: usize
 }
 
-impl<'a> Elem<'a> for PythonElem<'a> {
-    fn new(_src: &'a str, _start: usize) -> Self { PythonElem{ _src, _start } }
+impl<'a> Elem<'a, ()> for PythonElem<'a> {
+    fn new(_src: &'a str, _start: usize, _ctx: ()) -> Self { PythonElem{ _src, _start } }
     fn src(&self) -> &'a str { self._src }
     fn start(&self) -> usize { self._start }
 }
