@@ -51,7 +51,7 @@ impl<'a> ParseContext<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum NestingType {
     Arg,    // (
     Next,   // ,
@@ -71,7 +71,7 @@ impl NestingType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum TransformType {
     Additive,  // >>>
     Replacing, // >>!
@@ -89,7 +89,7 @@ impl TransformType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum PropValue<'a> {
     Boolean(bool),
     #[allow(dead_code)]
@@ -118,6 +118,30 @@ pub(crate) enum Ast<'a> {
         // TODO: probably need a Pattern enum containing regex or str or any
         pattern: Option<Regex>,
     },
+}
+
+impl<'a> PartialEq for Ast<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        use Ast::*;
+        match (self, other) {
+            (Transform{selector: lsel, r#type: ltype, assertor: lasser},
+             Transform{selector: rsel, r#type: rtype, assertor: rasser})
+              => lsel == rsel && ltype == rtype && lasser == rasser,
+            (Query{path: lpath}, Query{path: rpath})
+              => lpath == rpath,
+            (Elem{capture: lcap, nester: lnest, props: lprops},
+             Elem{capture: rcap, nester: rnest, props: rprops})
+              => lcap == rcap && lnest == rnest && lprops == rprops,
+            (Capture{name: lname, pattern: lpat},
+             Capture{name: rname, pattern: rpat})
+              => lname == rname && match (lpat, rpat) {
+                  (Some(l), Some(r)) => l.as_str() == r.as_str(),
+                  (None, None) => true,
+                  _ => false
+              },
+            _ => false
+        }
+    }
 }
 
 // probably ought to replace this in favor of just running try_parse and checking for None
@@ -170,6 +194,7 @@ impl StrUtils for str {
     }
 }
 
+// TODO: switch to using Result over Option, so we don't need to panic!
 // would be nice if you could associate a function with an enum variant
 // like Ast::Transform::parse() but alas
 pub mod try_parse {
@@ -353,5 +378,64 @@ pub(crate) fn parse_command<'a>(src: &'a str) -> Ast<'a> {
     let ctx = ParseContext::new(src);
     let result = try_parse::transform(&ctx);
     result.expect("invalid transform")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_command() {
+        assert_eq!(
+            parse_command("class $c . !func $/log_.*/ >>! range=5.02 item"),
+            Ast::Transform{
+                selector: Some(Box::new(Ast::Query{
+                    path: vec![
+                        Box::new(Ast::Elem{
+                            capture: Some(Box::new(Ast::Capture{
+                                name: Some("c"),
+                                pattern: None,
+                            })),
+                            nester: Some(NestingType::Member),
+                            props: {
+                                let mut map = HashMap::new();
+                                map.insert("class", PropValue::Boolean(true));
+                                map
+                            }
+                        }),
+                        Box::new(Ast::Elem{
+                            capture: Some(Box::new(Ast::Capture{
+                                name: None,
+                                pattern: Some(Regex::new("log_.*").unwrap())
+                            })),
+                            nester: None,
+                            props: {
+                                let mut map = HashMap::new();
+                                map.insert("func", PropValue::Boolean(false));
+                                map
+                            }
+                        })
+                    ]
+                })),
+                r#type: TransformType::Replacing,
+                assertor: Some(Box::new(Ast::Query{
+                    path: vec![
+                        Box::new(Ast::Elem{
+                            capture: Some(Box::new(Ast::Capture{
+                                name: Some("item"),
+                                pattern: Some(Regex::new("item").unwrap())
+                            })),
+                            nester: None,
+                            props: {
+                                let mut map = HashMap::new();
+                                map.insert("range", PropValue::Real(5.02));
+                                map
+                            }
+                        })
+                    ]
+                })),
+            }
+        );
+    }
 }
 
