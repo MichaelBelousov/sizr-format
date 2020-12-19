@@ -1,9 +1,14 @@
-mod parser;
+#[macro_use]
+extern crate lazy_static;
+extern crate pyo3;
 
 //use std::fs;
 use std::io::{self, Read};
+
 mod code;
 mod backends { mod python; }
+mod parser;
+//mod engine;
 
 fn main() -> io::Result<()> {
     let mut buffer = String::new();

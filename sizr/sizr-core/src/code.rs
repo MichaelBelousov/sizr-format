@@ -6,6 +6,10 @@
 
  use regex::Regex;
  use std::option::Option;
+ use std::vec::Vec;
+ use std::collections::HashMap;
+ use crate::parser;
+ use tree_sitter::{Tree, Node};
 
 // NOTE: I will add a tokenize function and rewrite this crud in
 // terms of tokens when rust adds stable coroutines/generators
@@ -31,6 +35,33 @@ struct ElemExpr<'a> {
 impl<'a> ElemExpr<'a> {
     fn contextualize<T, R: Elem<'a, T>>(&self, capture_ctx: T) -> R {
         R::new("none", 0, capture_ctx)
+    }
+}
+
+/** */ // maybe rename to Element?
+#[derive(Debug)]
+struct Capture<'a> {
+
+}
+
+#[derive(Debug)]
+struct Selection<'a> {
+    expr: parser::Ast<'a>,
+    captures: Vec<Capture<'a>>;
+    //references: HashMap<Tree, >;
+}
+
+#[derive(Debug)]
+struct Transform<'a> {
+    expr: parser::Ast<'a>,
+    selection: Selection<'a>,
+}
+
+impl<'a> Transform<'a> {
+    // TODO: make every variant of Ast point to an individual concrete type which
+    // can be specified as an argument type
+    fn from_expr(expr: &parser::Ast<'a>, captures: ) {
+
     }
 }
 
