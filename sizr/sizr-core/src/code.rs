@@ -1,15 +1,14 @@
 /**
  * Parser for the sizr ast transformation language
  */
+extern crate regex;
 
- extern crate regex;
-
- use regex::Regex;
- use std::option::Option;
- use std::vec::Vec;
- use std::collections::HashMap;
- use crate::parser;
- use tree_sitter::{Tree, Node};
+use crate::parser;
+use regex::Regex;
+use std::collections::HashMap;
+use std::option::Option;
+use std::vec::Vec;
+use tree_sitter::{Node, Tree};
 
 // NOTE: I will add a tokenize function and rewrite this crud in
 // terms of tokens when rust adds stable coroutines/generators
@@ -40,15 +39,13 @@ impl<'a> ElemExpr<'a> {
 
 /** */ // maybe rename to Element?
 #[derive(Debug)]
-struct Capture<'a> {
-
-}
+struct Capture<'a> {}
 
 #[derive(Debug)]
 struct Selection<'a> {
     expr: parser::Ast<'a>,
-    captures: Vec<Capture<'a>>;
-    //references: HashMap<Tree, >;
+    captures: Vec<Capture<'a>>,
+    //references: HashMap<Tree, >,
 }
 
 #[derive(Debug)]
@@ -60,8 +57,5 @@ struct Transform<'a> {
 impl<'a> Transform<'a> {
     // TODO: make every variant of Ast point to an individual concrete type which
     // can be specified as an argument type
-    fn from_expr(expr: &parser::Ast<'a>, captures: ) {
-
-    }
+    fn from_expr(expr: &parser::Ast<'a>, captures: &Vec<Capture<'a>>) {}
 }
-
