@@ -280,6 +280,7 @@ pub mod try_parse {
     // TODO: create an arg struct for this
     fn try_read_chars<'a, FindEnd, Map, Expr>(
         ctx: &'a ParseContext,
+        // TODO: change this to isEnd
         continueReading: FindEnd,
         mapToExpr: Map,
     ) -> Result<Read<Expr>, &'static str>
@@ -393,6 +394,14 @@ pub mod try_parse {
         )
     }
 
+    pub(super) fn eol(ctx: &ParseContext) -> bool {
+        ctx.remaining_src().chars().nth(0) == Some('\n')
+    }
+
+    pub(super) fn eof(ctx: &ParseContext) -> bool {
+        ctx.remaining_src().chars().nth(0) == None
+    }
+
     pub(super) fn cond(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('?')
     }
@@ -412,85 +421,22 @@ pub mod try_parse {
                 _ => false,
             }
     }
-}
 
-pub mod try_parse {
-    use super::*;
-
-    pub fn identifier<'a>(source: &'a str) -> &'a str {
-        // TODO: verify first char is not numeric in debug mode
-        if let Some(after) = source.find(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
-            // TODO: convert escape sequences i.e. \n, \\, etc
-            let content = &source[..after];
-            content
-        } else {
-            panic!("debug");
-        }
-    }
-
-    fn quoted<'a>(source: &'a str, delim: char) -> &'a str {
-        let mut i = 1; //skip delimiter
-        loop {
-            if let Some(jump) = source.find(|c: char| c == '\\' || c == delim) {
-                match source.chars().nth(jump) {
-                    Some('\\') => {
-                        i += jump + 2;
-                    }
-                    Some(_) => {
-                        i += jump + 1;
-                        break;
-                    }
-                    _ => panic!("error while reading delimited text"),
+    pub(super) fn node_reference<'a>(
+        ctx: &'a ParseContext,
+    ) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        (&ctx.remaining_src()[..1] == "$")
+            .then(|| ())
+            .ok_or("node references must start with a '$'")
+            .and(Ok(ctx.inc_loc(1)))
+            .and(try_parse::name(&ctx))
+            // damn lack of specific variant types...
+            .map(|nameExpr| match nameExpr.result {
+                FilterExpr::Name(name) => {
+                    Read::new(FilterExpr::NodeReference { name }, 1 + name.len())
                 }
-            } else {
-                break;
-            }
-        }
-        &source[1..i]
-    }
-
-    pub fn number<'a>(ctx: &'a ParseContext) -> Token<'a> {
-        // TODO: support scientific notation
-        if let Some(end) = ctx
-            .remaining_src()
-            .find(|c: char| !c.is_ascii_digit() && c != '.')
-        {
-            let src = &ctx.remaining_src()[..end];
-            let parsed = src.parse::<f64>().unwrap();
-            Token::Number(parsed)
-        } else {
-            panic!("failed to parse number");
-        }
-    }
-
-    pub fn quote<'a>(ctx: &'a ParseContext) -> Token<'a> {
-        Token::Quote(read_quoted(ctx.remaining_src(), '"'))
-    }
-
-    // XXX: maybe shouldn't be an atom?
-    pub fn try_lex_simple_lambda<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
-        // TODO: in debug mode explicitly check for "." start
-        if let Some(c @ '.') = ctx.remaining_src().chars().nth(0) {
-            ctx.inc_loc(1);
-            let name = read_identifier(ctx.remaining_src());
-            ctx.inc_loc(name.len());
-            Some(Token::SimpleLambda { property: name })
-        } else {
-            None
-        }
-    }
-
-    pub fn try_lex_variable<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
-        if let Some(c @ '$') = ctx.remaining_src().chars().nth(0) {
-            ctx.inc_loc(1);
-            let name = read_identifier(ctx.remaining_src());
-            ctx.inc_loc(name.len());
-            Some(Token::Variable {
-                name: read_identifier(&ctx.remaining_src()[1..]),
+                _ => unreachable!(),
             })
-        } else {
-            None
-        }
     }
 
     pub fn try_lex_indent_mark<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
