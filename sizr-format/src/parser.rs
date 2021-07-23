@@ -192,6 +192,12 @@ pub struct Regex {
     pub regex: regex::Regex,
 }
 
+impl Regex {
+    pub fn new(val: regex::Regex) -> Self {
+        Regex { regex: val }
+    }
+}
+
 impl PartialEq for Regex {
     fn eq(&self, other: &Self) -> bool {
         self.regex.as_str() == other.regex.as_str()
@@ -275,11 +281,10 @@ pub mod try_parse {
         findEnd: FindEnd,
         findEndFailMsg: &'static str,
         mapToExpr: Map,
-        mapFailMsg: &'static str,
     ) -> Result<Read<Expr>, &'static str>
     where
         FindEnd: Fn(char, usize, bool) -> bool,
-        Map: FnOnce(&'a str) -> Option<Expr>,
+        Map: FnOnce(&'a str) -> Result<Expr, &'static str>,
     {
         ctx.remaining_src()
             .chars()
@@ -290,9 +295,7 @@ pub mod try_parse {
             .ok_or(findEndFailMsg)
             .and_then(|end| {
                 let content = &ctx.remaining_src()[..end];
-                mapToExpr(content)
-                    .map(|expr| (expr, content.len()))
-                    .ok_or(mapFailMsg)
+                mapToExpr(content).map(|expr| (expr, content.len()))
             })
             .map(|(expr, len)| Read::<Expr>::new(expr, len))
     }
@@ -302,8 +305,7 @@ pub mod try_parse {
             ctx,
             |c, _, eof| eof || !(c.is_ascii_alphanumeric() || c == '_'),
             "unreachable",
-            |s| Some(FilterExpr::Name(s)),
-            "expected name",
+            |s| Ok(FilterExpr::Name(s)),
         )
     }
 
@@ -312,23 +314,38 @@ pub mod try_parse {
             ctx,
             |c, _, eof| eof || !(c.is_ascii_digit() || c == '.'),
             "unreachable",
-            |s| s.parse::<i64>().ok().map(|i| Literal::Integer(i)),
-            "expected integer literal",
+            |s| {
+                s.parse::<i64>()
+                    // NEEDSWORK: combine the parse error rather than swallow it?
+                    .map_err(|err| "expected integer literal")
+                    .map(|i| Literal::Integer(i))
+            },
         )
     }
 
     pub(super) fn string<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
             ctx,
-            |c, i, eof| c == '"' && &ctx.remaining_src()[i - 1..i] != "\\",
+            |c, i, _| c == '"' && &ctx.remaining_src()[i - 1..i] != "\\",
             "unterminated string literal",
-            |s| Some(Literal::String(s)),
-            "expected integer literal",
+            |s| Ok(Literal::String(s)),
         )
     }
 
-    pub(super) fn regex(ctx: &ParseContext) -> bool {
-        ctx.remaining_src().chars().nth(0) == Some('/')
+    pub(super) fn regex<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        try_read_chars(
+            ctx,
+            // NOTE: if it's possible to have errors during finding (e.g. run into eof),
+            // could have this Fn return a Result<> and use that
+            |c, i, _| c == '/' && &ctx.remaining_src()[i - 1..i] != "\\",
+            "unterminated regex literal",
+            |s| {
+                regex::Regex::new(s)
+                    // NEEDSWORK: should combine with the regex failure message
+                    .map_err(|err| "invalid regex didn't compile")
+                    .map(|r| Literal::Regex(Regex::new(r)))
+            },
+        )
     }
 
     pub(super) fn eol(ctx: &ParseContext) -> bool {
