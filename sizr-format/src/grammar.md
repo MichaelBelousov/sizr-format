@@ -27,11 +27,12 @@ commands:
   - |> indent
   - |>> indent twice (etc...)
   - <| outdent
-  - >( indent to outer parenthesis
+  - >( indent to outer parenthesis (anchor, not indent...)
   - >[ indent to outer bracket
   - >{ indent to outer brace
   - >" indent to outer quote
   - >!" " custom post indent literal
+  - >n indent to anchor *n* where n is a decimal number
 indents in some languages may be implied
 
 SCRIPT ENGINE:
@@ -57,4 +58,32 @@ mapping slices/filters:
 - leftover: map[\_]
 types:
 - number (n), bool (b), string (s), mapping (m), list (l)
+```
+
+#### grammar
+
+maybe rename project to tree-writer, base it on tree-sitter and make it more than just logically independent of sizr?
+
+```sizrfmt
+
+# comment
+
+node "IfStatement" = {
+  "if (" $condition ")" \
+    >> $consequence
+    # using 
+  $alternate ? { "else" >> $alternate }
+}
+
+```
+
+#### config
+
+`.sizrfmtrc.json`
+
+```json
+{
+  "indentStr": "\t" | "  " | "    ",
+  "targetLineLength": 80,
+}
 ```
