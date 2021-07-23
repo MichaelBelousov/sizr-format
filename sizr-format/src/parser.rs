@@ -65,6 +65,8 @@ impl<'a> ParseContext<'a> {
         self.loc.get()
     }
 
+    // really this should be done over "Iterator::skip_while" and this whole thing should
+    // be an interator, no?
     pub fn skip_whitespace(&self) {
         if let Some(jump) = &self.remaining_src().find(|c: char| !c.is_whitespace()) {
             &self.inc_loc(*jump);
@@ -283,17 +285,32 @@ pub mod try_parse {
         mapToExpr: Map,
     ) -> Result<Read<Expr>, &'static str>
     where
-        FindEnd: Fn(char, usize, bool) -> bool,
+        FindEnd: Fn(char, usize, bool) -> Result<bool, &'static str>, // Result is whether to stop
         Map: FnOnce(&'a str) -> Result<Expr, &'static str>,
     {
         ctx.remaining_src()
             .chars()
             .nth(0)
-            .map(|c| c.is_ascii_digit())
-            .and(ctx.remaining_src().find_test(|c, i| findEnd(c, i, false)))
-            .or(findEnd('\0', ctx.src.len(), true).then(|| ctx.distance_to_eof()))
-            .ok_or(findEndFailMsg)
-            .and_then(|end| {
+            .ok_or("trying to start reading from EOF")
+            // find end of token
+            .and(
+                ctx.remaining_src()
+                    .chars()
+                    .enumerate()
+                    .find_map(|(i, c)| {
+                        let test = findEnd(c, i, false);
+                        // how do you do Option::filter on Result????
+                        match test {
+                            Ok(v @ true) => Some(Ok((i, c))),
+                            Ok(v @ false) => None,
+                            Err(e) => Some(Err(e)),
+                        }
+                    })
+                    .unwrap_or(Err("failed to find")),
+            )
+            .or(findEnd('\0', ctx.remaining_src().len(), true)
+                .and(Ok((ctx.distance_to_eof(), '\0'))))
+            .and_then(|(end, _)| {
                 let content = &ctx.remaining_src()[..end];
                 mapToExpr(content).map(|expr| (expr, content.len()))
             })
@@ -303,7 +320,13 @@ pub mod try_parse {
     pub(super) fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         try_read_chars(
             ctx,
-            |c, _, eof| eof || !(c.is_ascii_alphanumeric() || c == '_'),
+            |c, i, eof| {
+                eof || if i == 0 {
+                    c.is_ascii_alphabetic()
+                } else {
+                    !(c.is_ascii_alphanumeric() || c == '_')
+                }
+            },
             "unreachable",
             |s| Ok(FilterExpr::Name(s)),
         )
