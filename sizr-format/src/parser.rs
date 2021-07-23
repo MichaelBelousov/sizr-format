@@ -60,12 +60,12 @@ impl<'a> ParseContext<'a> {
         self.src.len() - self.loc.get()
     }
 
-    fn inc_loc(&self, amount: usize) -> usize {
+    pub fn inc_loc(&self, amount: usize) -> usize {
         &self.loc.set(self.loc.get() + amount);
         self.loc.get()
     }
 
-    fn skip_whitespace(&self) {
+    pub fn skip_whitespace(&self) {
         if let Some(jump) = &self.remaining_src().find(|c: char| !c.is_whitespace()) {
             &self.inc_loc(*jump);
         }
@@ -74,29 +74,11 @@ impl<'a> ParseContext<'a> {
     /**
      * return the distance from the current location to the end of the current token
      */
-    fn cur_token_end(&self) -> usize {
+    pub fn cur_token_end(&self) -> usize {
         self.remaining_src()
             .find(|c: char| c.is_whitespace())
             .unwrap_or(self.remaining_src().len())
     }
-
-    /*
-    pub fn next_token(&self) -> Option<Token> {
-        self.remaining_src()
-            .chars()
-            .nth(0)
-            .and_then(|c| match c {
-                '(' => Some(Token::LPar),
-                ')' => Some(Token::RPar),
-                '\\' => Some(Token::WrapPoint),
-                '"' => Some(atoms::parse_quote(self)),
-                _ => None,
-            })
-            .or(atoms::try_lex_variable(self))
-            .or(atoms::try_lex_indent_mark(self))
-            .or(atoms::try_lex_op(self))
-    }
-    */
 }
 
 pub mod ops {
@@ -114,6 +96,7 @@ pub mod ops {
         Dot,
     }
 
+    // XXX: replace with FromStr implementation
     pub trait FromToken {
         fn read<'a>(token: &'a str) -> Self;
     }
@@ -275,37 +258,63 @@ pub struct File<'a> {
 pub mod try_parse {
     use super::*;
 
-    pub(super) fn name<'a>(ctx: &'a ParseContext) -> Result<FilterExpr<'a>, &'static str> {
-        ctx.remaining_src()
-            .chars()
-            .nth(0)
-            // map to whether first letter is valid word
-            .map(|c| c.is_ascii() || c == '_')
-            // map to end of token
-            .map(|_| {
-                ctx.remaining_src()
-                    .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                    .unwrap_or(ctx.distance_to_eof())
-            })
-            // map to full token body
-            .map(|end| {
-                let content = &ctx.remaining_src()[..end];
-                FilterExpr::Name(content)
-            })
-            .ok_or("expected word")
+    pub struct Read<T> {
+        pub result: T,
+        pub len: usize,
     }
 
-    pub(super) fn number(ctx: &ParseContext) -> bool {
-        if let Some(c) = ctx.remaining_src().chars().nth(0) {
-            c.is_ascii_digit()
-        } else {
-            false
+    impl<T> Read<T> {
+        pub fn new(result: T, len: usize) -> Self {
+            Read { result, len }
         }
     }
 
-    pub(super) fn string(ctx: &ParseContext) -> bool {
-        ctx.remaining_src().chars().nth(0) == Some('"')
+    fn try_read_chars<'a, Filter, Map, Expr>(
+        ctx: &'a ParseContext,
+        filter: Filter,
+        mapToExpr: Map,
+        errMsg: &'static str,
+    ) -> Result<Read<Expr>, &'static str>
+    where
+        Filter: Fn(char) -> bool,
+        Map: FnOnce(&'a str) -> Option<Expr>,
+    {
+        ctx.remaining_src()
+            .chars()
+            .nth(0)
+            .map(|c| c.is_ascii_digit())
+            .and(Some(
+                ctx.remaining_src()
+                    .find(filter)
+                    .unwrap_or(ctx.distance_to_eof()),
+            ))
+            .and_then(|end| {
+                let content = &ctx.remaining_src()[..end];
+                mapToExpr(content).map(|expr| (expr, content.len()))
+            })
+            .map(|(expr, len)| Read::<Expr>::new(expr, len))
+            .ok_or(errMsg)
     }
+
+    pub(super) fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        try_read_chars(
+            ctx,
+            |c| !c.is_ascii_alphanumeric() && c != '_',
+            |s| Some(FilterExpr::Name(s)),
+            "expected name",
+        )
+    }
+
+    pub(super) fn integer<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        try_read_chars(
+            ctx,
+            |c| !(c.is_ascii_digit() || c == '.'),
+            |s| s.parse::<i64>().ok().map(|i| Literal::Integer(i)),
+            "expected integer literal",
+        )
+    }
+
+    pub(super) fn string<'a>(ctx: &'a ParseContext) -> Result<FilterExpr<'a>, &'static str> {}
 
     pub(super) fn regex(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('/')
