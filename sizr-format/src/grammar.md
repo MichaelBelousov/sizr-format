@@ -6,7 +6,7 @@ Discussion of the Grammar
 - "blah" literal
 - $variable
 - $variable[slice]
-- wrap points \ 
+- wrap points \
 - cond
 
 ```
@@ -22,6 +22,7 @@ commands:
   - ?(cond) : else
   - ?(cond) then
   - basically condition for the next command, with possible else
+  - or just use C style ternary with both branches optional...
 - indentation:
   - >| indent to same level?
   - |> indent
@@ -65,16 +66,26 @@ types:
 maybe rename project to tree-writer, base it on tree-sitter and make it more than just logically independent of sizr?
 
 ```sizrfmt
-
 # comment
-
 node "IfStatement" = {
   "if (" $condition ")" \
     >> $consequence
     # using 
   $alternate ? { "else" >> $alternate }
 }
+```
 
+perhaps `$` refers to the current node's PST (program structure tree), to be able to do something like:
+
+```sizrfmt
+node "VarDecl" = {
+  $.raw.length >= 20 ? {
+    $type $name \n
+      >> "= " $initializer
+  } : {
+    $type $name " = " $initializer
+  }
+}
 ```
 
 #### config

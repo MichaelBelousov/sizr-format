@@ -1,4 +1,4 @@
-extern crate lazy_static;
+//extern crate lazy_static;
 /**
  * Parser for the sizr-format language
  */
@@ -6,11 +6,11 @@ extern crate regex;
 
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-use regex::Regex;
 use std::boxed::Box;
 use std::cell::Cell;
 //use std::collections::HashMap;
 use std::option::Option;
+use std::result::Result;
 use std::vec::Vec;
 
 // TODO: move to a separate util module
@@ -56,6 +56,10 @@ impl<'a> ParseContext<'a> {
         &self.src[self.loc.get()..]
     }
 
+    pub fn distance_to_eof(&self) -> usize {
+        self.src.len() - self.loc.get()
+    }
+
     fn inc_loc(&self, amount: usize) -> usize {
         &self.loc.set(self.loc.get() + amount);
         self.loc.get()
@@ -95,23 +99,15 @@ impl<'a> ParseContext<'a> {
     */
 }
 
-#[derive(Debug, PartialEq)]
-pub(crate) enum Value<'a> {
-    Boolean(bool),
-    #[allow(dead_code)]
-    Integer(i64),
-    Real(f64),
-    String(&'a str),
-}
-
 pub mod ops {
     use super::*;
 
     #[derive(Debug, PartialEq, PartialOrd, FromPrimitive, Copy, Clone)]
     pub enum Prec {
-        And = 0,
-        Or,
-        Comp,
+        Or = 0,
+        And,
+        Eq,  // ==, !=
+        Cmp, // <, >, <=, >=
         Add,
         Mult,
         Exp,
@@ -153,6 +149,7 @@ pub mod ops {
         fn prec<'a>(&self) -> Prec;
     }
 
+    #[derive(Debug)]
     pub enum BinOp {
         And,
         Or,
@@ -176,23 +173,8 @@ pub mod ops {
     impl HasAssoc for BinOp {
         fn assoc<'a>(&self) -> Assoc {
             match self {
-                BinOp::And => Assoc::Left,
-                BinOp::Or => Assoc::Left,
-                BinOp::Xor => Assoc::Left,
-                BinOp::Gt => Assoc::Left,
-                BinOp::Gte => Assoc::Left,
-                BinOp::Eq => Assoc::Left,
-                BinOp::Neq => Assoc::Left,
-                BinOp::Lte => Assoc::Left,
-                BinOp::Lt => Assoc::Left,
-                BinOp::Add => Assoc::Left,
-                BinOp::Sub => Assoc::Left,
-                BinOp::Mul => Assoc::Left,
-                BinOp::Div => Assoc::Left,
-                BinOp::Idiv => Assoc::Left,
-                BinOp::Mod => Assoc::Left,
-                BinOp::Pow => Assoc::Left,
-                BinOp::Dot => Assoc::Left,
+                BinOp::Pow => Assoc::Right,
+                _ => Assoc::Left,
             }
         }
     }
@@ -200,23 +182,14 @@ pub mod ops {
     impl HasPrec for BinOp {
         fn prec<'a>(&self) -> Prec {
             match self {
-                BinOp::And => Prec::Add,
-                BinOp::Or => Prec::Add,
-                BinOp::Xor => Prec::Add,
-                BinOp::Gt => Prec::Add,
-                BinOp::Gte => Prec::Add,
-                BinOp::Eq => Prec::Add,
-                BinOp::Neq => Prec::Add,
-                BinOp::Lte => Prec::Add,
-                BinOp::Lt => Prec::Add,
-                BinOp::Add => Prec::Add,
-                BinOp::Sub => Prec::Add,
-                BinOp::Mul => Prec::Add,
-                BinOp::Div => Prec::Add,
-                BinOp::Idiv => Prec::Add,
-                BinOp::Mod => Prec::Add,
-                BinOp::Pow => Prec::Add,
-                BinOp::Dot => Prec::Add,
+                BinOp::Or | BinOp::Xor => Prec::Or,
+                BinOp::And => Prec::And,
+                BinOp::Gt | BinOp::Gte | BinOp::Lte | BinOp::Lt => Prec::Cmp,
+                BinOp::Eq | BinOp::Neq => Prec::Eq,
+                BinOp::Add | BinOp::Sub => Prec::Add,
+                BinOp::Mul | BinOp::Div | BinOp::Idiv | BinOp::Mod => Prec::Add,
+                BinOp::Pow => Prec::Exp,
+                BinOp::Dot => Prec::Dot,
             }
         }
     }
@@ -232,151 +205,94 @@ pub(crate) enum IndentMark<'a> {
 }
 
 #[derive(Debug)]
-pub(crate) enum Atom<'a> {
+pub struct Regex {
+    pub regex: regex::Regex,
+}
+
+impl PartialEq for Regex {
+    fn eq(&self, other: &Self) -> bool {
+        self.regex.as_str() == other.regex.as_str()
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum Literal<'a> {
+    Boolean(bool),
     String(&'a str),
     Regex(Regex),
     Integer(i64),
     Float(f64),
-    Or {
-        left: Box<Atom<'a>>,
-        right: Box<Atom<'a>>,
-    },
-    And {
-        left: Box<Atom<'a>>,
-        right: Box<Atom<'a>>,
-    },
-    Lambda {
-        property: &'a str,
-        equals: Option<Box<Ast<'a>>>,
-    },
-}
-
-#[derive(Debug)]
-pub(crate) enum BinOp {
-    And,
-    Or,
 }
 
 #[derive(Debug)]
 pub(crate) enum FilterExpr<'a> {
     Rest,
-    Regex,
     BinOp {
-        op: BinOp,
+        op: ops::BinOp,
         left: Box<FilterExpr<'a>>,
         right: Box<FilterExpr<'a>>,
     },
-    Variable {
+    UnaryOp {
+        op: ops::UnaryOp,
+        expr: Box<FilterExpr<'a>>,
+    },
+    NodeReference {
         name: &'a str,
     },
-    Lambda {
-        property: &'a str,
-        equals: Option<Box<Ast<'a>>>,
-    },
+    Literal(Literal<'a>),
+    Group(Box<FilterExpr<'a>>),
+    Name(&'a str),
 }
 
 // consider a better name
 #[derive(Debug)]
 pub(crate) enum WriteCommand<'a> {
     Raw(&'a str),
-    Child {
-        name: &'a str,
-        // comma separated filters
-        filters: Vec<FilterExpr<'a>>,
-    },
-    Break,
-    Conditional {
-        consequence: Option<Box<WriteCommand<'a>>>,
-        alternate: Option<Box<WriteCommand<'a>>>,
-    },
-    IndentMark(IndentMark<'a>),
-    WriteBlock(Vec<WriteCommand<'a>>),
-}
-
-#[derive(Debug)]
-pub(crate) enum Ast<'a> {
-    IndentMark(IndentMark<'a>),
-    WriteBlock(Vec<WriteCommand<'a>>),
     Node {
         name: &'a str,
-        commands: WriteCommand<'a>,
+        filters: Vec<FilterExpr<'a>>, // comma separated
     },
-    Underscore,
-    Group(Box<Ast<'a>>),
-    Cond {
-        cond: Box<Ast<'a>>, // Group
-        then: Option<Box<Ast<'a>>>,
-        else_: Option<Box<Ast<'a>>>,
+    Break, // aka WrapPoint, might be a better name
+    Conditional {
+        test: FilterExpr<'a>,
+        then: Option<Box<WriteCommand<'a>>>,
+        r#else: Option<Box<WriteCommand<'a>>>,
     },
-    WrapPoint,
-    NodeFormat(Vec<Box<Ast<'a>>>),
-    File(Vec<Ast<'a>>),
-    BinaryOp {
-        left: Box<Ast<'a>>,
-        right: Box<Ast<'a>>,
-        op: &'static ops::BinOpDef,
-    },
-    UnaryOp {
-        op: &'static ops::UnaryOpDef,
-        inner: Box<Ast<'a>>,
-    },
+    IndentMark(IndentMark<'a>),
+    Sequence(Vec<WriteCommand<'a>>),
 }
 
-/*
 #[derive(Debug)]
-pub enum Token<'a> {
-    LPar,
-    RPar,
-    Indent,
-    Outdent,
-    Align(Option<regex::Regex>),
-    WrapPoint,
-    Identifier(&'a str),
-    Number(f64),
-    Quote(&'a str),
-    Regex(regex::Regex),
-    Variable { name: &'a str },
-    // TODO: rename to lambdaStart or something
-    SimpleLambda { property: &'a str },
-    Op(&'a str),
+pub struct Node<'a> {
+    pub name: &'a str,
+    pub commands: Vec<WriteCommand<'a>>,
 }
 
-impl<'a> PartialEq for Token<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        use Token::*;
-        match (self, other) {
-            (LPar, LPar) => true,
-            (RPar, RPar) => true,
-            (Indent, Indent) => true,
-            (Outdent, Outdent) => true,
-            (Align(None), Align(None)) => true,
-            (Align(Some(left_regex)), Align(Some(right_regex)))
-            | (Regex(left_regex), Regex(right_regex)) => {
-                left_regex.as_str() == right_regex.as_str()
-            }
-            (Align(_), Align(_)) => false,
-            (WrapPoint, WrapPoint) => true,
-            (Identifier(l), Identifier(r)) => l == r,
-            (Number(l), Number(r)) => l == r,
-            (Quote(l), Quote(r)) => l == r,
-            (Variable { name: lname }, Variable { name: rname }) => lname == rname,
-            (SimpleLambda { property: lprop }, SimpleLambda { property: rprop }) => lprop == rprop,
-            (Op(l), Op(r)) => l == r,
-            _ => false,
-        }
-    }
+pub struct File<'a> {
+    pub nodes: Vec<Node<'a>>,
 }
-*/
 
-pub mod is {
+pub mod try_parse {
     use super::*;
 
-    pub(super) fn identifier(ctx: &ParseContext) -> bool {
-        if let Some(c) = ctx.remaining_src().chars().nth(0) {
-            c.is_ascii_alphabetic()
-        } else {
-            false
-        }
+    pub(super) fn name<'a>(ctx: &'a ParseContext) -> Result<FilterExpr<'a>, &'static str> {
+        ctx.remaining_src()
+            .chars()
+            .nth(0)
+            // map to whether first letter is valid word
+            .map(|c| c.is_ascii() || c == '_')
+            // map to end of token
+            .map(|_| {
+                ctx.remaining_src()
+                    .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                    .unwrap_or(ctx.distance_to_eof())
+            })
+            // map to full token body
+            .map(|end| {
+                let content = &ctx.remaining_src()[..end];
+                FilterExpr::Name(content)
+            })
+            .ok_or("expected word")
     }
 
     pub(super) fn number(ctx: &ParseContext) -> bool {
@@ -387,7 +303,7 @@ pub mod is {
         }
     }
 
-    pub(super) fn quote(ctx: &ParseContext) -> bool {
+    pub(super) fn string(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('"')
     }
 
@@ -403,15 +319,11 @@ pub mod is {
         ctx.remaining_src().chars().nth(0) == None
     }
 
-    pub(super) fn lambda(ctx: &ParseContext) -> bool {
-        ctx.remaining_src().chars().nth(0) == Some('.')
-    }
-
     pub(super) fn cond(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('?')
     }
 
-    pub(super) fn variable(ctx: &ParseContext) -> bool {
+    pub(super) fn node_ref(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('$')
     }
 
@@ -420,17 +332,18 @@ pub mod is {
     }
 
     pub(super) fn indent_mark(ctx: &ParseContext) -> bool {
-        match &ctx.src[ctx.loc.get()..ctx.loc.get() + 2] {
-            "|>" | ">/" | "<|" | ">|" => true,
-            _ => false,
-        }
+        &ctx.src[ctx.loc.get()..ctx.loc.get()] == ">"
+            || match &ctx.src[ctx.loc.get()..ctx.loc.get() + 2] {
+                "|>" | "<|" | ">|" => true,
+                _ => false,
+            }
     }
 }
 
-pub mod atoms {
+pub mod try_parse {
     use super::*;
 
-    pub fn read_identifier<'a>(source: &'a str) -> &'a str {
+    pub fn identifier<'a>(source: &'a str) -> &'a str {
         // TODO: verify first char is not numeric in debug mode
         if let Some(after) = source.find(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
             // TODO: convert escape sequences i.e. \n, \\, etc
@@ -441,7 +354,7 @@ pub mod atoms {
         }
     }
 
-    fn read_quoted<'a>(source: &'a str, delim: char) -> &'a str {
+    fn quoted<'a>(source: &'a str, delim: char) -> &'a str {
         let mut i = 1; //skip delimiter
         loop {
             if let Some(jump) = source.find(|c: char| c == '\\' || c == delim) {
@@ -462,7 +375,7 @@ pub mod atoms {
         &source[1..i]
     }
 
-    pub fn parse_number<'a>(ctx: &'a ParseContext) -> Token<'a> {
+    pub fn number<'a>(ctx: &'a ParseContext) -> Token<'a> {
         // TODO: support scientific notation
         if let Some(end) = ctx
             .remaining_src()
@@ -476,7 +389,7 @@ pub mod atoms {
         }
     }
 
-    pub fn parse_quote<'a>(ctx: &'a ParseContext) -> Token<'a> {
+    pub fn quote<'a>(ctx: &'a ParseContext) -> Token<'a> {
         Token::Quote(read_quoted(ctx.remaining_src(), '"'))
     }
 
@@ -592,7 +505,6 @@ pub mod atoms {
     }
 }
 
-//pub mod writes
 pub mod exprs {
     use super::*;
 
