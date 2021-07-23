@@ -280,8 +280,7 @@ pub mod try_parse {
     // TODO: create an arg struct for this
     fn try_read_chars<'a, FindEnd, Map, Expr>(
         ctx: &'a ParseContext,
-        findEnd: FindEnd,
-        findEndFailMsg: &'static str,
+        continueReading: FindEnd,
         mapToExpr: Map,
     ) -> Result<Read<Expr>, &'static str>
     where
@@ -297,20 +296,21 @@ pub mod try_parse {
                 ctx.remaining_src()
                     .chars()
                     .enumerate()
+                    // this should be find_last, maybe scan will be correct?
                     .find_map(|(i, c)| {
-                        let test = findEnd(c, i, false);
+                        let test = continueReading(c, i, false);
                         // how do you do Option::filter on Result????
                         match test {
-                            Ok(v @ true) => Some(Ok((i, c))),
-                            Ok(v @ false) => None,
-                            Err(e) => Some(Err(e)),
+                            Ok(v @ true) => None,             // continue
+                            Ok(v @ false) => Some(Ok(i - 1)), // we're done, the previous char was the last one
+                            Err(e) => Some(Err(e)),           // error, we're done
                         }
                     })
                     .unwrap_or(Err("failed to find")),
             )
-            .or(findEnd('\0', ctx.remaining_src().len(), true)
-                .and(Ok((ctx.distance_to_eof(), '\0'))))
-            .and_then(|(end, _)| {
+            .or(continueReading('\0', ctx.remaining_src().len(), true)
+                .and(Ok(ctx.distance_to_eof())))
+            .and_then(|end| {
                 let content = &ctx.remaining_src()[..end];
                 mapToExpr(content).map(|expr| (expr, content.len()))
             })
@@ -320,14 +320,13 @@ pub mod try_parse {
     pub(super) fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         try_read_chars(
             ctx,
-            |c, i, eof| {
-                eof || if i == 0 {
-                    c.is_ascii_alphabetic()
-                } else {
-                    !(c.is_ascii_alphanumeric() || c == '_')
-                }
+            |c, i, eof| match (c, i, eof) {
+                (_, _, eof) => Ok(true),
+                (c, 0, _) if c.is_ascii_alphabetic() || c == '_' => Ok(true),
+                (c, 0, _) => Err("identifiers must start with /[a-z_]/"),
+                (c, i, _) if c.is_ascii_alphanumeric() || c == '_' => Ok(true),
+                _ => Ok(false),
             },
-            "unreachable",
             |s| Ok(FilterExpr::Name(s)),
         )
     }
@@ -335,8 +334,13 @@ pub mod try_parse {
     pub(super) fn integer<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
             ctx,
-            |c, _, eof| eof || !(c.is_ascii_digit() || c == '.'),
-            "unreachable",
+            |c, i, eof| match (c, i, eof) {
+                (_, _, eof) => Ok(true),
+                (c, 0, _) if c.is_ascii_digit() => Ok(true),
+                (c, 0, _) => Err("numbers must start with a digit /[0-9]/"),
+                (c, i, _) if c.is_ascii_digit() || c == '.' => Ok(true),
+                _ => Ok(false),
+            },
             |s| {
                 s.parse::<i64>()
                     // NEEDSWORK: combine the parse error rather than swallow it?
@@ -349,8 +353,18 @@ pub mod try_parse {
     pub(super) fn string<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
             ctx,
-            |c, i, _| c == '"' && &ctx.remaining_src()[i - 1..i] != "\\",
-            "unterminated string literal",
+            |c, i, eof| match (c, i, eof) {
+                (_, _, eof) => Err("unterminated string literal"),
+                (c @ '"', 0, _) => Ok(true),
+                (c, 0, _) => Err("strings must start with a quote '\"'"),
+                (c, i, _)
+                    if &ctx.remaining_src()[i - 1..i] != "\""
+                        && &ctx.remaining_src()[i - 2..i] != "\\" =>
+                {
+                    Ok(false)
+                }
+                _ => Ok(true),
+            },
             |s| Ok(Literal::String(s)),
         )
     }
@@ -358,10 +372,18 @@ pub mod try_parse {
     pub(super) fn regex<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
             ctx,
-            // NOTE: if it's possible to have errors during finding (e.g. run into eof),
-            // could have this Fn return a Result<> and use that
-            |c, i, _| c == '/' && &ctx.remaining_src()[i - 1..i] != "\\",
-            "unterminated regex literal",
+            |c, i, eof| match (c, i, eof) {
+                (_, _, eof) => Err("unterminated regex literal"),
+                (c @ '/', 0, _) => Ok(true),
+                (c, 0, _) => Err("regex must start with a slash '/'"),
+                (c, i, _)
+                    if &ctx.remaining_src()[i - 1..i] != "/"
+                        && &ctx.remaining_src()[i - 2..i] != "\\" =>
+                {
+                    Ok(false)
+                }
+                _ => Ok(true),
+            },
             |s| {
                 regex::Regex::new(s)
                     // NEEDSWORK: should combine with the regex failure message
@@ -369,14 +391,6 @@ pub mod try_parse {
                     .map(|r| Literal::Regex(Regex::new(r)))
             },
         )
-    }
-
-    pub(super) fn eol(ctx: &ParseContext) -> bool {
-        ctx.remaining_src().chars().nth(0) == Some('\n')
-    }
-
-    pub(super) fn eof(ctx: &ParseContext) -> bool {
-        ctx.remaining_src().chars().nth(0) == None
     }
 
     pub(super) fn cond(ctx: &ParseContext) -> bool {
