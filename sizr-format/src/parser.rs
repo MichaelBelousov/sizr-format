@@ -269,37 +269,39 @@ pub mod try_parse {
         }
     }
 
-    fn try_read_chars<'a, Filter, Map, Expr>(
+    // TODO: create an arg struct for this
+    fn try_read_chars<'a, FindEnd, Map, Expr>(
         ctx: &'a ParseContext,
-        filter: Filter,
+        findEnd: FindEnd,
+        findEndFailMsg: &'static str,
         mapToExpr: Map,
-        errMsg: &'static str,
+        mapFailMsg: &'static str,
     ) -> Result<Read<Expr>, &'static str>
     where
-        Filter: Fn(char) -> bool,
+        FindEnd: Fn(char, usize, bool) -> bool,
         Map: FnOnce(&'a str) -> Option<Expr>,
     {
         ctx.remaining_src()
             .chars()
             .nth(0)
             .map(|c| c.is_ascii_digit())
-            .and(Some(
-                ctx.remaining_src()
-                    .find(filter)
-                    .unwrap_or(ctx.distance_to_eof()),
-            ))
+            .and(ctx.remaining_src().find_test(|c, i| findEnd(c, i, false)))
+            .or(findEnd('\0', ctx.src.len(), true).then(|| ctx.distance_to_eof()))
+            .ok_or(findEndFailMsg)
             .and_then(|end| {
                 let content = &ctx.remaining_src()[..end];
-                mapToExpr(content).map(|expr| (expr, content.len()))
+                mapToExpr(content)
+                    .map(|expr| (expr, content.len()))
+                    .ok_or(mapFailMsg)
             })
             .map(|(expr, len)| Read::<Expr>::new(expr, len))
-            .ok_or(errMsg)
     }
 
     pub(super) fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         try_read_chars(
             ctx,
-            |c| !c.is_ascii_alphanumeric() && c != '_',
+            |c, _, eof| eof || !(c.is_ascii_alphanumeric() || c == '_'),
+            "unreachable",
             |s| Some(FilterExpr::Name(s)),
             "expected name",
         )
@@ -308,13 +310,22 @@ pub mod try_parse {
     pub(super) fn integer<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
             ctx,
-            |c| !(c.is_ascii_digit() || c == '.'),
+            |c, _, eof| eof || !(c.is_ascii_digit() || c == '.'),
+            "unreachable",
             |s| s.parse::<i64>().ok().map(|i| Literal::Integer(i)),
             "expected integer literal",
         )
     }
 
-    pub(super) fn string<'a>(ctx: &'a ParseContext) -> Result<FilterExpr<'a>, &'static str> {}
+    pub(super) fn string<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        try_read_chars(
+            ctx,
+            |c, i, eof| c == '"' && &ctx.remaining_src()[i - 1..i] != "\\",
+            "unterminated string literal",
+            |s| Some(Literal::String(s)),
+            "expected integer literal",
+        )
+    }
 
     pub(super) fn regex(ctx: &ParseContext) -> bool {
         ctx.remaining_src().chars().nth(0) == Some('/')
