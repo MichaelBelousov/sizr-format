@@ -302,9 +302,9 @@ pub mod try_parse {
                         let test = continue_reading(c, i, false);
                         // perhaps there's a better way to do this...
                         match test {
-                            Ok(v @ true) => None,             // continue
-                            Ok(v @ false) => Some(Ok(i - 1)), // we're done, the previous char was the last one
-                            Err(e) => Some(Err(e)),           // error, we're done
+                            Ok(true) => None,             // continue
+                            Ok(false) => Some(Ok(i - 1)), // we're done, the previous char was the last one
+                            Err(e) => Some(Err(e)),       // error, we're done
                         }
                     })
                     .unwrap_or(Err("failed to find")),
@@ -318,49 +318,49 @@ pub mod try_parse {
             .map(|(expr, len)| Read::<Expr>::new(expr, len))
     }
 
-    pub(super) fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
-                (_, _, eof) => Ok(true),
+                (_, _, true) => Ok(true),
                 (c, 0, _) if c.is_ascii_alphabetic() || c == '_' => Ok(true),
-                (c, 0, _) => Err("identifiers must start with /[a-z_]/"),
-                (c, i, _) if c.is_ascii_alphanumeric() || c == '_' => Ok(true),
+                (_, 0, _) => Err("identifiers must start with /[a-z_]/"),
+                (c, _, _) if c.is_ascii_alphanumeric() || c == '_' => Ok(true),
                 _ => Ok(false),
             },
             |s| Ok(FilterExpr::Name(s)),
         )
     }
 
-    pub(super) fn integer<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+    pub fn integer<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
-                (_, _, eof) => Ok(true),
+                (_, _, true) => Ok(true),
                 (c, 0, _) if c.is_ascii_digit() => Ok(true),
-                (c, 0, _) => Err("numbers must start with a digit /[0-9]/"),
-                (c, i, _) if c.is_ascii_digit() || c == '.' => Ok(true),
+                (_, 0, _) => Err("numbers must start with a digit /[0-9]/"),
+                (c, _, _) if c.is_ascii_digit() || c == '.' => Ok(true),
                 _ => Ok(false),
             },
             |s| {
                 s.parse::<i64>()
                     // NEEDSWORK: combine the parse error rather than swallow it?
-                    .map_err(|err| "expected integer literal")
+                    .map_err(|_err| "expected integer literal")
                     .map(|i| Literal::Integer(i))
             },
         )
     }
 
-    pub(super) fn string<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+    pub fn string<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
-                (_, _, eof) => Err("unterminated string literal"),
+                (_, _, true) => Err("unterminated string literal"),
                 (c, 0, _) => (c == '"')
                     .then(|| true)
                     .ok_or("strings must start with a quote '\"'"),
                 // NEEDSWORK: can be cleaned up probably
-                (c, i, _)
+                (_, i, _)
                     if &ctx.remaining_src()[i - 1..i] == "\""
                         && &ctx.remaining_src()[i - 2..i] != "\\" =>
                 {
@@ -372,14 +372,14 @@ pub mod try_parse {
         )
     }
 
-    pub(super) fn regex<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+    pub fn regex<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
-                (_, _, eof) => Err("unterminated regex literal"),
-                (c @ '/', 0, _) => Ok(true),
-                (c, 0, _) => Err("regex must start with a slash '/'"),
-                (c, i, _)
+                (_, _, true) => Err("unterminated regex literal"),
+                ('/', 0, _) => Ok(true),
+                (_, 0, _) => Err("regex must start with a slash '/'"),
+                (_, i, _)
                     if &ctx.remaining_src()[i - 1..i] != "/"
                         && &ctx.remaining_src()[i - 2..i] != "\\" =>
                 {
@@ -390,15 +390,13 @@ pub mod try_parse {
             |s| {
                 regex::Regex::new(s)
                     // NEEDSWORK: should combine with the regex failure message
-                    .map_err(|err| "invalid regex didn't compile")
+                    .map_err(|_err| "invalid regex didn't compile")
                     .map(|r| Literal::Regex(Regex::new(r)))
             },
         )
     }
 
-    pub(super) fn wrap_point<'a>(
-        ctx: &ParseContext,
-    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
+    pub fn wrap_point<'a>(ctx: &ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
         ctx.remaining_src()
             .chars()
             .nth(0)
@@ -407,9 +405,7 @@ pub mod try_parse {
             .ok_or("expected wrap point '\\'")
     }
 
-    pub(super) fn indent_mark<'a>(
-        ctx: &'a ParseContext,
-    ) -> Result<Read<IndentMark<'a>>, &'static str> {
+    pub fn indent_mark<'a>(ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, &'static str> {
         lazy_static! {
             static ref INDENT_MARK_PATTERN: regex::Regex =
                 // this is why I didn't want to do regex... maybe I'll rewrite this part later
@@ -423,7 +419,7 @@ pub mod try_parse {
                     .iter()
                     .enumerate()
                     .skip(1) // skip the implicit total capture group
-                    .find(|(i, capture)| capture.is_some())
+                    .find(|(_, capture)| capture.is_some())
                     .expect("INDENT_MARK_PATTERN capture groups are exclusive, one should match")
             })
             .map(|(i, capture)| match capture {
@@ -436,12 +432,12 @@ pub mod try_parse {
         return capture.and_then(|(i, capture)| {
             use std::convert::TryInto;
             let len = capture.range().len();
-            let lenU16: u16 = len
+            let len_u16: u16 = len
                 .try_into()
                 .expect("expected in/outdent jump of less than 2^16");
             match i {
-                1 => Ok(Read::new(IndentMark::Indent(lenU16 - 1), len)),
-                2 => Ok(Read::new(IndentMark::Outdent(lenU16 - 1), len)),
+                1 => Ok(Read::new(IndentMark::Indent(len_u16 - 1), len)),
+                2 => Ok(Read::new(IndentMark::Outdent(len_u16 - 1), len)),
                 3 => {
                     let number = capture.as_str()[1..]
                         .parse::<u16>()
@@ -458,16 +454,14 @@ pub mod try_parse {
         });
     }
 
-    pub(super) fn node_reference<'a>(
-        ctx: &'a ParseContext,
-    ) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    pub fn node_reference<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         (&ctx.remaining_src()[..1] == "$")
             .then(|| ())
             .ok_or("node references must start with a '$'")
             .and(Ok(ctx.inc_loc(1)))
             .and(try_parse::name(&ctx))
             // damn lack of specific variant types...
-            .map(|nameExpr| match nameExpr.result {
+            .map(|name_expr| match name_expr.result {
                 FilterExpr::Name(name) => {
                     Read::new(FilterExpr::NodeReference { name }, 1 + name.len())
                 }
@@ -533,7 +527,7 @@ pub mod try_parse {
 }
 
 pub mod exprs {
-    use super::*;
+    //use super::*;
 
     // TODO: support slices
     // TODO: support conditional write commands
