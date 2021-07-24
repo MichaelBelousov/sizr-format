@@ -60,6 +60,10 @@ impl<'a> ParseContext<'a> {
         self.src.len() - self.loc.get()
     }
 
+    pub fn at_eof(&self) -> bool {
+        self.src.len() == self.loc.get()
+    }
+
     pub fn inc_loc(&self, amount: usize) -> usize {
         &self.loc.set(self.loc.get() + amount);
         self.loc.get()
@@ -82,9 +86,10 @@ impl<'a> ParseContext<'a> {
             .unwrap_or(self.remaining_src().len())
     }
 
-    pub fn consume_read_and_space<T>(&self, read: Read<T>) {
+    pub fn consume_read_and_space<T>(&self, read: Read<T>) -> T {
         self.inc_loc(read.len);
         self.skip_whitespace();
+        return read.result;
     }
 }
 
@@ -245,7 +250,7 @@ pub enum FilterExpr<'a> {
 #[derive(Debug)]
 pub enum WriteCommand<'a> {
     Raw(&'a str),
-    Node {
+    NodeReference {
         name: &'a str,
         filters: Vec<FilterExpr<'a>>, // comma separated
     },
@@ -618,26 +623,25 @@ pub mod exprs {
 }
 
 // TODO: rename to like a "parse_NodeSet", parse_file sounds too high-level
-fn parse_file<'a>(ctx: &ParseContext) -> File<'a> {
-    while ctx.loc.get() < ctx.src.len() {
-        parse_node(ctx);
+fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
+    let mut file = File { nodes: Vec::new() };
+    while !ctx.at_eof() {
+        file.nodes.push(parse_node_decl(ctx)?);
     }
+    return Ok(file);
 }
 
-fn parse_node<'a>(ctx: &'a ParseContext) -> Result<Read<Node<'a>>, &'a str> {
+fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> {
     ctx.skip_whitespace();
     ctx.consume_read_and_space(try_parse_keyword!(ctx, "node")?);
+    let name = ctx.consume_read_and_space(try_parse::string(&ctx)?);
     ctx.consume_read_and_space(try_parse_operator!(ctx, "=")?);
-    if let Some(end) = ctx.remaining_src().find(|c: char| c != '\'') {
-        let delim = &(ctx.remaining_src()[..end]);
-        ctx.inc_loc(end);
-        while &ctx.remaining_src()[..end] != delim {
-            skip_whitespace(ctx);
-            exprs::parse(ctx);
-        }
-    } else {
-        panic!("bad format definition syntax");
-    }
+    let commands = ctx.consume_read_and_space(try_parse::write_command(&ctx)?);
+    // NOTE: maybe only tokens should have a "TokenRead" wrapper which is optionally consumable?
+    match name {
+        Literal::String(s) => Ok(Node { name: s, commands }),
+        _ => unreachable!(),
+    };
 }
 
 // need interior mutability... why can't I
