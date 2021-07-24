@@ -81,6 +81,11 @@ impl<'a> ParseContext<'a> {
             .find(|c: char| c.is_whitespace())
             .unwrap_or(self.remaining_src().len())
     }
+
+    pub fn consume_read_and_space<T>(&self, read: Read<T>) {
+        self.inc_loc(read.len);
+        self.skip_whitespace();
+    }
 }
 
 pub mod ops {
@@ -274,11 +279,9 @@ impl<T> Read<T> {
     pub fn new(result: T, len: usize) -> Self {
         Read { result, len }
     }
-    pub fn consume(&self, ctx: &ParseContext) {
-        ctx.inc_loc(self.len);
-    }
 }
 
+#[macro_use]
 pub mod try_parse {
     use super::*;
 
@@ -322,23 +325,44 @@ pub mod try_parse {
             .map(|(expr, len)| Read::<Expr>::new(expr, len))
     }
 
-    pub fn keyword<'a>(
-        ctx: &'a ParseContext,
-        keyword: &'static str,
-    ) -> Result<Read<()>, &'static str> {
-        // NEEDSWORK
-        if &ctx.remaining_src()[..keyword.len()] == keyword
-            && ctx
-                .remaining_src()
-                .chars()
-                .nth(keyword.len())
-                .filter(|c| c.is_ascii_alphabetic())
-                .is_some()
-        {
-            Ok(Read::new((), keyword.len()))
-        } else {
-            Err(format!("expected keyword '{}'", keyword))
-        }
+    macro_rules! static_string {
+        ($ctx: expr, $keyword_str: expr, $test_is_after: expr) => {{
+            //static_string($ctx, $string, concat!("expected keyword '", $keyword_str, "'"))
+            (&ctx.remaining_src()[..string.len()] == string)
+                .then(|| ())
+                .ok_or(failMsg)
+                .and(
+                    ctx.remaining_src()
+                        .chars()
+                        .nth(string.len())
+                        .filter(test_is_after)
+                        .and(Ok(Read::new((), string.len()))),
+                )
+        }};
+    }
+
+    #[macro_export]
+    macro_rules! try_parse_keyword {
+        ($ctx: expr, $keyword: expr) => {{
+            static_string!(
+                $ctx,
+                $keyword,
+                concat!("expected keyword '", $keyword, "'"),
+                |c: char| !c.is_ascii_alphabetic()
+            )
+        }};
+    }
+
+    #[macro_export]
+    macro_rules! try_parse_operator {
+        ($ctx: expr, $keyword: expr) => {{
+            static_string!(
+                $ctx,
+                $keyword,
+                concat!("expected keyword '", $keyword, "'"),
+                |c: char| !c.is_ascii_punctuation()
+            )
+        }};
     }
 
     pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
@@ -469,6 +493,7 @@ pub mod try_parse {
                     // TODO: double check this rust feature
                 }
                 4 => {
+                    // XXX: might be off by a byte... should write a test
                     let content = &capture.as_str()[2..capture.end() - 1];
                     Ok(Read::new(IndentMark::TokenAnchor(content), len))
                 }
@@ -601,13 +626,8 @@ fn parse_file<'a>(ctx: &ParseContext) -> File<'a> {
 
 fn parse_node<'a>(ctx: &'a ParseContext) -> Result<Read<Node<'a>>, &'a str> {
     ctx.skip_whitespace();
-    let keyword_read = try_parse::keyword(ctx, "node")?;
-    // might be nice to combine these since they'll often be used together
-    keyword_read.consume(&ctx);
-    ctx.skip_whitespace();
-    let name_read = try_parse::string(ctx)?;
-    name_read.consume(&ctx);
-    ctx.skip_whitespace();
+    ctx.consume_read_and_space(try_parse_keyword!(ctx, "node")?);
+    ctx.consume_read_and_space(try_parse_operator!(ctx, "=")?);
     if let Some(end) = ctx.remaining_src().find(|c: char| c != '\'') {
         let delim = &(ctx.remaining_src()[..end]);
         ctx.inc_loc(end);
