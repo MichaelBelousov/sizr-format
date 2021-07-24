@@ -1,4 +1,3 @@
-
 //#[macro_use]
 extern crate regex;
 
@@ -16,13 +15,12 @@ pub mod parser;
 pub enum Value {
     Number(f64),
     String(std::string::String),
-    Bool(bool)
-    //Mapping(HashMap<Value, Value>))
-    //List(Vec<Value>))
+    Bool(bool), //Mapping(HashMap<Value, Value>))
+                //List(Vec<Value>))
 }
 
 fn main() {
     let mut buffer = String::new();
     io::stdin().read_to_string(&mut buffer);
-    parser::parse_text(&buffer);
+    //parser::parse_text(&buffer);
 }

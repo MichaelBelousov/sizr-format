@@ -1,11 +1,11 @@
-//extern crate lazy_static;
+extern crate lazy_static;
 /**
  * Parser for the sizr-format language
  */
 extern crate regex;
 
+use lazy_static::lazy_static;
 use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
 use std::boxed::Box;
 use std::cell::Cell;
 //use std::collections::HashMap;
@@ -122,6 +122,7 @@ pub mod ops {
                 "-" => UnaryOp::Negate,
                 "~" => UnaryOp::BitwiseComplement,
                 "!" => UnaryOp::LogicalComplement,
+                _ => unreachable!(),
             }
         }
     }
@@ -182,7 +183,7 @@ pub mod ops {
 
 // NOTE: rename to Anchor, or Aligner?
 #[derive(Debug)]
-pub(crate) enum IndentMark<'a> {
+pub enum IndentMark<'a> {
     Indent(u16),          // |>
     Outdent(u16),         // <|
     TokenAnchor(&'a str), // >'"'
@@ -207,7 +208,7 @@ impl PartialEq for Regex {
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum Literal<'a> {
+pub enum Literal<'a> {
     Boolean(bool),
     String(&'a str),
     Regex(Regex),
@@ -216,7 +217,7 @@ pub(crate) enum Literal<'a> {
 }
 
 #[derive(Debug)]
-pub(crate) enum FilterExpr<'a> {
+pub enum FilterExpr<'a> {
     Rest,
     BinOp {
         op: ops::BinOp,
@@ -237,13 +238,13 @@ pub(crate) enum FilterExpr<'a> {
 
 // consider a better name
 #[derive(Debug)]
-pub(crate) enum WriteCommand<'a> {
+pub enum WriteCommand<'a> {
     Raw(&'a str),
     Node {
         name: &'a str,
         filters: Vec<FilterExpr<'a>>, // comma separated
     },
-    Break, // aka WrapPoint, might be a better name
+    WrapPoint,
     Conditional {
         test: FilterExpr<'a>,
         then: Option<Box<WriteCommand<'a>>>,
@@ -280,9 +281,8 @@ pub mod try_parse {
     // TODO: create an arg struct for this
     fn try_read_chars<'a, FindEnd, Map, Expr>(
         ctx: &'a ParseContext,
-        // TODO: change this to isEnd
-        continueReading: FindEnd,
-        mapToExpr: Map,
+        continue_reading: FindEnd,
+        map_to_expr: Map,
     ) -> Result<Read<Expr>, &'static str>
     where
         FindEnd: Fn(char, usize, bool) -> Result<bool, &'static str>, // Result is whether to stop
@@ -299,8 +299,8 @@ pub mod try_parse {
                     .enumerate()
                     // this should be find_last, maybe scan will be correct?
                     .find_map(|(i, c)| {
-                        let test = continueReading(c, i, false);
-                        // how do you do Option::filter on Result????
+                        let test = continue_reading(c, i, false);
+                        // perhaps there's a better way to do this...
                         match test {
                             Ok(v @ true) => None,             // continue
                             Ok(v @ false) => Some(Ok(i - 1)), // we're done, the previous char was the last one
@@ -309,11 +309,11 @@ pub mod try_parse {
                     })
                     .unwrap_or(Err("failed to find")),
             )
-            .or(continueReading('\0', ctx.remaining_src().len(), true)
+            .or(continue_reading('\0', ctx.remaining_src().len(), true)
                 .and(Ok(ctx.distance_to_eof())))
             .and_then(|end| {
                 let content = &ctx.remaining_src()[..end];
-                mapToExpr(content).map(|expr| (expr, content.len()))
+                map_to_expr(content).map(|expr| (expr, content.len()))
             })
             .map(|(expr, len)| Read::<Expr>::new(expr, len))
     }
@@ -356,10 +356,12 @@ pub mod try_parse {
             ctx,
             |c, i, eof| match (c, i, eof) {
                 (_, _, eof) => Err("unterminated string literal"),
-                (c @ '"', 0, _) => Ok(true),
-                (c, 0, _) => Err("strings must start with a quote '\"'"),
+                (c, 0, _) => (c == '"')
+                    .then(|| true)
+                    .ok_or("strings must start with a quote '\"'"),
+                // NEEDSWORK: can be cleaned up probably
                 (c, i, _)
-                    if &ctx.remaining_src()[i - 1..i] != "\""
+                    if &ctx.remaining_src()[i - 1..i] == "\""
                         && &ctx.remaining_src()[i - 2..i] != "\\" =>
                 {
                     Ok(false)
@@ -394,32 +396,66 @@ pub mod try_parse {
         )
     }
 
-    pub(super) fn eol(ctx: &ParseContext) -> bool {
-        ctx.remaining_src().chars().nth(0) == Some('\n')
+    pub(super) fn wrap_point<'a>(
+        ctx: &ParseContext,
+    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        ctx.remaining_src()
+            .chars()
+            .nth(0)
+            .filter(|c| *c == '\\')
+            .map(|_| Read::new(WriteCommand::WrapPoint, 1))
+            .ok_or("expected wrap point '\\'")
     }
 
-    pub(super) fn eof(ctx: &ParseContext) -> bool {
-        ctx.remaining_src().chars().nth(0) == None
-    }
+    pub(super) fn indent_mark<'a>(
+        ctx: &'a ParseContext,
+    ) -> Result<Read<IndentMark<'a>>, &'static str> {
+        lazy_static! {
+            static ref INDENT_MARK_PATTERN: regex::Regex =
+                // this is why I didn't want to do regex... maybe I'll rewrite this part later
+                regex::Regex::new(r#"^(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*"#)
+                    .expect("INDENT_MARK_PATTERN regex failed to compile");
+        }
+        let capture = INDENT_MARK_PATTERN
+            .captures(&ctx.remaining_src())
+            .map(|captures| {
+                captures
+                    .iter()
+                    .enumerate()
+                    .skip(1) // skip the implicit total capture group
+                    .find(|(i, capture)| capture.is_some())
+                    .expect("INDENT_MARK_PATTERN capture groups are exclusive, one should match")
+            })
+            .map(|(i, capture)| match capture {
+                Some(inner) => Some((i, inner)),
+                None => None,
+            })
+            .flatten()
+            .ok_or("expected indent mark");
 
-    pub(super) fn cond(ctx: &ParseContext) -> bool {
-        ctx.remaining_src().chars().nth(0) == Some('?')
-    }
-
-    pub(super) fn node_ref(ctx: &ParseContext) -> bool {
-        ctx.remaining_src().chars().nth(0) == Some('$')
-    }
-
-    pub(super) fn wrap_point(ctx: &ParseContext) -> bool {
-        ctx.remaining_src().chars().nth(0) == Some('\\')
-    }
-
-    pub(super) fn indent_mark(ctx: &ParseContext) -> bool {
-        &ctx.src[ctx.loc.get()..ctx.loc.get()] == ">"
-            || match &ctx.src[ctx.loc.get()..ctx.loc.get() + 2] {
-                "|>" | "<|" | ">|" => true,
-                _ => false,
+        return capture.and_then(|(i, capture)| {
+            use std::convert::TryInto;
+            let len = capture.range().len();
+            let lenU16: u16 = len
+                .try_into()
+                .expect("expected in/outdent jump of less than 2^16");
+            match i {
+                1 => Ok(Read::new(IndentMark::Indent(lenU16 - 1), len)),
+                2 => Ok(Read::new(IndentMark::Outdent(lenU16 - 1), len)),
+                3 => {
+                    let number = capture.as_str()[1..]
+                        .parse::<u16>()
+                        .expect("failed to parse a 16-bit unsigned integer in a numeric anchor");
+                    Ok(Read::new(IndentMark::NumericAnchor(number), len))
+                    // TODO: double check this rust feature
+                }
+                4 => {
+                    let content = &capture.as_str()[2..capture.end() - 1];
+                    Ok(Read::new(IndentMark::TokenAnchor(content), len))
+                }
+                _ => unreachable!(),
             }
+        });
     }
 
     pub(super) fn node_reference<'a>(
@@ -439,37 +475,7 @@ pub mod try_parse {
             })
     }
 
-    pub fn try_lex_indent_mark<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
-        match &ctx.remaining_src()[..2] {
-            "|>" => Some(Token::Indent),
-            ">|" => Some(Token::Align(None)),
-            ">/" => Some(Token::Align(Some(
-                regex::Regex::new(read_quoted(ctx.remaining_src(), '/')).unwrap(),
-            ))),
-            "<|" => Some(Token::Outdent),
-            _ => None,
-        }
-    }
-
-    pub fn try_lex_op<'a>(ctx: &'a ParseContext) -> Option<Token<'a>> {
-        let end = ctx
-            .remaining_src()
-            // XXX: why can't the rust compiler infer the type?
-            .find(|c: char| c.is_whitespace() || c.is_ascii_alphanumeric())?;
-        // TODO: use separate pattern, not op definitions to match
-        if let Some(op) = ops::UNARY_OPS
-            .iter()
-            .find(|op| op.symbol == &ctx.remaining_src()[..end])
-        {
-            return Some(Token::Op(op.symbol));
-        } else {
-            let op = ops::BINARY_OPS
-                .iter()
-                .find(|op| op.symbol == &ctx.remaining_src()[..end])?;
-            return Some(Token::Op(op.symbol));
-        }
-    }
-
+    /*
     pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         let tok = ctx.next_token().expect("unexpected end of input");
         match tok {
@@ -523,6 +529,7 @@ pub mod try_parse {
             _ => panic!("unexpected token '{:?}', during atom parsing"),
         }
     }
+    */
 }
 
 pub mod exprs {
@@ -531,24 +538,7 @@ pub mod exprs {
     // TODO: support slices
     // TODO: support conditional write commands
 
-    pub fn parse_lambda<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        // TODO: in debug mode explicitly check for "." start
-        ctx.inc_loc(1);
-        let name = atoms::read_identifier(ctx.remaining_src());
-        ctx.inc_loc(name.len());
-        Ast::Lambda {
-            property: name,
-            equals: match ctx.remaining_src().chars().nth(0) {
-                Some('=') => {
-                    let expr = exprs::parse(ctx);
-                    Some(Box::new(expr))
-                }
-                Some(_) => None,
-                _ => panic!("unexpected during lambda parsing"),
-            },
-        }
-    }
-
+    /*
     pub fn parse_aux<'a>(ctx: &'a ParseContext, min_prec: i32) -> Ast<'a> {
         let mut lhs = atoms::parse(ctx);
         loop {
@@ -582,8 +572,10 @@ pub mod exprs {
     pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         parse_aux(ctx, 0)
     }
+    */
 }
 
+/*
 // TODO: rename to like a "parse_NodeSet", parse_file sounds too high-level
 fn parse_file(ctx: &ParseContext) {
     while ctx.loc.get() < ctx.src.len() {
@@ -614,3 +606,4 @@ pub fn parse_text(text: &str) {
     let ast = parse_file(&ctx);
     println!("{:?}", ast);
 }
+*/
