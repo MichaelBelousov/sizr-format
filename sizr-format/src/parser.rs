@@ -191,6 +191,10 @@ pub mod ops {
     }
 }
 
+pub trait Parseable<'a, T> {
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<T>, &'static str>;
+}
+
 // NOTE: rename to Anchor, or Aligner?
 #[derive(Debug)]
 pub enum IndentMark<'a> {
@@ -198,6 +202,58 @@ pub enum IndentMark<'a> {
     Outdent(u16),         // <|
     TokenAnchor(&'a str), // >'"'
     NumericAnchor(u16),   // >10
+}
+
+impl<'a> Parseable<'a, IndentMark<'a>> for IndentMark<'a> {
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, &'static str> {
+        lazy_static! {
+            static ref INDENT_MARK_PATTERN: regex::Regex =
+                // this is why I didn't want to do regex... maybe I'll rewrite this part later
+                regex::Regex::new(r#"^(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*"#)
+                    .expect("INDENT_MARK_PATTERN regex failed to compile");
+        }
+        let capture = INDENT_MARK_PATTERN
+            .captures(&ctx.remaining_src())
+            .map(|captures| {
+                captures
+                    .iter()
+                    .enumerate()
+                    .skip(1) // skip the implicit total capture group
+                    .find(|(_, capture)| capture.is_some())
+                    .expect("INDENT_MARK_PATTERN capture groups are exclusive, one should match")
+            })
+            .map(|(i, capture)| match capture {
+                Some(inner) => Some((i, inner)),
+                None => None,
+            })
+            .flatten()
+            .ok_or("expected indent mark");
+
+        return capture.and_then(|(i, capture)| {
+            use std::convert::TryInto;
+            let len = capture.range().len();
+            let len_u16: u16 = len
+                .try_into()
+                .expect("expected in/outdent jump of less than 2^16");
+            match i {
+                1 => Ok(Read::new(IndentMark::Indent(len_u16 - 1), len)),
+                2 => Ok(Read::new(IndentMark::Outdent(len_u16 - 1), len)),
+                3 => {
+                    let number = capture.as_str()[1..]
+                        .parse::<u16>()
+                        .expect("failed to parse a 16-bit unsigned integer in a numeric anchor");
+                    Ok(Read::new(IndentMark::NumericAnchor(number), len))
+                    // TODO: double check this rust feature
+                }
+                4 => {
+                    // XXX: might be off by a byte... should write a test
+                    let content = &capture.as_str()[2..capture.end() - 1];
+                    Ok(Read::new(IndentMark::TokenAnchor(content), len))
+                }
+                _ => unreachable!(),
+            }
+        });
+    }
 }
 
 #[derive(Debug)]
@@ -264,17 +320,53 @@ pub enum WriteCommand<'a> {
     Sequence(Vec<WriteCommand<'a>>),
 }
 
+impl<'a> WriteCommand<'a> {
+    pub fn try_parse(ctx: &'a ParseContext) -> Result<Read<Self>, &'static str> {
+        try_parse::string(&ctx)
+            .map(|s| match s {
+                Read {
+                    result: Literal::String(content),
+                    len,
+                } => WriteCommand::Raw(content),
+                _ => unreachable!(),
+            })
+            .or(try_parse::node_reference(&ctx))
+            .map(|s| match s {
+                Literal::String(content) => Raw(content),
+                _ => unreachable!(),
+            })
+    }
+    /*
+    Raw(&'a str),
+    NodeReference {
+        name: &'a str,
+        filters: Vec<FilterExpr<'a>>, // comma separated
+    },
+    WrapPoint,
+    Conditional {
+        test: FilterExpr<'a>,
+        then: Option<Box<WriteCommand<'a>>>,
+        r#else: Option<Box<WriteCommand<'a>>>,
+    },
+    IndentMark(IndentMark<'a>),
+    Sequence(Vec<WriteCommand<'a>>),
+    }
+    */
+}
+
 #[derive(Debug)]
 pub struct Node<'a> {
     pub name: &'a str,
     pub commands: Vec<WriteCommand<'a>>,
 }
 
+#[derive(Debug)]
 pub struct File<'a> {
     pub nodes: Vec<Node<'a>>,
 }
 
 // used to be in try_parse
+#[derive(Debug)]
 pub struct Read<T> {
     pub result: T,
     pub len: usize,
@@ -283,6 +375,10 @@ pub struct Read<T> {
 impl<T> Read<T> {
     pub fn new(result: T, len: usize) -> Self {
         Read { result, len }
+    }
+
+    pub fn map<U, F: FnOnce(T) -> U>(&self, f: F, added_len: usize) -> Read<U> {
+        Read::<U>::new(f(self.result), self.len + added_len)
     }
 }
 
@@ -522,6 +618,14 @@ pub mod try_parse {
             })
     }
 
+    pub fn write_command<'a>(ctx: &'a ParseContext) -> Result<WriteCommand<'a>, &'static str> {
+        let mut file = File { nodes: Vec::new() };
+        while !ctx.at_eof() {
+            file.nodes.push(parse_node_decl(ctx)?);
+        }
+        return Ok(file);
+    }
+
     /*
     pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
         let tok = ctx.next_token().expect("unexpected end of input");
@@ -647,6 +751,7 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> 
 // need interior mutability... why can't I
 pub fn parse_text(text: &str) {
     let ctx = ParseContext::new(text);
-    let ast = parse_file(&ctx);
-    println!("{:?}", ast);
+    if let Ok(ast) = parse_file(&ctx) {
+        println!("{:?}", ast);
+    }
 }
