@@ -264,19 +264,23 @@ pub struct File<'a> {
     pub nodes: Vec<Node<'a>>,
 }
 
+// used to be in try_parse
+pub struct Read<T> {
+    pub result: T,
+    pub len: usize,
+}
+
+impl<T> Read<T> {
+    pub fn new(result: T, len: usize) -> Self {
+        Read { result, len }
+    }
+    pub fn consume(&self, ctx: &ParseContext) {
+        ctx.inc_loc(self.len);
+    }
+}
+
 pub mod try_parse {
     use super::*;
-
-    pub struct Read<T> {
-        pub result: T,
-        pub len: usize,
-    }
-
-    impl<T> Read<T> {
-        pub fn new(result: T, len: usize) -> Self {
-            Read { result, len }
-        }
-    }
 
     // TODO: create an arg struct for this
     fn try_read_chars<'a, FindEnd, Map, Expr>(
@@ -316,6 +320,25 @@ pub mod try_parse {
                 map_to_expr(content).map(|expr| (expr, content.len()))
             })
             .map(|(expr, len)| Read::<Expr>::new(expr, len))
+    }
+
+    pub fn keyword<'a>(
+        ctx: &'a ParseContext,
+        keyword: &'static str,
+    ) -> Result<Read<()>, &'static str> {
+        // NEEDSWORK
+        if &ctx.remaining_src()[..keyword.len()] == keyword
+            && ctx
+                .remaining_src()
+                .chars()
+                .nth(keyword.len())
+                .filter(|c| c.is_ascii_alphabetic())
+                .is_some()
+        {
+            Ok(Read::new((), keyword.len()))
+        } else {
+            Err(format!("expected keyword '{}'", keyword))
+        }
     }
 
     pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
@@ -569,19 +592,22 @@ pub mod exprs {
     */
 }
 
-/*
 // TODO: rename to like a "parse_NodeSet", parse_file sounds too high-level
-fn parse_file(ctx: &ParseContext) {
+fn parse_file<'a>(ctx: &ParseContext) -> File<'a> {
     while ctx.loc.get() < ctx.src.len() {
-        parse_format_def(ctx);
+        parse_node(ctx);
     }
 }
 
-fn parse_format_def(ctx: &ParseContext) {
-    skip_whitespace(ctx);
-    let name = atoms::read_identifier(ctx.remaining_src());
-    ctx.inc_loc(name.len());
-    skip_to_char(ctx, '\'');
+fn parse_node<'a>(ctx: &'a ParseContext) -> Result<Read<Node<'a>>, &'a str> {
+    ctx.skip_whitespace();
+    let keyword_read = try_parse::keyword(ctx, "node")?;
+    // might be nice to combine these since they'll often be used together
+    keyword_read.consume(&ctx);
+    ctx.skip_whitespace();
+    let name_read = try_parse::string(ctx)?;
+    name_read.consume(&ctx);
+    ctx.skip_whitespace();
     if let Some(end) = ctx.remaining_src().find(|c: char| c != '\'') {
         let delim = &(ctx.remaining_src()[..end]);
         ctx.inc_loc(end);
@@ -600,4 +626,3 @@ pub fn parse_text(text: &str) {
     let ast = parse_file(&ctx);
     println!("{:?}", ast);
 }
-*/
