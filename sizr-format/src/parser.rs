@@ -331,17 +331,17 @@ pub mod try_parse {
     }
 
     macro_rules! static_string {
-        ($ctx: expr, $keyword_str: expr, $test_is_after: expr) => {{
-            //static_string($ctx, $string, concat!("expected keyword '", $keyword_str, "'"))
-            (&ctx.remaining_src()[..string.len()] == string)
+        ($ctx: expr, $string: expr, $expect_msg: expr, $test_is_after: expr) => {{
+            (&$ctx.remaining_src()[..$string.len()] == $string)
                 .then(|| ())
-                .ok_or(failMsg)
+                .ok_or($expect_msg)
                 .and(
-                    ctx.remaining_src()
+                    $ctx.remaining_src()
                         .chars()
-                        .nth(string.len())
-                        .filter(test_is_after)
-                        .and(Ok(Read::new((), string.len()))),
+                        .nth($string.len())
+                        .filter($test_is_after)
+                        .ok_or($expect_msg) // NEEDSWORK
+                        .and(Ok(Read::new((), $string.len()))),
                 )
         }};
     }
@@ -353,19 +353,19 @@ pub mod try_parse {
                 $ctx,
                 $keyword,
                 concat!("expected keyword '", $keyword, "'"),
-                |c: char| !c.is_ascii_alphabetic()
+                |c: &char| !c.is_ascii_alphabetic()
             )
         }};
     }
 
     #[macro_export]
     macro_rules! try_parse_operator {
-        ($ctx: expr, $keyword: expr) => {{
+        ($ctx: expr, $operator: expr) => {{
             static_string!(
                 $ctx,
-                $keyword,
-                concat!("expected keyword '", $keyword, "'"),
-                |c: char| !c.is_ascii_punctuation()
+                $operator,
+                concat!("expected operator '", $operator, "'"),
+                |c: &char| !c.is_ascii_punctuation()
             )
         }};
     }
