@@ -80,6 +80,8 @@ impl<'a> ParseContext<'a> {
     pub fn skip_whitespace(&self) {
         if let Some(jump) = &self.remaining_src().find(|c: char| !c.is_whitespace()) {
             &self.inc_loc(*jump);
+        } else {
+            self.loc.set(self.src.len());
         }
     }
 
@@ -204,7 +206,8 @@ pub mod try_parse {
     #[allow(unused_macros)]
     macro_rules! static_string {
         ($ctx: expr, $string: expr, $expect_msg: expr, $test_is_after: expr) => {{
-            (&$ctx.remaining_src()[..$string.len()] == $string)
+            ($ctx.remaining_src().len() >= $string.len() // TODO: not sure how best to get a partial slice for comparison
+                && &$ctx.remaining_src()[..$string.len()] == $string)
                 .then(|| ())
                 .ok_or($expect_msg)
                 .and(
