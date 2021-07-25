@@ -861,16 +861,22 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
 fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> {
     ctx.skip_whitespace();
     ctx.consume_read_and_space(try_parse_keyword!(ctx, "node")?);
-    println!(
-        "after read node keyword remaining: '{}'",
-        ctx.remaining_src()
-    );
+    if cfg!(debug_assertions) {
+        println!(
+            "after read node keyword remaining: '{}'",
+            ctx.remaining_src()
+        );
+    }
     let name =
         ctx.consume_read_and_space(try_parse::quoted_string(&ctx).map(|s| Read::new(s, s.len()))?);
-    println!("name: {:#?}", name);
-    println!("after read name remaining: '{}'", ctx.remaining_src());
+    if cfg!(debug_assertions) {
+        println!("name: {:#?}", name);
+        println!("after read name remaining: '{}'", ctx.remaining_src());
+    }
     ctx.consume_read_and_space(try_parse_operator!(ctx, "=")?);
-    println!("after read '=' remaining: '{}'", ctx.remaining_src());
+    if cfg!(debug_assertions) {
+        println!("after read '=' remaining: '{}'", ctx.remaining_src());
+    }
     let commands = ctx.consume_read_and_space(WriteCommand::try_parse(&ctx)?);
     Ok(Node { name, commands })
 }
