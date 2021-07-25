@@ -6,7 +6,9 @@ extern crate pyo3;
 use std::io::{self, Read};
 
 mod code;
-mod backends { mod python; }
+mod backends {
+    mod python;
+}
 mod parser;
 //mod engine;
 
@@ -17,4 +19,3 @@ fn main() -> io::Result<()> {
     println!("result: {:#?}", result);
     Ok(())
 }
-

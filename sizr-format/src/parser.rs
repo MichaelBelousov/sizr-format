@@ -249,31 +249,34 @@ pub mod try_parse {
             ctx,
             |c, i, eof| match (c, i, eof) {
                 (_, _, true) => Err("unterminated string literal"),
-                (c, 0, _) => (c == '"')
-                    .then(|| true)
-                    .ok_or("strings must start with a quote '\"'"),
-                // NEEDSWORK: can be cleaned up probably
-                (_, i, _)
-                    if &ctx.remaining_src()[i - 1..=i - 1] == "\""
-                        && &ctx.remaining_src()[i - 2..=i - 1] != "\\" =>
-                {
-                    Ok(false)
-                }
-                _ => Ok(true),
+                ('"', 0, _) => Ok(false),
+                (_, 0, _) => Err("strings must start with a quote '\"'"),
+                (c, i, _) if c == '"' && &ctx.remaining_src()[i - 1..=i - 1] != "\\" => Ok(true),
+                _ => Ok(false),
             },
             |s| Ok(s),
         )
     }
 
     pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        fn is_name_start_char(c: char) -> bool {
+            c.is_ascii_alphanumeric() || c == '_'
+        }
+        fn is_name_char(c: char) -> bool {
+            c.is_ascii_alphanumeric() || c == '_'
+        }
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
-                (_, _, true) => Ok(true),
-                (c, 0, _) if c.is_ascii_alphabetic() || c == '_' => Ok(true),
+                (c, 0, _) if is_name_start_char(c) => Ok(false),
                 (_, 0, _) => Err("identifiers must start with /[a-z_]/"),
-                (c, _, _) if c.is_ascii_alphanumeric() || c == '_' => Ok(true),
-                _ => Ok(false),
+                (c, i, _) if is_name_char(c) => Ok(ctx
+                    .remaining_src()
+                    .chars()
+                    .nth(i + 1)
+                    .map(|next| !is_name_char(next))
+                    .unwrap_or(false)),
+                _ => unreachable!(),
             },
             |s| Ok(Read::new(FilterExpr::Name(s), s.len())),
         )
@@ -391,7 +394,7 @@ pub enum Literal<'a> {
 // TODO: create an arg struct for this
 fn try_read_chars<'a, FindEnd, Map, Expr>(
     ctx: &'a ParseContext,
-    continue_reading: FindEnd,
+    is_last_char: FindEnd,
     map_to_expr: Map,
 ) -> Result<Expr, &'static str>
 where
@@ -409,19 +412,19 @@ where
                 .enumerate()
                 // this should be find_last, maybe scan will be correct?
                 .find_map(|(i, c)| {
-                    let test = continue_reading(c, i, false);
+                    let test = is_last_char(c, i, false);
                     // perhaps there's a better way to do this...
                     match test {
-                        Ok(true) => None,             // continue
-                        Ok(false) => Some(Ok(i - 1)), // we're done, the previous char was the last one
-                        Err(e) => Some(Err(e)),       // error, we're done
+                        Ok(true) => Some(Ok(i)), // done
+                        Ok(false) => None,       // not done, continue
+                        Err(e) => Some(Err(e)),  // error, we're done
                     }
                 })
                 .unwrap_or(Err("failed to find")),
         )
-        .or(continue_reading('\0', ctx.remaining_src().len(), true).and(Ok(ctx.distance_to_eof())))
+        .or(is_last_char('\0', ctx.remaining_src().len(), true).and(Ok(ctx.distance_to_eof())))
         .and_then(|end| {
-            let content = &ctx.remaining_src()[..end];
+            let content = &ctx.remaining_src()[..=end];
             map_to_expr(content)
         })
 }
@@ -431,11 +434,20 @@ impl<'a> Literal<'a> {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
-                (_, _, true) => Ok(true),
-                ('1'..='9', 0, _) => Ok(true),
+                ('1'..='9', 0, _) => Ok(ctx
+                    .remaining_src()
+                    .chars()
+                    .nth(1)
+                    .map(|next| !next.is_ascii_digit())
+                    .unwrap_or(false)),
                 (_, 0, _) => Err("numbers must start with a non-zero digit /[1-9]/"),
-                ('0'..='9', _, _) => Ok(true),
-                _ => Ok(false),
+                ('0'..='9', i, _) => Ok(ctx
+                    .remaining_src()
+                    .chars()
+                    .nth(i + 1)
+                    .map(|next| !next.is_ascii_digit())
+                    .unwrap_or(false)),
+                _ => unreachable!(),
             },
             |s| {
                 s.parse::<i64>()
@@ -470,6 +482,7 @@ impl<'a> Literal<'a> {
     }
 
     fn try_parse_regex(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        // TODO: dedup with try_parse::string which uses try_read_chars similarly
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
@@ -477,8 +490,8 @@ impl<'a> Literal<'a> {
                 ('/', 0, _) => Ok(true),
                 (_, 0, _) => Err("regex must start with a slash '/'"),
                 (_, i, _)
-                    if &ctx.remaining_src()[i - 1..i] != "/"
-                        && &ctx.remaining_src()[i - 2..i] != "\\" =>
+                    if &ctx.remaining_src()[i - 1..=i - 1] == "/"
+                        && !(i >= 2 && &ctx.remaining_src()[i - 2..=i - 1] == "\\") =>
                 {
                     Ok(false)
                 }
@@ -767,11 +780,11 @@ impl<'a> WriteCommand<'a> {
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
     fn try_parse(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
         Self::try_parse_raw(&ctx)
+            .or(Self::try_parse_sequence(&ctx))
             .or(Self::try_parse_node_reference(&ctx))
             .or(Self::try_parse_wrap_point(&ctx))
             .or(Self::try_parse_conditional(&ctx)) // this is placeholder, I'll need some real parsing
             .or(Self::try_parse_indent_mark(&ctx))
-            .or(Self::try_parse_sequence(&ctx))
             .map_err(|_| "expected write command") // TODO: consider creating some kind of `Rope` of &str to make compounding error strings easy
     }
 }
@@ -849,7 +862,6 @@ pub mod exprs {
     */
 }
 
-// TODO: rename to like a "parse_NodeSet", parse_file sounds too high-level
 fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
     let mut file = File { nodes: Vec::new() };
     while !ctx.at_eof() {
@@ -861,16 +873,20 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
 fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> {
     ctx.skip_whitespace();
     ctx.consume_read_and_space(try_parse_keyword!(ctx, "node")?);
+    println!(
+        "after read node keyword remaining: '{}'",
+        ctx.remaining_src()
+    );
     let name =
         ctx.consume_read_and_space(try_parse::quoted_string(&ctx).map(|s| Read::new(s, s.len()))?);
+    println!("name: {:#?}", name);
+    println!("after read name remaining: '{}'", ctx.remaining_src());
     ctx.consume_read_and_space(try_parse_operator!(ctx, "=")?);
+    println!("after read '=' remaining: '{}'", ctx.remaining_src());
     let commands = ctx.consume_read_and_space(WriteCommand::try_parse(&ctx)?);
     Ok(Node { name, commands })
 }
 
-pub fn parse_text(text: &str) {
-    let ctx = ParseContext::new(text);
-    if let Ok(ast) = parse_file(&ctx) {
-        println!("{:?}", ast);
-    }
+pub(crate) fn parse_text<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
+    parse_file(&ctx)
 }

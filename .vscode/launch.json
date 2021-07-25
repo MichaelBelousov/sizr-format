@@ -1,0 +1,31 @@
+{
+  "configurations": [
+    {
+      "name": "(gdb) Launch",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/sizr-format/target/debug/sizr-format",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}/sizr-format",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "(lldb) Launch",
+      "cwd": "${workspaceFolder}/sizr-format",
+      "program": "${workspaceFolder}/sizr-format/target/debug/sizr-format",
+      "args": []
+    }
+  ]
+}

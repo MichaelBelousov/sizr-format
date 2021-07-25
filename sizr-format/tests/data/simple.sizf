@@ -1,3 +1,1 @@
-my_node: '''
-  |> -100 100 "hello" "he\nllo" "hell\"o"
-'''
+node "my_node" = "world"

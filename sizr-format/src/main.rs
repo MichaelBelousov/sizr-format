@@ -13,7 +13,8 @@ mod parser;
 fn main() -> io::Result<()> {
     let mut buffer = String::new();
     io::stdin().read_to_string(&mut buffer)?;
-    let result = parser::parse_text(&buffer);
+    let ctx = parser::ParseContext::new(&buffer);
+    let result = parser::parse_text(&ctx);
     println!("result: {:#?}", result);
     Ok(())
 }
