@@ -75,7 +75,7 @@ impl<'a> ParseContext<'a> {
         self.loc.get()
     }
 
-    // really this should be done over "Iterator::skip_while" and this whole thing should
+    // really this should be done over "Iterator::skip_while" and ParserContext should
     // be an interator, no?
     pub fn skip_whitespace(&self) {
         if let Some(jump) = &self.remaining_src().find(|c: char| !c.is_whitespace()) {
@@ -153,26 +153,10 @@ pub mod ops {
         fn prec<'a>(&self) -> Prec;
     }
 
+    #[rustfmt::skip]
+    #[allow(dead_code)]
     #[derive(Debug)]
-    pub enum BinOp {
-        And,
-        Or,
-        Xor,
-        Gt,
-        Gte,
-        Eq,
-        Neq,
-        Lte,
-        Lt,
-        Add,
-        Sub,
-        Mul,
-        Div,
-        Idiv,
-        Mod,
-        Pow,
-        Dot,
-    }
+    pub enum BinOp { And, Or, Xor, Gt, Gte, Eq, Neq, Lte, Lt, Add, Sub, Mul, Div, Idiv, Mod, Pow, Dot, }
 
     impl HasAssoc for BinOp {
         fn assoc<'a>(&self) -> Assoc {
@@ -289,15 +273,6 @@ pub mod try_parse {
             .ok_or("node references must start with a '$'")
             .and(try_parse::name(&ctx.make_further_test_ctx(1)))
             .map(|name| Read::new(&ctx.remaining_src()[..name.len + 1], name.len + 1))
-        /*
-        // damn lack of specific variant types...
-        .map(|name_expr| match name_expr.result {
-            FilterExpr::Name(name) => {
-                Read::new(FilterExpr::NodeReference { name }, 1 + name.len())
-            }
-            _ => unreachable!(),
-        })
-        */
     }
 }
 
@@ -748,7 +723,7 @@ impl<'a> WriteCommand<'a> {
         // FIXME: need to get rid of all of my borrowing of already borrowed values...
         ctx.consume_read_and_space(try_parse_sequence_start(ctx)?);
         while try_parse_sequence_end(ctx).is_err() {
-            seq.push(Self::try_parse(ctx)?.result);
+            seq.push(ctx.consume_read_and_space(Self::try_parse(ctx)?));
         }
         ctx.consume_read_and_space(try_parse_sequence_end(ctx)?);
         return Ok(Read::new(WriteCommand::Sequence(seq), 0));
@@ -792,7 +767,7 @@ pub struct File<'a> {
 // used to be in try_parse, probably belongs in some module...
 #[derive(Debug)]
 pub struct Read<T> {
-    pub result: T,
+    result: T,
     pub len: usize,
 }
 
