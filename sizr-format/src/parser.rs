@@ -52,6 +52,15 @@ impl<'a> ParseContext<'a> {
         }
     }
 
+    pub fn make_further_test_ctx(&self, advance: usize) -> Self {
+        let result = ParseContext {
+            src: self.src,
+            loc: self.loc.clone(),
+        };
+        result.inc_loc(advance);
+        result
+    }
+
     pub fn remaining_src(&self) -> &'a str {
         &self.src[self.loc.get()..]
     }
@@ -206,7 +215,7 @@ pub mod try_parse {
                         .chars()
                         .nth($string.len())
                         .filter($test_is_after)
-                        .ok_or($expect_msg) // NEEDSWORK
+                        .ok_or($expect_msg) // NEEDSWORK: (ok_or twice)
                         .and(Ok(Read::new((), $string.len()))),
                 )
         }};
@@ -236,7 +245,7 @@ pub mod try_parse {
         }};
     }
 
-    pub fn string<'a>(ctx: &'a ParseContext) -> Result<&'a str, &'static str> {
+    pub fn quoted_string<'a>(ctx: &'a ParseContext) -> Result<&'a str, &'static str> {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
@@ -280,76 +289,22 @@ pub mod try_parse {
             .ok_or("expected wrap point '\\'")
     }
 
-    pub fn node_reference<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
-        (&ctx.remaining_src().starts_with("$"))
+    pub fn node_reference<'a>(ctx: &'a ParseContext) -> Result<Read<&'a str>, &'static str> {
+        (ctx.remaining_src().starts_with("$"))
             .then(|| ())
             .ok_or("node references must start with a '$'")
-            .and(Ok(ctx.inc_loc(1)))
-            .and(try_parse::name(&ctx))
-            // damn lack of specific variant types...
-            .map(|name_expr| match name_expr.result {
-                FilterExpr::Name(name) => {
-                    Read::new(FilterExpr::NodeReference { name }, 1 + name.len())
-                }
-                _ => unreachable!(),
-            })
+            .and(try_parse::name(&ctx.make_further_test_ctx(1)))
+            .map(|name| Read::new(&ctx.remaining_src()[..name.len + 1], name.len + 1))
+        /*
+        // damn lack of specific variant types...
+        .map(|name_expr| match name_expr.result {
+            FilterExpr::Name(name) => {
+                Read::new(FilterExpr::NodeReference { name }, 1 + name.len())
+            }
+            _ => unreachable!(),
+        })
+        */
     }
-
-    /*
-    pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        let tok = ctx.next_token().expect("unexpected end of input");
-        match tok {
-            Token::LPar => {
-                let inner = exprs::parse(ctx);
-                let next = ctx
-                    .next_token()
-                    .expect("expected closing parenthesis, found EOI");
-                if next != Token::RPar {
-                    panic!("expected closing parenthesis");
-                }
-                Ast::Group(Box::new(inner))
-            }
-            Token::Op(symbol) => {
-                let op = ops::UNARY_OPS
-                    .iter()
-                    .find(|op| op.symbol == symbol)
-                    .expect("unexpected binary operator");
-                let inner = exprs::parse(ctx);
-                Ast::UnaryOp {
-                    op,
-                    inner: Box::new(inner),
-                }
-            }
-            Token::Indent => Ast::Indent,
-            Token::Outdent => Ast::Outdent,
-            Token::Align(val) => Ast::Align(val),
-            Token::WrapPoint => Ast::WrapPoint,
-            Token::Identifier(val) => Ast::Identifier(val),
-            Token::Number(val) => Ast::Number(val),
-            Token::Quote(val) => Ast::Quote(val),
-            Token::Regex(val) => Ast::Regex(val),
-            Token::Variable { name } => Ast::Variable { name },
-            Token::SimpleLambda { property } => {
-                let next = ctx
-                    .next_token()
-                    .expect("unexpected EOI while parsing lambda");
-                if next == Token::Op("=") {
-                    let equalsExpr = exprs::parse(ctx);
-                    Ast::Lambda {
-                        property,
-                        equals: Some(Box::new(equalsExpr)),
-                    }
-                } else {
-                    Ast::Lambda {
-                        property,
-                        equals: None,
-                    }
-                }
-            }
-            _ => panic!("unexpected token '{:?}', during atom parsing"),
-        }
-    }
-    */
 }
 
 pub trait Parseable<'a, T> {
@@ -521,7 +476,7 @@ impl<'a> Literal<'a> {
     }
 
     fn try_parse_string(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        try_parse::string(&ctx).map(|s| Read::new(Literal::String(s), s.len()))
+        try_parse::quoted_string(&ctx).map(|s| Read::new(Literal::String(s), s.len()))
     }
 
     fn try_parse_regex(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
@@ -599,20 +554,94 @@ impl<'a> FilterExpr<'a> {
             Err("expected rest filter '...'")
         }
     }
+    fn try_parse_binop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        unimplemented!()
+    }
+    fn try_parse_unaryop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        unimplemented!()
+    }
+    fn try_parse_node_reference(
+        ctx: &'a ParseContext,
+    ) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        try_parse::node_reference(&ctx)
+            .map(|r| r.map(|text| FilterExpr::NodeReference { name: &text[1..] }, 0))
+    }
+    fn try_parse_literal(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        unimplemented!()
+    }
+    fn try_parse_group(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        unimplemented!()
+    }
+    fn try_parse_name(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        unimplemented!()
+    }
+    /*
+    pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        let tok = ctx.next_token().expect("unexpected end of input");
+        match tok {
+            Token::LPar => {
+                let inner = exprs::parse(ctx);
+                let next = ctx
+                    .next_token()
+                    .expect("expected closing parenthesis, found EOI");
+                if next != Token::RPar {
+                    panic!("expected closing parenthesis");
+                }
+                Ast::Group(Box::new(inner))
+            }
+            Token::Op(symbol) => {
+                let op = ops::UNARY_OPS
+                    .iter()
+                    .find(|op| op.symbol == symbol)
+                    .expect("unexpected binary operator");
+                let inner = exprs::parse(ctx);
+                Ast::UnaryOp {
+                    op,
+                    inner: Box::new(inner),
+                }
+            }
+            Token::Indent => Ast::Indent,
+            Token::Outdent => Ast::Outdent,
+            Token::Align(val) => Ast::Align(val),
+            Token::WrapPoint => Ast::WrapPoint,
+            Token::Identifier(val) => Ast::Identifier(val),
+            Token::Number(val) => Ast::Number(val),
+            Token::Quote(val) => Ast::Quote(val),
+            Token::Regex(val) => Ast::Regex(val),
+            Token::Variable { name } => Ast::Variable { name },
+            Token::SimpleLambda { property } => {
+                let next = ctx
+                    .next_token()
+                    .expect("unexpected EOI while parsing lambda");
+                if next == Token::Op("=") {
+                    let equalsExpr = exprs::parse(ctx);
+                    Ast::Lambda {
+                        property,
+                        equals: Some(Box::new(equalsExpr)),
+                    }
+                } else {
+                    Ast::Lambda {
+                        property,
+                        equals: None,
+                    }
+                }
+            }
+            _ => panic!("unexpected token '{:?}', during atom parsing"),
+        }
+    }
+    */
 }
 
 impl<'a> Parseable<'a, FilterExpr<'a>> for FilterExpr<'a> {
     #[allow(dead_code)]
     fn try_parse(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         Self::try_parse_rest(&ctx)
-            /*
             .or(Self::try_parse_binop(&ctx))
             .or(Self::try_parse_unaryop(&ctx))
             .or(Self::try_parse_node_reference(&ctx))
             .or(Self::try_parse_literal(&ctx))
             .or(Self::try_parse_group(&ctx))
             .or(Self::try_parse_name(&ctx))
-            */
             .map_err(|_| "expected filter expr")
     }
 }
@@ -636,23 +665,22 @@ pub enum WriteCommand<'a> {
 }
 
 impl<'a> WriteCommand<'a> {
-    fn unwrap_raw(&self) -> &'a str {
+    pub fn unwrap_raw(self) -> &'a str {
         match self {
             WriteCommand::Raw(content) => content,
             _ => panic!("tried to unwrap a raw"),
         }
     }
 
-    // NOTE: this looks bad, need to figure out move semantics
-    fn unwrap_node_reference(&self) -> (&'a str, Vec<FilterExpr<'a>>) {
+    pub fn unwrap_node_reference(self) -> (&'a str, Vec<FilterExpr<'a>>) {
         match self {
-            WriteCommand::NodeReference { name, filters } => (name, *filters),
+            WriteCommand::NodeReference { name, filters } => (name, filters),
             _ => panic!("tried to unwrap a WriteCommand that wasn't a Raw"),
         }
     }
 
-    fn unwrap_conditional(
-        &self,
+    pub fn unwrap_conditional(
+        self,
     ) -> (
         FilterExpr<'a>,
         Option<WriteCommand<'a>>,
@@ -660,34 +688,42 @@ impl<'a> WriteCommand<'a> {
     ) {
         match self {
             WriteCommand::Conditional { test, then, r#else } => {
-                (*test, then.map(|o| *o), r#else.map(|o| *o))
+                (test, then.map(|o| *o), r#else.map(|o| *o))
             }
             _ => panic!("tried to unwrap a WriteCommand that wasn't a Conditional"),
         }
     }
 
-    fn unwrap_indent_mark(&self) -> IndentMark<'a> {
+    pub fn unwrap_indent_mark(self) -> IndentMark<'a> {
         match self {
-            WriteCommand::IndentMark(indent_mark) => *indent_mark,
+            WriteCommand::IndentMark(indent_mark) => indent_mark,
             _ => panic!("tried to unwrap a WriteCommand that wasn't an IndentMark"),
         }
     }
 
-    fn unwrap_sequence(&self) -> Vec<WriteCommand<'a>> {
+    pub fn unwrap_sequence(self) -> Vec<WriteCommand<'a>> {
         match self {
-            WriteCommand::Sequence(write_commands) => *write_commands,
+            WriteCommand::Sequence(write_commands) => write_commands,
             _ => panic!("tried to unwrap a WriteCommand that wasn't an IndentMark"),
         }
     }
 
     fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        try_parse::string(&ctx).map(|s| Read::new(WriteCommand::Raw(s), s.len()))
+        try_parse::quoted_string(&ctx).map(|s| Read::new(WriteCommand::Raw(s), s.len()))
     }
 
     fn try_parse_node_reference(
         ctx: &'a ParseContext,
     ) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        unimplemented!()
+        try_parse::node_reference(&ctx).map(|r| {
+            r.map(
+                |text| WriteCommand::NodeReference {
+                    name: &text[1..],
+                    filters: Vec::new(),
+                },
+                0,
+            )
+        })
     }
 
     fn try_parse_wrap_point(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
@@ -723,6 +759,16 @@ impl<'a> WriteCommand<'a> {
         ctx.consume_read_and_space(try_parse_sequence_end(ctx)?);
         return Ok(Read::new(WriteCommand::Sequence(seq), 0));
     }
+
+    fn try_parse_atom(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        Self::try_parse_raw(&ctx)
+            .or(Self::try_parse_node_reference(&ctx))
+            .or(Self::try_parse_wrap_point(&ctx))
+            //.or(Self::try_parse_conditional(&ctx)) // this is placeholder, I'll need some real parsing
+            .or(Self::try_parse_indent_mark(&ctx))
+            .or(Self::try_parse_sequence(&ctx))
+            .map_err(|_| "expected atomic expression")
+    }
 }
 
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
@@ -740,7 +786,7 @@ impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
 #[derive(Debug)]
 pub struct Node<'a> {
     pub name: &'a str,
-    pub commands: Vec<WriteCommand<'a>>,
+    pub commands: WriteCommand<'a>,
 }
 
 #[derive(Debug)]
@@ -761,7 +807,7 @@ impl<T> Read<T> {
         Read { result, len }
     }
 
-    pub fn map<U, F: FnOnce(T) -> U>(&self, f: F, added_len: usize) -> Read<U> {
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F, added_len: usize) -> Read<U> {
         Read::<U>::new(f(self.result), self.len + added_len)
     }
 }
@@ -822,14 +868,11 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
 fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> {
     ctx.skip_whitespace();
     ctx.consume_read_and_space(try_parse_keyword!(ctx, "node")?);
-    let name = ctx.consume_read_and_space(try_parse::string(&ctx)?);
+    let name =
+        ctx.consume_read_and_space(try_parse::quoted_string(&ctx).map(|s| Read::new(s, s.len()))?);
     ctx.consume_read_and_space(try_parse_operator!(ctx, "=")?);
-    let commands = ctx.consume_read_and_space(try_parse::write_command(&ctx)?);
-    // NOTE: maybe only tokens should have a "TokenRead" wrapper which is optionally consumable?
-    match name {
-        Literal::String(s) => Ok(Node { name: s, commands }),
-        _ => unreachable!(),
-    };
+    let commands = ctx.consume_read_and_space(WriteCommand::try_parse(&ctx)?);
+    Ok(Node { name, commands })
 }
 
 // need interior mutability... why can't I
