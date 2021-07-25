@@ -259,7 +259,7 @@ pub mod try_parse {
     }
 
     pub fn node_reference<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
-        (&ctx.remaining_src()[..1] == "$")
+        (&ctx.remaining_src().starts_with("$"))
             .then(|| ())
             .ok_or("node references must start with a '$'")
             .and(Ok(ctx.inc_loc(1)))
