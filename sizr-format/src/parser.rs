@@ -191,8 +191,147 @@ pub mod ops {
     }
 }
 
+pub mod try_parse {
+    use super::*;
+
+    #[allow(unused_macros)]
+    macro_rules! static_string {
+        ($ctx: expr, $string: expr, $expect_msg: expr, $test_is_after: expr) => {{
+            (&$ctx.remaining_src()[..$string.len()] == $string)
+                .then(|| ())
+                .ok_or($expect_msg)
+                .and(
+                    $ctx.remaining_src()
+                        .chars()
+                        .nth($string.len())
+                        .filter($test_is_after)
+                        .ok_or($expect_msg) // NEEDSWORK
+                        .and(Ok(Read::new((), $string.len()))),
+                )
+        }};
+    }
+
+    #[macro_export]
+    macro_rules! try_parse_keyword {
+        ($ctx: expr, $keyword: expr) => {{
+            static_string!(
+                $ctx,
+                $keyword,
+                concat!("expected keyword '", $keyword, "'"),
+                |c: &char| !c.is_ascii_alphabetic()
+            )
+        }};
+    }
+
+    #[macro_export]
+    macro_rules! try_parse_operator {
+        ($ctx: expr, $operator: expr) => {{
+            static_string!(
+                $ctx,
+                $operator,
+                concat!("expected operator '", $operator, "'"),
+                |c: &char| !c.is_ascii_punctuation()
+            )
+        }};
+    }
+
+    pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        try_read_chars(
+            ctx,
+            |c, i, eof| match (c, i, eof) {
+                (_, _, true) => Ok(true),
+                (c, 0, _) if c.is_ascii_alphabetic() || c == '_' => Ok(true),
+                (_, 0, _) => Err("identifiers must start with /[a-z_]/"),
+                (c, _, _) if c.is_ascii_alphanumeric() || c == '_' => Ok(true),
+                _ => Ok(false),
+            },
+            |s| Ok(FilterExpr::Name(s)),
+        )
+    }
+
+    pub fn wrap_point<'a>(ctx: &ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        ctx.remaining_src()
+            .chars()
+            .nth(0)
+            .filter(|c| *c == '\\')
+            .map(|_| Read::new(WriteCommand::WrapPoint, 1))
+            .ok_or("expected wrap point '\\'")
+    }
+
+    pub fn node_reference<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        (&ctx.remaining_src()[..1] == "$")
+            .then(|| ())
+            .ok_or("node references must start with a '$'")
+            .and(Ok(ctx.inc_loc(1)))
+            .and(try_parse::name(&ctx))
+            // damn lack of specific variant types...
+            .map(|name_expr| match name_expr.result {
+                FilterExpr::Name(name) => {
+                    Read::new(FilterExpr::NodeReference { name }, 1 + name.len())
+                }
+                _ => unreachable!(),
+            })
+    }
+
+    /*
+    pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+        let tok = ctx.next_token().expect("unexpected end of input");
+        match tok {
+            Token::LPar => {
+                let inner = exprs::parse(ctx);
+                let next = ctx
+                    .next_token()
+                    .expect("expected closing parenthesis, found EOI");
+                if next != Token::RPar {
+                    panic!("expected closing parenthesis");
+                }
+                Ast::Group(Box::new(inner))
+            }
+            Token::Op(symbol) => {
+                let op = ops::UNARY_OPS
+                    .iter()
+                    .find(|op| op.symbol == symbol)
+                    .expect("unexpected binary operator");
+                let inner = exprs::parse(ctx);
+                Ast::UnaryOp {
+                    op,
+                    inner: Box::new(inner),
+                }
+            }
+            Token::Indent => Ast::Indent,
+            Token::Outdent => Ast::Outdent,
+            Token::Align(val) => Ast::Align(val),
+            Token::WrapPoint => Ast::WrapPoint,
+            Token::Identifier(val) => Ast::Identifier(val),
+            Token::Number(val) => Ast::Number(val),
+            Token::Quote(val) => Ast::Quote(val),
+            Token::Regex(val) => Ast::Regex(val),
+            Token::Variable { name } => Ast::Variable { name },
+            Token::SimpleLambda { property } => {
+                let next = ctx
+                    .next_token()
+                    .expect("unexpected EOI while parsing lambda");
+                if next == Token::Op("=") {
+                    let equalsExpr = exprs::parse(ctx);
+                    Ast::Lambda {
+                        property,
+                        equals: Some(Box::new(equalsExpr)),
+                    }
+                } else {
+                    Ast::Lambda {
+                        property,
+                        equals: None,
+                    }
+                }
+            }
+            _ => panic!("unexpected token '{:?}', during atom parsing"),
+        }
+    }
+    */
+}
+
 pub trait Parseable<'a, T> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<T>, &'static str>;
+    fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<T>, &'static str>;
 }
 
 // NOTE: rename to Anchor, or Aligner?
@@ -205,7 +344,7 @@ pub enum IndentMark<'a> {
 }
 
 impl<'a> Parseable<'a, IndentMark<'a>> for IndentMark<'a> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, &'static str> {
+    fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, &'static str> {
         lazy_static! {
             static ref INDENT_MARK_PATTERN: regex::Regex =
                 // this is why I didn't want to do regex... maybe I'll rewrite this part later
@@ -282,8 +421,128 @@ pub enum Literal<'a> {
     Float(f64),
 }
 
+// TODO: create an arg struct for this
+fn try_read_chars<'a, FindEnd, Map, Expr>(
+    ctx: &'a ParseContext,
+    continue_reading: FindEnd,
+    map_to_expr: Map,
+) -> Result<Read<Expr>, &'static str>
+where
+    FindEnd: Fn(char, usize, bool) -> Result<bool, &'static str>, // Result is whether to stop
+    Map: FnOnce(&'a str) -> Result<Expr, &'static str>,
+{
+    ctx.remaining_src()
+        .chars()
+        .nth(0)
+        .ok_or("trying to start reading from EOF")
+        // find end of token
+        .and(
+            ctx.remaining_src()
+                .chars()
+                .enumerate()
+                // this should be find_last, maybe scan will be correct?
+                .find_map(|(i, c)| {
+                    let test = continue_reading(c, i, false);
+                    // perhaps there's a better way to do this...
+                    match test {
+                        Ok(true) => None,             // continue
+                        Ok(false) => Some(Ok(i - 1)), // we're done, the previous char was the last one
+                        Err(e) => Some(Err(e)),       // error, we're done
+                    }
+                })
+                .unwrap_or(Err("failed to find")),
+        )
+        .or(continue_reading('\0', ctx.remaining_src().len(), true).and(Ok(ctx.distance_to_eof())))
+        .and_then(|end| {
+            let content = &ctx.remaining_src()[..end];
+            map_to_expr(content).map(|expr| (expr, content.len()))
+        })
+        .map(|(expr, len)| Read::<Expr>::new(expr, len))
+}
+
+impl<'a> Literal<'a> {
+    fn try_parse_integer(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        try_read_chars(
+            ctx,
+            |c, i, eof| match (c, i, eof) {
+                (_, _, true) => Ok(true),
+                (c, 0, _) if c.is_ascii_digit() => Ok(true),
+                (_, 0, _) => Err("numbers must start with a digit /[0-9]/"),
+                (c, _, _) if c.is_ascii_digit() || c == '.' => Ok(true),
+                _ => Ok(false),
+            },
+            |s| {
+                s.parse::<i64>()
+                    // NEEDSWORK: combine the parse error rather than swallow it?
+                    .map_err(|_err| "expected integer literal")
+                    .map(|i| Literal::Integer(i))
+            },
+        )
+    }
+
+    fn try_parse_string(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        try_read_chars(
+            ctx,
+            |c, i, eof| match (c, i, eof) {
+                (_, _, true) => Err("unterminated string literal"),
+                (c, 0, _) => (c == '"')
+                    .then(|| true)
+                    .ok_or("strings must start with a quote '\"'"),
+                // NEEDSWORK: can be cleaned up probably
+                (_, i, _)
+                    if &ctx.remaining_src()[i - 1..i] == "\""
+                        && &ctx.remaining_src()[i - 2..i] != "\\" =>
+                {
+                    Ok(false)
+                }
+                _ => Ok(true),
+            },
+            |s| Ok(Literal::String(s)),
+        )
+    }
+
+    fn try_parse_regex(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        try_read_chars(
+            ctx,
+            |c, i, eof| match (c, i, eof) {
+                (_, _, true) => Err("unterminated regex literal"),
+                ('/', 0, _) => Ok(true),
+                (_, 0, _) => Err("regex must start with a slash '/'"),
+                (_, i, _)
+                    if &ctx.remaining_src()[i - 1..i] != "/"
+                        && &ctx.remaining_src()[i - 2..i] != "\\" =>
+                {
+                    Ok(false)
+                }
+                _ => Ok(true),
+            },
+            |s| {
+                regex::Regex::new(s)
+                    // NEEDSWORK: should combine with the regex failure message
+                    .map_err(|_err| "invalid regex didn't compile")
+                    .map(|r| Literal::Regex(Regex::new(r)))
+            },
+        )
+    }
+
+    fn try_parse_boolean(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        if ctx.remaining_src().starts_with("true") {
+            Ok(Read::new(Literal::Boolean(true), "true".len()))
+        } else if ctx.remaining_src().starts_with("false") {
+            Ok(Read::new(Literal::Boolean(false), "false".len()))
+        } else {
+            Err("expected boolean literal ('true' or 'false')")
+        }
+    }
+}
+
 impl<'a> Parseable<'a, Literal<'a>> for Literal<'a> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {}
+    fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        Self::try_parse_integer(&ctx)
+            .or(Self::try_parse_string(&ctx))
+            .or(Self::try_parse_regex(&ctx))
+            .map_err(|_| "expected literal") // TODO: consider creating some kind of `Rope` of &str
+    }
 }
 
 #[derive(Debug)]
@@ -386,22 +645,6 @@ impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
                 _ => unreachable!(),
             })
     }
-    /*
-    Raw(&'a str),
-    NodeReference {
-        name: &'a str,
-        filters: Vec<FilterExpr<'a>>, // comma separated
-    },
-    WrapPoint,
-    Conditional {
-        test: FilterExpr<'a>,
-        then: Option<Box<WriteCommand<'a>>>,
-        r#else: Option<Box<WriteCommand<'a>>>,
-    },
-    IndentMark(IndentMark<'a>),
-    Sequence(Vec<WriteCommand<'a>>),
-    }
-    */
 }
 
 #[derive(Debug)]
@@ -433,306 +676,6 @@ impl<T> Read<T> {
 }
 
 #[macro_use]
-pub mod try_parse {
-    use super::*;
-
-    // TODO: create an arg struct for this
-    fn try_read_chars<'a, FindEnd, Map, Expr>(
-        ctx: &'a ParseContext,
-        continue_reading: FindEnd,
-        map_to_expr: Map,
-    ) -> Result<Read<Expr>, &'static str>
-    where
-        FindEnd: Fn(char, usize, bool) -> Result<bool, &'static str>, // Result is whether to stop
-        Map: FnOnce(&'a str) -> Result<Expr, &'static str>,
-    {
-        ctx.remaining_src()
-            .chars()
-            .nth(0)
-            .ok_or("trying to start reading from EOF")
-            // find end of token
-            .and(
-                ctx.remaining_src()
-                    .chars()
-                    .enumerate()
-                    // this should be find_last, maybe scan will be correct?
-                    .find_map(|(i, c)| {
-                        let test = continue_reading(c, i, false);
-                        // perhaps there's a better way to do this...
-                        match test {
-                            Ok(true) => None,             // continue
-                            Ok(false) => Some(Ok(i - 1)), // we're done, the previous char was the last one
-                            Err(e) => Some(Err(e)),       // error, we're done
-                        }
-                    })
-                    .unwrap_or(Err("failed to find")),
-            )
-            .or(continue_reading('\0', ctx.remaining_src().len(), true)
-                .and(Ok(ctx.distance_to_eof())))
-            .and_then(|end| {
-                let content = &ctx.remaining_src()[..end];
-                map_to_expr(content).map(|expr| (expr, content.len()))
-            })
-            .map(|(expr, len)| Read::<Expr>::new(expr, len))
-    }
-
-    macro_rules! static_string {
-        ($ctx: expr, $string: expr, $expect_msg: expr, $test_is_after: expr) => {{
-            (&$ctx.remaining_src()[..$string.len()] == $string)
-                .then(|| ())
-                .ok_or($expect_msg)
-                .and(
-                    $ctx.remaining_src()
-                        .chars()
-                        .nth($string.len())
-                        .filter($test_is_after)
-                        .ok_or($expect_msg) // NEEDSWORK
-                        .and(Ok(Read::new((), $string.len()))),
-                )
-        }};
-    }
-
-    #[macro_export]
-    macro_rules! try_parse_keyword {
-        ($ctx: expr, $keyword: expr) => {{
-            static_string!(
-                $ctx,
-                $keyword,
-                concat!("expected keyword '", $keyword, "'"),
-                |c: &char| !c.is_ascii_alphabetic()
-            )
-        }};
-    }
-
-    #[macro_export]
-    macro_rules! try_parse_operator {
-        ($ctx: expr, $operator: expr) => {{
-            static_string!(
-                $ctx,
-                $operator,
-                concat!("expected operator '", $operator, "'"),
-                |c: &char| !c.is_ascii_punctuation()
-            )
-        }};
-    }
-
-    pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
-        try_read_chars(
-            ctx,
-            |c, i, eof| match (c, i, eof) {
-                (_, _, true) => Ok(true),
-                (c, 0, _) if c.is_ascii_alphabetic() || c == '_' => Ok(true),
-                (_, 0, _) => Err("identifiers must start with /[a-z_]/"),
-                (c, _, _) if c.is_ascii_alphanumeric() || c == '_' => Ok(true),
-                _ => Ok(false),
-            },
-            |s| Ok(FilterExpr::Name(s)),
-        )
-    }
-
-    pub fn integer<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        try_read_chars(
-            ctx,
-            |c, i, eof| match (c, i, eof) {
-                (_, _, true) => Ok(true),
-                (c, 0, _) if c.is_ascii_digit() => Ok(true),
-                (_, 0, _) => Err("numbers must start with a digit /[0-9]/"),
-                (c, _, _) if c.is_ascii_digit() || c == '.' => Ok(true),
-                _ => Ok(false),
-            },
-            |s| {
-                s.parse::<i64>()
-                    // NEEDSWORK: combine the parse error rather than swallow it?
-                    .map_err(|_err| "expected integer literal")
-                    .map(|i| Literal::Integer(i))
-            },
-        )
-    }
-
-    pub fn string<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        try_read_chars(
-            ctx,
-            |c, i, eof| match (c, i, eof) {
-                (_, _, true) => Err("unterminated string literal"),
-                (c, 0, _) => (c == '"')
-                    .then(|| true)
-                    .ok_or("strings must start with a quote '\"'"),
-                // NEEDSWORK: can be cleaned up probably
-                (_, i, _)
-                    if &ctx.remaining_src()[i - 1..i] == "\""
-                        && &ctx.remaining_src()[i - 2..i] != "\\" =>
-                {
-                    Ok(false)
-                }
-                _ => Ok(true),
-            },
-            |s| Ok(Literal::String(s)),
-        )
-    }
-
-    pub fn regex<'a>(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        try_read_chars(
-            ctx,
-            |c, i, eof| match (c, i, eof) {
-                (_, _, true) => Err("unterminated regex literal"),
-                ('/', 0, _) => Ok(true),
-                (_, 0, _) => Err("regex must start with a slash '/'"),
-                (_, i, _)
-                    if &ctx.remaining_src()[i - 1..i] != "/"
-                        && &ctx.remaining_src()[i - 2..i] != "\\" =>
-                {
-                    Ok(false)
-                }
-                _ => Ok(true),
-            },
-            |s| {
-                regex::Regex::new(s)
-                    // NEEDSWORK: should combine with the regex failure message
-                    .map_err(|_err| "invalid regex didn't compile")
-                    .map(|r| Literal::Regex(Regex::new(r)))
-            },
-        )
-    }
-
-    pub fn wrap_point<'a>(ctx: &ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        ctx.remaining_src()
-            .chars()
-            .nth(0)
-            .filter(|c| *c == '\\')
-            .map(|_| Read::new(WriteCommand::WrapPoint, 1))
-            .ok_or("expected wrap point '\\'")
-    }
-
-    pub fn indent_mark<'a>(ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, &'static str> {
-        lazy_static! {
-            static ref INDENT_MARK_PATTERN: regex::Regex =
-                // this is why I didn't want to do regex... maybe I'll rewrite this part later
-                regex::Regex::new(r#"^(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*"#)
-                    .expect("INDENT_MARK_PATTERN regex failed to compile");
-        }
-        let capture = INDENT_MARK_PATTERN
-            .captures(&ctx.remaining_src())
-            .map(|captures| {
-                captures
-                    .iter()
-                    .enumerate()
-                    .skip(1) // skip the implicit total capture group
-                    .find(|(_, capture)| capture.is_some())
-                    .expect("INDENT_MARK_PATTERN capture groups are exclusive, one should match")
-            })
-            .map(|(i, capture)| match capture {
-                Some(inner) => Some((i, inner)),
-                None => None,
-            })
-            .flatten()
-            .ok_or("expected indent mark");
-
-        return capture.and_then(|(i, capture)| {
-            use std::convert::TryInto;
-            let len = capture.range().len();
-            let len_u16: u16 = len
-                .try_into()
-                .expect("expected in/outdent jump of less than 2^16");
-            match i {
-                1 => Ok(Read::new(IndentMark::Indent(len_u16 - 1), len)),
-                2 => Ok(Read::new(IndentMark::Outdent(len_u16 - 1), len)),
-                3 => {
-                    let number = capture.as_str()[1..]
-                        .parse::<u16>()
-                        .expect("failed to parse a 16-bit unsigned integer in a numeric anchor");
-                    Ok(Read::new(IndentMark::NumericAnchor(number), len))
-                    // TODO: double check this rust feature
-                }
-                4 => {
-                    // XXX: might be off by a byte... should write a test
-                    let content = &capture.as_str()[2..capture.end() - 1];
-                    Ok(Read::new(IndentMark::TokenAnchor(content), len))
-                }
-                _ => unreachable!(),
-            }
-        });
-    }
-
-    pub fn node_reference<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
-        (&ctx.remaining_src()[..1] == "$")
-            .then(|| ())
-            .ok_or("node references must start with a '$'")
-            .and(Ok(ctx.inc_loc(1)))
-            .and(try_parse::name(&ctx))
-            // damn lack of specific variant types...
-            .map(|name_expr| match name_expr.result {
-                FilterExpr::Name(name) => {
-                    Read::new(FilterExpr::NodeReference { name }, 1 + name.len())
-                }
-                _ => unreachable!(),
-            })
-    }
-
-    pub fn write_command<'a>(ctx: &'a ParseContext) -> Result<WriteCommand<'a>, &'static str> {
-        let mut file = File { nodes: Vec::new() };
-        while !ctx.at_eof() {
-            file.nodes.push(parse_node_decl(ctx)?);
-        }
-        return Ok(file);
-    }
-
-    /*
-    pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
-        let tok = ctx.next_token().expect("unexpected end of input");
-        match tok {
-            Token::LPar => {
-                let inner = exprs::parse(ctx);
-                let next = ctx
-                    .next_token()
-                    .expect("expected closing parenthesis, found EOI");
-                if next != Token::RPar {
-                    panic!("expected closing parenthesis");
-                }
-                Ast::Group(Box::new(inner))
-            }
-            Token::Op(symbol) => {
-                let op = ops::UNARY_OPS
-                    .iter()
-                    .find(|op| op.symbol == symbol)
-                    .expect("unexpected binary operator");
-                let inner = exprs::parse(ctx);
-                Ast::UnaryOp {
-                    op,
-                    inner: Box::new(inner),
-                }
-            }
-            Token::Indent => Ast::Indent,
-            Token::Outdent => Ast::Outdent,
-            Token::Align(val) => Ast::Align(val),
-            Token::WrapPoint => Ast::WrapPoint,
-            Token::Identifier(val) => Ast::Identifier(val),
-            Token::Number(val) => Ast::Number(val),
-            Token::Quote(val) => Ast::Quote(val),
-            Token::Regex(val) => Ast::Regex(val),
-            Token::Variable { name } => Ast::Variable { name },
-            Token::SimpleLambda { property } => {
-                let next = ctx
-                    .next_token()
-                    .expect("unexpected EOI while parsing lambda");
-                if next == Token::Op("=") {
-                    let equalsExpr = exprs::parse(ctx);
-                    Ast::Lambda {
-                        property,
-                        equals: Some(Box::new(equalsExpr)),
-                    }
-                } else {
-                    Ast::Lambda {
-                        property,
-                        equals: None,
-                    }
-                }
-            }
-            _ => panic!("unexpected token '{:?}', during atom parsing"),
-        }
-    }
-    */
-}
-
 pub mod exprs {
     //use super::*;
 
