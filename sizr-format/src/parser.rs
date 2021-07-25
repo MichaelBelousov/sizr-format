@@ -1,8 +1,6 @@
 /**
  * Parser for the sizr-format language
  */
-extern crate regex;
-
 use lazy_static::lazy_static;
 use num_derive::FromPrimitive;
 use std::boxed::Box;
@@ -247,11 +245,11 @@ pub mod try_parse {
     pub fn quoted_string<'a>(ctx: &'a ParseContext) -> Result<&'a str, &'static str> {
         try_read_chars(
             ctx,
-            |c, i, eof| match (c, i, eof) {
-                (_, _, true) => Err("unterminated string literal"),
-                ('"', 0, _) => Ok(false),
-                (_, 0, _) => Err("strings must start with a quote '\"'"),
-                (c, i, _) if c == '"' && &ctx.remaining_src()[i - 1..=i - 1] != "\\" => Ok(true),
+            |c, i, next| match (c, i, next) {
+                (_, _, None) => Err("unterminated string literal"),
+                (0, '"', _) => Ok(false),
+                (0, _, _) => Err("strings must start with a quote '\"'"),
+                (i, c, _) if c == '"' && &ctx.remaining_src()[i - 1..=i - 1] != "\\" => Ok(true),
                 _ => Ok(false),
             },
             |s| Ok(s),
@@ -268,9 +266,9 @@ pub mod try_parse {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
-                (c, 0, _) if is_name_start_char(c) => Ok(false),
-                (_, 0, _) => Err("identifiers must start with /[a-z_]/"),
-                (c, i, _) if is_name_char(c) => Ok(ctx
+                (0, c, _) if is_name_start_char(c) => Ok(false),
+                (0, _, _) => Err("identifiers must start with /[a-z_]/"),
+                (i, c, _) if is_name_char(c) => Ok(ctx
                     .remaining_src()
                     .chars()
                     .nth(i + 1)
@@ -392,27 +390,26 @@ pub enum Literal<'a> {
 }
 
 // TODO: create an arg struct for this
-fn try_read_chars<'a, FindEnd, Map, Expr>(
+fn try_read_chars<'a, IsLastChar, Map, Expr>(
     ctx: &'a ParseContext,
-    is_last_char: FindEnd,
+    is_last_char: IsLastChar,
     map_to_expr: Map,
 ) -> Result<Expr, &'static str>
 where
-    FindEnd: Fn(char, usize, bool) -> Result<bool, &'static str>, // Result is whether to stop
+    IsLastChar: Fn(usize, char, Option<char>) -> Result<bool, &'static str>,
     Map: FnOnce(&'a str) -> Result<Expr, &'static str>,
 {
     ctx.remaining_src()
         .chars()
         .nth(0)
         .ok_or("trying to start reading from EOF")
-        // find end of token
         .and(
             ctx.remaining_src()
                 .chars()
+                .zip(ctx.remaining_src().chars().map(Some).skip(1).chain([None]))
                 .enumerate()
-                // this should be find_last, maybe scan will be correct?
-                .find_map(|(i, c)| {
-                    let test = is_last_char(c, i, false);
+                .find_map(|(i, (c, next))| {
+                    let test = is_last_char(i, c, next);
                     // perhaps there's a better way to do this...
                     match test {
                         Ok(true) => Some(Ok(i)), // done
@@ -422,7 +419,6 @@ where
                 })
                 .unwrap_or(Err("failed to find")),
         )
-        .or(is_last_char('\0', ctx.remaining_src().len(), true).and(Ok(ctx.distance_to_eof())))
         .and_then(|end| {
             let content = &ctx.remaining_src()[..=end];
             map_to_expr(content)
@@ -434,14 +430,14 @@ impl<'a> Literal<'a> {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
-                ('1'..='9', 0, _) => Ok(ctx
+                (0, '1'..='9', _) => Ok(ctx
                     .remaining_src()
                     .chars()
                     .nth(1)
                     .map(|next| !next.is_ascii_digit())
                     .unwrap_or(false)),
-                (_, 0, _) => Err("numbers must start with a non-zero digit /[1-9]/"),
-                ('0'..='9', i, _) => Ok(ctx
+                (0, _, _) => Err("numbers must start with a non-zero digit /[1-9]/"),
+                (i, '0'..='9', _) => Ok(ctx
                     .remaining_src()
                     .chars()
                     .nth(i + 1)
@@ -462,10 +458,10 @@ impl<'a> Literal<'a> {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
-                (_, _, true) => Ok(true),
-                (c, 0, _) if c.is_ascii_digit() => Ok(true),
-                (_, 0, _) => Err("floats must start with a non-zero digit /[1-9]/"),
-                (c, _, _) if c.is_ascii_digit() || c == '.' => Ok(true),
+                (_, _, None) => Ok(true),
+                (0, c, _) if c.is_ascii_digit() => Ok(true),
+                (0, _, _) => Err("floats must start with a non-zero digit /[1-9]/"),
+                (_, c, _) if c.is_ascii_digit() || c == '.' => Ok(true),
                 _ => Ok(false),
             },
             |s| {
@@ -486,10 +482,10 @@ impl<'a> Literal<'a> {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
-                (_, _, true) => Err("unterminated regex literal"),
-                ('/', 0, _) => Ok(true),
-                (_, 0, _) => Err("regex must start with a slash '/'"),
-                (_, i, _)
+                (_, _, None) => Err("unterminated regex literal"),
+                (0, '/', _) => Ok(true),
+                (0, _, _) => Err("regex must start with a slash '/'"),
+                (i, _, _)
                     if &ctx.remaining_src()[i - 1..=i - 1] == "/"
                         && !(i >= 2 && &ctx.remaining_src()[i - 2..=i - 1] == "\\") =>
                 {
