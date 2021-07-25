@@ -282,6 +282,10 @@ pub enum Literal<'a> {
     Float(f64),
 }
 
+impl<'a> Parseable<'a, Literal<'a>> for Literal<'a> {
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {}
+}
+
 #[derive(Debug)]
 pub enum FilterExpr<'a> {
     Rest,
@@ -321,7 +325,53 @@ pub enum WriteCommand<'a> {
 }
 
 impl<'a> WriteCommand<'a> {
-    pub fn try_parse(ctx: &'a ParseContext) -> Result<Read<Self>, &'static str> {
+    fn unwrap_raw(&self) -> &'a str {
+        match self {
+            WriteCommand::Raw(content) => content,
+            _ => panic!("tried to unwrap a raw"),
+        }
+    }
+
+    // NOTE: this looks bad, need to figure out move semantics
+    fn unwrap_node_reference(&self) -> (&'a str, Vec<FilterExpr<'a>>) {
+        match self {
+            WriteCommand::NodeReference { name, filters } => (name, *filters),
+            _ => panic!("tried to unwrap a WriteCommand that wasn't a Raw"),
+        }
+    }
+
+    fn unwrap_conditional(
+        &self,
+    ) -> (
+        FilterExpr<'a>,
+        Option<WriteCommand<'a>>,
+        Option<WriteCommand<'a>>,
+    ) {
+        match self {
+            WriteCommand::Conditional { test, then, r#else } => {
+                (*test, then.map(|o| *o), r#else.map(|o| *o))
+            }
+            _ => panic!("tried to unwrap a WriteCommand that wasn't a Conditional"),
+        }
+    }
+
+    fn unwrap_indent_mark(&self) -> IndentMark<'a> {
+        match self {
+            WriteCommand::IndentMark(indent_mark) => *indent_mark,
+            _ => panic!("tried to unwrap a WriteCommand that wasn't an IndentMark"),
+        }
+    }
+
+    fn unwrap_sequence(&self) -> Vec<WriteCommand<'a>> {
+        match self {
+            WriteCommand::Sequence(write_commands) => *write_commands,
+            _ => panic!("tried to unwrap a WriteCommand that wasn't an IndentMark"),
+        }
+    }
+}
+
+impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
         try_parse::string(&ctx)
             .map(|s| match s {
                 Read {
