@@ -235,6 +235,28 @@ pub mod try_parse {
         }};
     }
 
+    fn try_parse_string<'a>(ctx: &'a ParseContext) -> Result<&'a str, &'static str> {
+        try_read_chars(
+            ctx,
+            |c, i, eof| match (c, i, eof) {
+                (_, _, true) => Err("unterminated string literal"),
+                (c, 0, _) => (c == '"')
+                    .then(|| true)
+                    .ok_or("strings must start with a quote '\"'"),
+                // NEEDSWORK: can be cleaned up probably
+                (_, i, _)
+                    if &ctx.remaining_src()[i - 1..=i - 1] == "\""
+                        && &ctx.remaining_src()[i - 2..=i - 1] != "\\" =>
+                {
+                    Ok(false)
+                }
+                _ => Ok(true),
+            },
+            |s| Ok(s),
+        )
+    }
+
+
     pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         try_read_chars(
             ctx,
@@ -245,7 +267,7 @@ pub mod try_parse {
                 (c, _, _) if c.is_ascii_alphanumeric() || c == '_' => Ok(true),
                 _ => Ok(false),
             },
-            |s| Ok(FilterExpr::Name(s)),
+            |s| Ok(Read::new(FilterExpr::Name(s), s.len())),
         )
     }
 
@@ -426,7 +448,7 @@ fn try_read_chars<'a, FindEnd, Map, Expr>(
     ctx: &'a ParseContext,
     continue_reading: FindEnd,
     map_to_expr: Map,
-) -> Result<Read<Expr>, &'static str>
+) -> Result<Expr, &'static str>
 where
     FindEnd: Fn(char, usize, bool) -> Result<bool, &'static str>, // Result is whether to stop
     Map: FnOnce(&'a str) -> Result<Expr, &'static str>,
@@ -455,9 +477,8 @@ where
         .or(continue_reading('\0', ctx.remaining_src().len(), true).and(Ok(ctx.distance_to_eof())))
         .and_then(|end| {
             let content = &ctx.remaining_src()[..end];
-            map_to_expr(content).map(|expr| (expr, content.len()))
+            map_to_expr(content)
         })
-        .map(|(expr, len)| Read::<Expr>::new(expr, len))
 }
 
 impl<'a> Literal<'a> {
@@ -475,7 +496,7 @@ impl<'a> Literal<'a> {
                 s.parse::<i64>()
                     // NEEDSWORK: combine the parse error rather than swallow it?
                     .map_err(|_err| "expected integer literal")
-                    .map(|i| Literal::Integer(i))
+                    .map(|i| Read::new(Literal::Integer(i), s.len()))
             },
         )
     }
@@ -494,7 +515,7 @@ impl<'a> Literal<'a> {
                 s.parse::<f64>()
                     // NEEDSWORK: combine the parse error rather than swallow it?
                     .map_err(|_err| "expected float literal")
-                    .map(|f| Literal::Float(f))
+                    .map(|f| Read::new(Literal::Float(f), s.len()))
             },
         )
     }
@@ -516,7 +537,7 @@ impl<'a> Literal<'a> {
                 }
                 _ => Ok(true),
             },
-            |s| Ok(Literal::String(s)),
+            |s| Ok(Read::new(Literal::String(s), s.len())),
         )
     }
 
@@ -539,7 +560,7 @@ impl<'a> Literal<'a> {
                 regex::Regex::new(s)
                     // NEEDSWORK: should combine with the regex failure message
                     .map_err(|_err| "invalid regex didn't compile")
-                    .map(|r| Literal::Regex(Regex::new(r)))
+                    .map(|r| Read::new(Literal::Regex(Regex::new(r)), s.len()))
             },
         )
     }
@@ -584,6 +605,33 @@ pub enum FilterExpr<'a> {
     Literal(Literal<'a>),
     Group(Box<FilterExpr<'a>>),
     Name(&'a str),
+}
+
+impl<'a> FilterExpr<'a> {
+    fn try_parse_rest(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        // TODO: prefer read
+        if ctx.remaining_src().starts_with("...") {
+            Ok(Read::new(FilterExpr::Rest, "...".len()))
+        } else {
+            Err("expected rest filter '...'")
+        }
+    }
+}
+
+impl<'a> Parseable<'a, FilterExpr<'a>> for FilterExpr<'a> {
+    #[allow(dead_code)]
+    fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        Self::try_parse_rest(&ctx)
+            /*
+            .or(Self::try_parse_binop(&ctx))
+            .or(Self::try_parse_unaryop(&ctx))
+            .or(Self::try_parse_node_reference(&ctx))
+            .or(Self::try_parse_literal(&ctx))
+            .or(Self::try_parse_group(&ctx))
+            .or(Self::try_parse_name(&ctx))
+            */
+            .map_err(|_| "expected filter expr")
+    }
 }
 
 // consider a better name
@@ -648,23 +696,40 @@ impl<'a> WriteCommand<'a> {
             _ => panic!("tried to unwrap a WriteCommand that wasn't an IndentMark"),
         }
     }
+
+    fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        if ctx.remaining_src().starts_with("true") {
+            Ok(Read::new(Literal::Boolean(true), "true".len()))
+        } else if ctx.remaining_src().starts_with("false") {
+            Ok(Read::new(Literal::Boolean(false), "false".len()))
+        } else {
+            Err("expected boolean literal ('true' or 'false')")
+        }
+    }
+
+    Raw(&'a str),
+    NodeReference {
+        name: &'a str,
+        filters: Vec<FilterExpr<'a>>, // comma separated
+    },
+    WrapPoint,
+    Conditional {
+        test: FilterExpr<'a>,
+        then: Option<Box<WriteCommand<'a>>>,
+        r#else: Option<Box<WriteCommand<'a>>>,
+    },
+    IndentMark(IndentMark<'a>),
+    Sequence(Vec<WriteCommand<'a>>),
 }
 
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
     fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        try_parse::string(&ctx)
-            .map(|s| match s {
-                Read {
-                    result: Literal::String(content),
-                    len,
-                } => WriteCommand::Raw(content),
-                _ => unreachable!(),
-            })
-            .or(try_parse::node_reference(&ctx))
-            .map(|s| match s {
-                Literal::String(content) => Raw(content),
-                _ => unreachable!(),
-            })
+        Self::try_parse_integer(&ctx)
+            .or(Self::try_parse_float(&ctx)) // TODO: consider combining integer and float parsing
+            .or(Self::try_parse_string(&ctx))
+            .or(Self::try_parse_regex(&ctx))
+            .or(Self::try_parse_boolean(&ctx))
+            .map_err(|_| "expected literal") // TODO: consider creating some kind of `Rope` of &str to make compounding errors possible
     }
 }
 
