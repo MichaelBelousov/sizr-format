@@ -429,21 +429,13 @@ impl<'a> Literal<'a> {
     fn try_parse_integer(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
             ctx,
-            |c, i, eof| match (c, i, eof) {
-                (0, '1'..='9', _) => Ok(ctx
-                    .remaining_src()
-                    .chars()
-                    .nth(1)
-                    .map(|next| !next.is_ascii_digit())
-                    .unwrap_or(false)),
-                (0, _, _) => Err("numbers must start with a non-zero digit /[1-9]/"),
-                (i, '0'..='9', _) => Ok(ctx
-                    .remaining_src()
-                    .chars()
-                    .nth(i + 1)
-                    .map(|next| !next.is_ascii_digit())
-                    .unwrap_or(false)),
-                _ => unreachable!(),
+            |i, c, next| match (i, c, next) {
+                (0, c, _) if !matches!(c, '1'..='9') => {
+                    Err("integers must start with a non-zero digit /[1-9]/")
+                }
+                (_, _, None) => Ok(true),
+                (_, _, Some(next)) if !(next.is_ascii_digit()) => Ok(true),
+                _ => Ok(false),
             },
             |s| {
                 s.parse::<i64>()
@@ -457,11 +449,12 @@ impl<'a> Literal<'a> {
     fn try_parse_float(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
             ctx,
-            |c, i, eof| match (c, i, eof) {
+            |i, c, next| match (i, c, next) {
+                (0, c, _) if !matches!(c, '1'..='9') => {
+                    Err("floats must start with a non-zero digit /[1-9]/")
+                }
                 (_, _, None) => Ok(true),
-                (0, c, _) if c.is_ascii_digit() => Ok(true),
-                (0, _, _) => Err("floats must start with a non-zero digit /[1-9]/"),
-                (_, c, _) if c.is_ascii_digit() || c == '.' => Ok(true),
+                (_, _, Some(next)) if !(next.is_ascii_digit() || next == '.') => Ok(true),
                 _ => Ok(false),
             },
             |s| {
@@ -481,17 +474,13 @@ impl<'a> Literal<'a> {
         // TODO: dedup with try_parse::string which uses try_read_chars similarly
         try_read_chars(
             ctx,
-            |c, i, eof| match (c, i, eof) {
+            |i, c, next| match (i, c, next) {
                 (_, _, None) => Err("unterminated regex literal"),
-                (0, '/', _) => Ok(true),
+                (0, '/', _) => Ok(false),
                 (0, _, _) => Err("regex must start with a slash '/'"),
-                (i, _, _)
-                    if &ctx.remaining_src()[i - 1..=i - 1] == "/"
-                        && !(i >= 2 && &ctx.remaining_src()[i - 2..=i - 1] == "\\") =>
-                {
-                    Ok(false)
-                }
-                _ => Ok(true),
+                (i, '/', _) if &ctx.remaining_src()[i - 1..i] == "\\" => Ok(false),
+                (_, '/', _) => Ok(true),
+                _ => Ok(false),
             },
             |s| {
                 regex::Regex::new(s)
