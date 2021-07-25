@@ -1,4 +1,3 @@
-extern crate lazy_static;
 /**
  * Parser for the sizr-format language
  */
@@ -278,15 +277,6 @@ pub mod try_parse {
             },
             |s| Ok(Read::new(FilterExpr::Name(s), s.len())),
         )
-    }
-
-    pub fn wrap_point<'a>(ctx: &ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        ctx.remaining_src()
-            .chars()
-            .nth(0)
-            .filter(|c| *c == '\\')
-            .map(|_| Read::new(WriteCommand::WrapPoint, 1))
-            .ok_or("expected wrap point '\\'")
     }
 
     pub fn node_reference<'a>(ctx: &'a ParseContext) -> Result<Read<&'a str>, &'static str> {
@@ -727,7 +717,10 @@ impl<'a> WriteCommand<'a> {
     }
 
     fn try_parse_wrap_point(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        unimplemented!()
+        ctx.remaining_src()
+            .starts_with("\\")
+            .then(|| Read::new(WriteCommand::WrapPoint, 1))
+            .ok_or("expected wrap point '\\'")
     }
 
     fn try_parse_conditional(
@@ -875,7 +868,6 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> 
     Ok(Node { name, commands })
 }
 
-// need interior mutability... why can't I
 pub fn parse_text(text: &str) {
     let ctx = ParseContext::new(text);
     if let Ok(ast) = parse_file(&ctx) {
