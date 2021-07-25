@@ -191,6 +191,7 @@ pub mod ops {
     }
 }
 
+#[macro_use]
 pub mod try_parse {
     use super::*;
 
@@ -235,7 +236,7 @@ pub mod try_parse {
         }};
     }
 
-    fn try_parse_string<'a>(ctx: &'a ParseContext) -> Result<&'a str, &'static str> {
+    pub fn string<'a>(ctx: &'a ParseContext) -> Result<&'a str, &'static str> {
         try_read_chars(
             ctx,
             |c, i, eof| match (c, i, eof) {
@@ -255,7 +256,6 @@ pub mod try_parse {
             |s| Ok(s),
         )
     }
-
 
     pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         try_read_chars(
@@ -353,7 +353,7 @@ pub mod try_parse {
 }
 
 pub trait Parseable<'a, T> {
-    fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<T>, &'static str>;
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<T>, &'static str>;
 }
 
 // NOTE: rename to Anchor, or Aligner?
@@ -366,7 +366,7 @@ pub enum IndentMark<'a> {
 }
 
 impl<'a> Parseable<'a, IndentMark<'a>> for IndentMark<'a> {
-    fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, &'static str> {
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, &'static str> {
         lazy_static! {
             static ref INDENT_MARK_PATTERN: regex::Regex =
                 // this is why I didn't want to do regex... maybe I'll rewrite this part later
@@ -521,24 +521,7 @@ impl<'a> Literal<'a> {
     }
 
     fn try_parse_string(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        try_read_chars(
-            ctx,
-            |c, i, eof| match (c, i, eof) {
-                (_, _, true) => Err("unterminated string literal"),
-                (c, 0, _) => (c == '"')
-                    .then(|| true)
-                    .ok_or("strings must start with a quote '\"'"),
-                // NEEDSWORK: can be cleaned up probably
-                (_, i, _)
-                    if &ctx.remaining_src()[i - 1..=i - 1] == "\""
-                        && &ctx.remaining_src()[i - 2..=i - 1] != "\\" =>
-                {
-                    Ok(false)
-                }
-                _ => Ok(true),
-            },
-            |s| Ok(Read::new(Literal::String(s), s.len())),
-        )
+        try_parse::string(&ctx).map(|s| Read::new(Literal::String(s), s.len()))
     }
 
     fn try_parse_regex(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
@@ -577,7 +560,7 @@ impl<'a> Literal<'a> {
 }
 
 impl<'a> Parseable<'a, Literal<'a>> for Literal<'a> {
-    fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         Self::try_parse_integer(&ctx)
             .or(Self::try_parse_float(&ctx)) // TODO: consider combining integer and float parsing
             .or(Self::try_parse_string(&ctx))
@@ -620,7 +603,7 @@ impl<'a> FilterExpr<'a> {
 
 impl<'a> Parseable<'a, FilterExpr<'a>> for FilterExpr<'a> {
     #[allow(dead_code)]
-    fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         Self::try_parse_rest(&ctx)
             /*
             .or(Self::try_parse_binop(&ctx))
@@ -697,39 +680,60 @@ impl<'a> WriteCommand<'a> {
         }
     }
 
-    fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        if ctx.remaining_src().starts_with("true") {
-            Ok(Read::new(Literal::Boolean(true), "true".len()))
-        } else if ctx.remaining_src().starts_with("false") {
-            Ok(Read::new(Literal::Boolean(false), "false".len()))
-        } else {
-            Err("expected boolean literal ('true' or 'false')")
-        }
+    fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        try_parse::string(&ctx).map(|s| Read::new(WriteCommand::Raw(s), s.len()))
     }
 
-    Raw(&'a str),
-    NodeReference {
-        name: &'a str,
-        filters: Vec<FilterExpr<'a>>, // comma separated
-    },
-    WrapPoint,
-    Conditional {
-        test: FilterExpr<'a>,
-        then: Option<Box<WriteCommand<'a>>>,
-        r#else: Option<Box<WriteCommand<'a>>>,
-    },
-    IndentMark(IndentMark<'a>),
-    Sequence(Vec<WriteCommand<'a>>),
+    fn try_parse_node_reference(
+        ctx: &'a ParseContext,
+    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        unimplemented!()
+    }
+
+    fn try_parse_wrap_point(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        unimplemented!()
+    }
+
+    fn try_parse_conditional(
+        ctx: &'a ParseContext,
+    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        unimplemented!()
+    }
+
+    fn try_parse_indent_mark(
+        ctx: &'a ParseContext,
+    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        unimplemented!()
+    }
+
+    fn try_parse_sequence(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        fn try_parse_sequence_start(ctx: &ParseContext) -> Result<Read<()>, &'static str> {
+            try_parse_operator!(ctx, "{")
+        }
+        fn try_parse_sequence_end(ctx: &ParseContext) -> Result<Read<()>, &'static str> {
+            try_parse_operator!(ctx, "}")
+        }
+
+        let mut seq = Vec::<WriteCommand<'a>>::new();
+        // FIXME: need to get rid of all of my borrowing of already borrowed values...
+        ctx.consume_read_and_space(try_parse_sequence_start(ctx)?);
+        while try_parse_sequence_end(ctx).is_err() {
+            seq.push(Self::try_parse(ctx)?.result);
+        }
+        ctx.consume_read_and_space(try_parse_sequence_end(ctx)?);
+        return Ok(Read::new(WriteCommand::Sequence(seq), 0));
+    }
 }
 
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
-    fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        Self::try_parse_integer(&ctx)
-            .or(Self::try_parse_float(&ctx)) // TODO: consider combining integer and float parsing
-            .or(Self::try_parse_string(&ctx))
-            .or(Self::try_parse_regex(&ctx))
-            .or(Self::try_parse_boolean(&ctx))
-            .map_err(|_| "expected literal") // TODO: consider creating some kind of `Rope` of &str to make compounding errors possible
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        Self::try_parse_raw(&ctx)
+            .or(Self::try_parse_node_reference(&ctx))
+            .or(Self::try_parse_wrap_point(&ctx))
+            .or(Self::try_parse_conditional(&ctx)) // this is placeholder, I'll need some real parsing
+            .or(Self::try_parse_indent_mark(&ctx))
+            .or(Self::try_parse_sequence(&ctx))
+            .map_err(|_| "expected write command") // TODO: consider creating some kind of `Rope` of &str to make compounding error strings easy
     }
 }
 
@@ -744,7 +748,8 @@ pub struct File<'a> {
     pub nodes: Vec<Node<'a>>,
 }
 
-// used to be in try_parse
+// NEXT: need to add the ability for a Read to be partially consumed so that larger syntax structures that are in process of being made can be vomited back
+// used to be in try_parse, probably belongs in some module...
 #[derive(Debug)]
 pub struct Read<T> {
     pub result: T,
