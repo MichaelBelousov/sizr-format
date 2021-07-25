@@ -466,9 +466,9 @@ impl<'a> Literal<'a> {
             ctx,
             |c, i, eof| match (c, i, eof) {
                 (_, _, true) => Ok(true),
-                (c, 0, _) if c.is_ascii_digit() => Ok(true),
-                (_, 0, _) => Err("numbers must start with a digit /[0-9]/"),
-                (c, _, _) if c.is_ascii_digit() || c == '.' => Ok(true),
+                ('1'..='9', 0, _) => Ok(true),
+                (_, 0, _) => Err("numbers must start with a non-zero digit /[1-9]/"),
+                ('0'..='9', _, _) => Ok(true),
                 _ => Ok(false),
             },
             |s| {
@@ -476,6 +476,25 @@ impl<'a> Literal<'a> {
                     // NEEDSWORK: combine the parse error rather than swallow it?
                     .map_err(|_err| "expected integer literal")
                     .map(|i| Literal::Integer(i))
+            },
+        )
+    }
+
+    fn try_parse_float(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+        try_read_chars(
+            ctx,
+            |c, i, eof| match (c, i, eof) {
+                (_, _, true) => Ok(true),
+                (c, 0, _) if c.is_ascii_digit() => Ok(true),
+                (_, 0, _) => Err("floats must start with a non-zero digit /[1-9]/"),
+                (c, _, _) if c.is_ascii_digit() || c == '.' => Ok(true),
+                _ => Ok(false),
+            },
+            |s| {
+                s.parse::<f64>()
+                    // NEEDSWORK: combine the parse error rather than swallow it?
+                    .map_err(|_err| "expected float literal")
+                    .map(|f| Literal::Float(f))
             },
         )
     }
@@ -490,8 +509,8 @@ impl<'a> Literal<'a> {
                     .ok_or("strings must start with a quote '\"'"),
                 // NEEDSWORK: can be cleaned up probably
                 (_, i, _)
-                    if &ctx.remaining_src()[i - 1..i] == "\""
-                        && &ctx.remaining_src()[i - 2..i] != "\\" =>
+                    if &ctx.remaining_src()[i - 1..=i - 1] == "\""
+                        && &ctx.remaining_src()[i - 2..=i - 1] != "\\" =>
                 {
                     Ok(false)
                 }
@@ -539,9 +558,11 @@ impl<'a> Literal<'a> {
 impl<'a> Parseable<'a, Literal<'a>> for Literal<'a> {
     fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         Self::try_parse_integer(&ctx)
+            .or(Self::try_parse_float(&ctx)) // TODO: consider combining integer and float parsing
             .or(Self::try_parse_string(&ctx))
             .or(Self::try_parse_regex(&ctx))
-            .map_err(|_| "expected literal") // TODO: consider creating some kind of `Rope` of &str
+            .or(Self::try_parse_boolean(&ctx))
+            .map_err(|_| "expected literal") // TODO: consider creating some kind of `Rope` of &str to make compounding errors possible
     }
 }
 
@@ -630,7 +651,7 @@ impl<'a> WriteCommand<'a> {
 }
 
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+    fn try_parse(&self, ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
         try_parse::string(&ctx)
             .map(|s| match s {
                 Read {
