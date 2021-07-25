@@ -245,7 +245,7 @@ pub mod try_parse {
     pub fn quoted_string<'a>(ctx: &'a ParseContext) -> Result<&'a str, &'static str> {
         try_read_chars(
             ctx,
-            |c, i, next| match (c, i, next) {
+            |i, c, next| match (i, c, next) {
                 (_, _, None) => Err("unterminated string literal"),
                 (0, '"', _) => Ok(false),
                 (0, _, _) => Err("strings must start with a quote '\"'"),
@@ -265,7 +265,7 @@ pub mod try_parse {
         }
         try_read_chars(
             ctx,
-            |c, i, eof| match (c, i, eof) {
+            |i, c, eof| match (i, c, eof) {
                 (0, c, _) if is_name_start_char(c) => Ok(false),
                 (0, _, _) => Err("identifiers must start with /[a-z_]/"),
                 (i, c, _) if is_name_char(c) => Ok(ctx
@@ -505,10 +505,10 @@ impl<'a> Literal<'a> {
 impl<'a> Parseable<'a, Literal<'a>> for Literal<'a> {
     fn try_parse(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         Self::try_parse_integer(&ctx)
-            .or(Self::try_parse_float(&ctx)) // TODO: consider combining integer and float parsing
-            .or(Self::try_parse_string(&ctx))
-            .or(Self::try_parse_regex(&ctx))
-            .or(Self::try_parse_boolean(&ctx))
+            .or_else(|_| Self::try_parse_float(&ctx)) // TODO: consider combining integer and float parsing
+            .or_else(|_| Self::try_parse_string(&ctx))
+            .or_else(|_| Self::try_parse_regex(&ctx))
+            .or_else(|_| Self::try_parse_boolean(&ctx))
             .map_err(|_| "expected literal") // TODO: consider creating some kind of `Rope` of &str to make compounding errors possible
     }
 }
@@ -624,12 +624,12 @@ impl<'a> Parseable<'a, FilterExpr<'a>> for FilterExpr<'a> {
     #[allow(dead_code)]
     fn try_parse(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         Self::try_parse_rest(&ctx)
-            .or(Self::try_parse_binop(&ctx))
-            .or(Self::try_parse_unaryop(&ctx))
-            .or(Self::try_parse_node_reference(&ctx))
-            .or(Self::try_parse_literal(&ctx))
-            .or(Self::try_parse_group(&ctx))
-            .or(Self::try_parse_name(&ctx))
+            .or_else(|_| Self::try_parse_binop(&ctx))
+            .or_else(|_| Self::try_parse_unaryop(&ctx))
+            .or_else(|_| Self::try_parse_node_reference(&ctx))
+            .or_else(|_| Self::try_parse_literal(&ctx))
+            .or_else(|_| Self::try_parse_group(&ctx))
+            .or_else(|_| Self::try_parse_name(&ctx))
             .map_err(|_| "expected filter expr")
     }
 }
@@ -753,11 +753,11 @@ impl<'a> WriteCommand<'a> {
 
     fn try_parse_atom(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
         Self::try_parse_raw(&ctx)
-            .or(Self::try_parse_node_reference(&ctx))
-            .or(Self::try_parse_wrap_point(&ctx))
-            //.or(Self::try_parse_conditional(&ctx)) // this is placeholder, I'll need some real parsing
-            .or(Self::try_parse_indent_mark(&ctx))
-            .or(Self::try_parse_sequence(&ctx))
+            .or_else(|_| Self::try_parse_node_reference(&ctx))
+            .or_else(|_| Self::try_parse_wrap_point(&ctx))
+            //.or_else(|_| Self::try_parse_conditional(&ctx)) // this is placeholder, I'll need some real parsing
+            .or_else(|_| Self::try_parse_indent_mark(&ctx))
+            .or_else(|_| Self::try_parse_sequence(&ctx))
             .map_err(|_| "expected atomic expression")
     }
 }
@@ -765,11 +765,11 @@ impl<'a> WriteCommand<'a> {
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
     fn try_parse(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
         Self::try_parse_raw(&ctx)
-            .or(Self::try_parse_sequence(&ctx))
-            .or(Self::try_parse_node_reference(&ctx))
-            .or(Self::try_parse_wrap_point(&ctx))
-            .or(Self::try_parse_conditional(&ctx)) // this is placeholder, I'll need some real parsing
-            .or(Self::try_parse_indent_mark(&ctx))
+            .or_else(|_| Self::try_parse_sequence(&ctx))
+            .or_else(|_| Self::try_parse_node_reference(&ctx))
+            .or_else(|_| Self::try_parse_wrap_point(&ctx))
+            .or_else(|_| Self::try_parse_conditional(&ctx)) // this is placeholder, I'll need some real parsing
+            .or_else(|_| Self::try_parse_indent_mark(&ctx))
             .map_err(|_| "expected write command") // TODO: consider creating some kind of `Rope` of &str to make compounding error strings easy
     }
 }
