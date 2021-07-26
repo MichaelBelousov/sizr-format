@@ -217,6 +217,7 @@ pub mod try_parse {
         }};
     }
 
+    // NEEDWORK: too simple, i.e. can't tell the difference between = and == tokens
     #[macro_export]
     macro_rules! try_parse_operator {
         ($ctx: expr, $operator: expr) => {{
@@ -224,7 +225,7 @@ pub mod try_parse {
                 $ctx,
                 $operator,
                 concat!("expected operator '", $operator, "'"),
-                |c: &char| !c.is_ascii_punctuation()
+                |_| true
             )
         }};
     }
