@@ -760,6 +760,7 @@ pub struct Node<'a> {
 
 #[derive(Debug)]
 pub struct File<'a> {
+    // TODO: make a HashMap, not a Vec
     pub nodes: Vec<Node<'a>>,
 }
 
