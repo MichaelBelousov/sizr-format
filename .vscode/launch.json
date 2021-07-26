@@ -5,7 +5,10 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/sizr-format/target/debug/sizr-format",
-      "args": [],
+      "args": [
+        "${workspaceFolder}/sizr-format/tests/data/python/simple.py",
+        "${workspaceFolder}/sizr-format/tests/data/simple.sizf"
+      ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}/sizr-format",
       "environment": [],

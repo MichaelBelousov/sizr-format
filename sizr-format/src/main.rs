@@ -1,22 +1,20 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate regex;
+extern crate tree_sitter;
+extern crate tree_sitter_python;
 
 use std::env;
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
 
-use tree_sitter;
-#[rustfmt::skip]
-extern "C" { fn tree_sitter_python() -> tree_sitter::Language; }
-
 //mod vm;
 mod parser;
 
 fn main() -> io::Result<()> {
     let mut python_parser = tree_sitter::Parser::new();
-    let python_language = unsafe { tree_sitter_python() };
+    let python_language = tree_sitter_python::language();
     python_parser.set_language(python_language).unwrap();
 
     let args: Vec<String> = env::args().collect();

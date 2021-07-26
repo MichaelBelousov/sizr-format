@@ -12,6 +12,4 @@ lazy_static = "1"
 num-traits = "0.2"
 num-derive = "0.2"
 tree-sitter = "0.19"
-
-[build-dependencies]
-cc="*"
+tree-sitter-python = "0.19"
