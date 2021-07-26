@@ -4,8 +4,8 @@ fn main() {
     let dir: PathBuf = ["thirdparty", "tree-sitter-python", "src"].iter().collect();
     cc::Build::new()
         .include(&dir)
+        .cpp(true) // because scanner.cc won't link without it
         .file(dir.join("parser.c"))
         .file(dir.join("scanner.cc"))
-        .cpp_link_stdlib("stdc++")
         .compile("tree-sitter-python");
 }
