@@ -9,3 +9,9 @@ Cargo.lock
 
 # python rope
 objectdb
+
+# python
+__pycache__
+*.pyc
+.venv
+.ropeproject

@@ -1,11 +1,13 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate regex;
+extern crate tree_sitter;
 
 use std::io::{self, Read};
 //use std::fs;
 //use std::collections::{BTreeMap, HashMap};
 //use std::vec::Vec;
+use tree_sitter::{Language, Parser};
 
 //mod vm;
 mod parser;
