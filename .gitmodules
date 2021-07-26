@@ -7,3 +7,6 @@
 [submodule "sizr/sizr-core/thirdparty/tree-sitter-cpp"]
 	path = sizr-core/thirdparty/tree-sitter-cpp
 	url = https://github.com/tree-sitter/tree-sitter-cpp
+[submodule "sizr-format/thirdparty/tree-sitter-python"]
+	path = sizr-format/thirdparty/tree-sitter-python
+	url = https://github.com/tree-sitter/tree-sitter-python.git
