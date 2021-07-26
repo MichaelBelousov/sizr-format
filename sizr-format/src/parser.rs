@@ -187,32 +187,34 @@ pub mod ops {
 pub mod try_parse {
     use super::*;
 
-    #[allow(unused_macros)]
-    macro_rules! static_string {
-        ($ctx: expr, $string: expr, $expect_msg: expr, $test_is_after: expr) => {{
-            ($ctx.remaining_src().len() >= $string.len() // TODO: not sure how best to get a partial slice for comparison
-                && &$ctx.remaining_src()[..$string.len()] == $string)
-                .then(|| ())
-                .ok_or($expect_msg)
-                .and(
-                    $ctx.remaining_src()
-                        .chars()
-                        .nth($string.len())
-                        .filter($test_is_after)
-                        .ok_or($expect_msg) // NEEDSWORK: (ok_or twice)
-                        .and(Ok(Read::new((), $string.len()))),
-                )
-        }};
+    pub fn static_string<F: FnOnce(&char) -> bool>(
+        ctx: &ParseContext,
+        kind: &'static str,
+        expect_msg: &'static str,
+        test_is_after: F,
+    ) -> Result<Read<()>, &'static str> {
+        (ctx.remaining_src().len() >= kind.len() // TODO: not sure how best to get a partial slice for comparison
+            && &ctx.remaining_src()[..kind.len()] == kind)
+            .then(|| ())
+            .ok_or(expect_msg)
+            .and(
+                ctx.remaining_src()
+                    .chars()
+                    .nth(kind.len())
+                    .filter(test_is_after)
+                    .ok_or(expect_msg) // NEEDSWORK: (ok_or twice)
+                    .and(Ok(Read::new((), kind.len()))),
+            )
     }
 
     #[macro_export]
     macro_rules! try_parse_keyword {
         ($ctx: expr, $keyword: expr) => {{
-            static_string!(
+            try_parse::static_string(
                 $ctx,
                 $keyword,
                 concat!("expected keyword '", $keyword, "'"),
-                |c: &char| !c.is_ascii_alphabetic()
+                |c: &char| !c.is_ascii_alphabetic(),
             )
         }};
     }
@@ -221,11 +223,11 @@ pub mod try_parse {
     #[macro_export]
     macro_rules! try_parse_operator {
         ($ctx: expr, $operator: expr) => {{
-            static_string!(
+            try_parse::static_string(
                 $ctx,
                 $operator,
                 concat!("expected operator '", $operator, "'"),
-                |_| true
+                |_| true,
             )
         }};
     }
