@@ -448,7 +448,8 @@ impl<'a> Literal<'a> {
     }
 
     fn try_parse_string(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        try_parse::quoted_string(&ctx).map(|s| Read::new(Literal::String(s), s.len()))
+        try_parse::quoted_string(&ctx)
+            .map(|s| Read::new(Literal::String(&s[1..s.len() - 1]), s.len()))
     }
 
     fn try_parse_regex(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
@@ -678,7 +679,8 @@ impl<'a> WriteCommand<'a> {
     }
 
     fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        try_parse::quoted_string(&ctx).map(|s| Read::new(WriteCommand::Raw(s), s.len()))
+        try_parse::quoted_string(&ctx)
+            .map(|s| Read::new(WriteCommand::Raw(&s[1..s.len() - 1]), s.len()))
     }
 
     fn try_parse_node_reference(
