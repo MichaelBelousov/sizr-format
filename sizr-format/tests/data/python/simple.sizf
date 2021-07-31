@@ -1,8 +1,10 @@
 
-node "module" = $body
+node "module" = $CHILDREN
 
 node "function_definition" = {
 	"def" $name "(" $parameters "):\n"
 	|> $body
 }
+
+node "identifier" = "BLAH"
 

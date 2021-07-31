@@ -43,7 +43,7 @@ impl<'a> EvalCtx<'a> {
     }
 }
 
-pub fn eval(tree: tree_sitter::TreeCursor, fmt: parser::File) -> Result<(), &'static str> {
+pub fn eval(tree: tree_sitter::TreeCursor, fmt: parser::File) -> Result<String, &'static str> {
     let mut ctx = EvalCtx::new(tree);
     let cmd_result = fmt
         .nodes
@@ -54,11 +54,10 @@ pub fn eval(tree: tree_sitter::TreeCursor, fmt: parser::File) -> Result<(), &'st
             "couldn't find node declaration for '{}'",
             ctx.cursor.node().kind()
         );
-        eprintln!("fmt was {:#?}", fmt);
-        //eprintln!("node was {:#?}", ctx.cursor.node());
     }
     let cmd = cmd_result?;
-    return eval_cmd(cmd, &mut ctx, &fmt);
+    eval_cmd(cmd, &mut ctx, &fmt);
+    return Ok(ctx.result);
 }
 
 fn eval_cmd(
@@ -75,17 +74,40 @@ fn eval_cmd(
     ctx.cursor.goto_first_child();
     match cmd {
         Raw(s) => ctx.result.push_str(s),
-        NodeReference { name, .. } => {
-            let child_result = node
-                .child_by_field_name(name)
-                .ok_or("couldn't find child field");
-            if cfg!(debug_assertions) && child_result.is_err() {
-                eprintln!("couldn't find child field: '{}'", name);
+        NodeReference { ref name, .. } => {
+            // TEMP HACK
+            // haven't decided how to handle unnamed child lists from tree_sitter yet so
+            // $CHILDREN is a stop-gap for testing existing work
+            if *name == "CHILDREN" {
+                ctx.cursor.goto_first_child();
+                while ctx.cursor.goto_next_sibling() {
+                    // ugly copy-paste
+                    let cmd_result = fmt
+                        .nodes
+                        .get(ctx.cursor.node().kind())
+                        .ok_or("couldn't find node");
+                    if cfg!(debug_assertions) && cmd_result.is_err() {
+                        eprintln!(
+                            "couldn't find node declaration for '{}'",
+                            ctx.cursor.node().kind()
+                        );
+                    }
+                    let cmd = cmd_result?;
+                    eval_cmd(cmd, ctx, fmt)?;
+                }
+                ctx.cursor.goto_parent();
+            } else {
+                let child_result = node
+                    .child_by_field_name(name)
+                    .ok_or("couldn't find child field");
+                if cfg!(debug_assertions) && child_result.is_err() {
+                    eprintln!("couldn't find child field: '{}'", name);
+                }
+                let child = child_result?;
+                let child_cmd = &fmt.nodes[child.kind()];
+                eval_cmd(child_cmd, ctx, fmt)?;
+                ctx.cursor.goto_next_sibling();
             }
-            let child = child_result?;
-            let child_cmd = &fmt.nodes[child.kind()];
-            eval_cmd(child_cmd, ctx, fmt)?;
-            ctx.cursor.goto_next_sibling();
         }
         WrapPoint => {
             if ctx.currentLineLen.get() > ctx.targetLineLen {

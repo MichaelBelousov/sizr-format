@@ -6,7 +6,7 @@ extern crate tree_sitter_python;
 
 use std::env;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 //mod vm;
@@ -46,9 +46,14 @@ fn main() -> io::Result<()> {
     //println!("python_ast: {:#?}", python_ast.root_node().to_sexp());
     println!("python_ast: {}", python_ast.root_node().to_sexp());
 
-    if let Ok(fmt) = node_fmt_ast {
-        eval::eval(python_ast.walk(), fmt);
-    }
+    match node_fmt_ast.and_then(|fmt| eval::eval(python_ast.walk(), fmt)) {
+        Ok(fmted_python_src) => {
+            println!("fmted src:\n{}", fmted_python_src);
+        }
+        Err(err) => {
+            println!("formatting had error: '{}'", err);
+        }
+    };
 
     Ok(())
 }
