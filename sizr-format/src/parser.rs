@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use num_derive::FromPrimitive;
 use std::boxed::Box;
 use std::cell::Cell;
-//use std::collections::HashMap;
+use std::collections::HashMap;
 use std::option::Option;
 use std::result::Result;
 use std::vec::Vec;
@@ -763,8 +763,7 @@ pub struct Node<'a> {
 
 #[derive(Debug)]
 pub struct File<'a> {
-    // TODO: make a HashMap, not a Vec
-    pub nodes: Vec<Node<'a>>,
+    pub nodes: HashMap<&'a str, WriteCommand<'a>>,
 }
 
 // NEXT: need to add the ability for a Read to be partially consumed so that larger syntax structures that are in process of being made can be vomited back
@@ -830,9 +829,12 @@ pub mod exprs {
 }
 
 fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
-    let mut file = File { nodes: Vec::new() };
+    let mut file = File {
+        nodes: HashMap::new(),
+    };
     while !ctx.at_eof() {
-        file.nodes.push(parse_node_decl(ctx)?);
+        let node_decl = parse_node_decl(ctx)?;
+        file.nodes[node_decl.name] = node_decl.commands;
     }
     return Ok(file);
 }
