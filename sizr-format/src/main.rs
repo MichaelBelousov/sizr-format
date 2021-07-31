@@ -10,6 +10,7 @@ use std::io::{self, Read};
 use std::path::Path;
 
 //mod vm;
+mod eval;
 mod parser;
 
 fn main() -> io::Result<()> {
@@ -33,10 +34,22 @@ fn main() -> io::Result<()> {
         tree_fmt_path.to_str().expect("path wasn't valid unicode")
     ));
 
+    let python_ast = python_parser
+        .parse(python_src, None)
+        .expect("invalid python code passed!");
+
     //let mut buffer = String::new();
     //io::stdin().read_to_string(&mut buffer)?;
     let ctx = parser::ParseContext::new(&tree_format);
-    let result = parser::parse_text(&ctx);
-    println!("result: {:#?}", result);
+    let node_fmt_ast = parser::parse_text(&ctx);
+    println!("treefmt_ast: {:#?}", node_fmt_ast);
+    //println!("python_ast: {:#?}", python_ast.root_node().to_sexp());
+    println!("python_ast: {}", python_ast.root_node().to_sexp());
+
+    let mut python_cursor = python_ast.walk();
+    let current = python_cursor.node();
+
+    eval::eval(python_cursor, node_fmt_ast);
+
     Ok(())
 }
