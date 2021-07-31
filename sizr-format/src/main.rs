@@ -46,11 +46,8 @@ fn main() -> io::Result<()> {
     //println!("python_ast: {:#?}", python_ast.root_node().to_sexp());
     println!("python_ast: {}", python_ast.root_node().to_sexp());
 
-    let mut python_cursor = python_ast.walk();
-    let current = python_cursor.node();
-
     if let Ok(fmt) = node_fmt_ast {
-        eval::eval(python_cursor, fmt);
+        eval::eval(python_ast.walk(), fmt);
     }
 
     Ok(())

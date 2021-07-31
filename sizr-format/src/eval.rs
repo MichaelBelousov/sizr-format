@@ -3,7 +3,6 @@
  */
 use crate::parser;
 use std::cell::Cell;
-use std::option::Option;
 use std::string::String;
 
 struct EvalCtx<'a> {
@@ -44,7 +43,7 @@ impl<'a> EvalCtx<'a> {
     }
 }
 
-pub fn eval(tree: tree_sitter::TreeCursor, fmt: parser::File) -> Option<&'static str> {
+pub fn eval(tree: tree_sitter::TreeCursor, fmt: parser::File) -> Result<(), &'static str> {
     let mut ctx = EvalCtx::new(tree);
     let cmd = &fmt.nodes[ctx.cursor.node().kind()];
     return eval_cmd(cmd, &mut ctx, &fmt);
@@ -54,7 +53,7 @@ fn eval_cmd(
     cmd: &parser::WriteCommand,
     ctx: &mut EvalCtx,
     fmt: &parser::File,
-) -> Option<&'static str> {
+) -> Result<(), &'static str> {
     use parser::IndentMark::*;
     use parser::WriteCommand::*;
 
@@ -65,7 +64,13 @@ fn eval_cmd(
     match cmd {
         Raw(s) => ctx.result.push_str(s),
         NodeReference { name, .. } => {
-            let child = node.child_by_field_name(name)?;
+            let child_result = node
+                .child_by_field_name(name)
+                .ok_or("couldn't find child field");
+            if cfg!(debug_assertions) && child_result.is_err() {
+                println!("couldn't find child field: '{}'", name);
+            }
+            let child = child_result?;
             let child_cmd = &fmt.nodes[child.kind()];
             eval_cmd(child_cmd, ctx, fmt)?;
             ctx.cursor.goto_next_sibling();
@@ -88,12 +93,10 @@ fn eval_cmd(
         },
         Sequence(cmds) => {
             for cmd in cmds {
-                if let Some(err) = eval_cmd(cmd, ctx, fmt) {
-                    return Some(err);
-                }
+                eval_cmd(cmd, ctx, fmt)?;
             }
         }
     };
     ctx.cursor.goto_parent();
-    None
+    Ok(())
 }
