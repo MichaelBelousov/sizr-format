@@ -248,23 +248,18 @@ pub mod try_parse {
 
     pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
         fn is_name_start_char(c: char) -> bool {
-            c.is_ascii_alphanumeric() || c == '_'
+            c.is_ascii_alphabetic() || c == '_'
         }
         fn is_name_char(c: char) -> bool {
             c.is_ascii_alphanumeric() || c == '_'
         }
         try_read_chars(
             ctx,
-            |i, c, eof| match (i, c, eof) {
-                (0, c, _) if is_name_start_char(c) => Ok(false),
-                (0, _, _) => Err("identifiers must start with /[a-z_]/"),
-                (i, c, _) if is_name_char(c) => Ok(ctx
-                    .remaining_src()
-                    .chars()
-                    .nth(i + 1)
-                    .map(|next| !is_name_char(next))
-                    .unwrap_or(false)),
-                _ => unreachable!(),
+            |i, c, next| match (i, c, next) {
+                (0, c, _) if !is_name_start_char(c) => Err("identifiers must start with /[a-z_]/"),
+                (_, c, _) if !is_name_char(c) => Err("identifiers must contain with /[a-z_]/"),
+                (_, _, Some(next)) => Ok(!is_name_char(next)),
+                (_, _, None) => Ok(true),
             },
             |s| Ok(Read::new(FilterExpr::Name(s), s.len())),
         )
@@ -619,7 +614,7 @@ impl<'a> Parseable<'a, FilterExpr<'a>> for FilterExpr<'a> {
 // consider a better name
 #[derive(Debug)]
 pub enum WriteCommand<'a> {
-    Raw(&'a str),
+    Raw(String),
     NodeReference {
         name: &'a str,
         filters: Vec<FilterExpr<'a>>, // comma separated
@@ -634,8 +629,12 @@ pub enum WriteCommand<'a> {
     Sequence(Vec<WriteCommand<'a>>),
 }
 
+fn unescape_newlines(s: &str) -> String {
+    s.replace(r"\n", "\n")
+}
+
 impl<'a> WriteCommand<'a> {
-    pub fn unwrap_raw(self) -> &'a str {
+    pub fn unwrap_raw(self) -> String {
         match self {
             WriteCommand::Raw(content) => content,
             _ => panic!("tried to unwrap a raw"),
@@ -645,7 +644,7 @@ impl<'a> WriteCommand<'a> {
     pub fn unwrap_node_reference(self) -> (&'a str, Vec<FilterExpr<'a>>) {
         match self {
             WriteCommand::NodeReference { name, filters } => (name, filters),
-            _ => panic!("tried to unwrap a WriteCommand that wasn't a Raw"),
+            _ => panic!("tried to unwrap a WriteCommand that wasn't a node reference"),
         }
     }
 
@@ -667,20 +666,24 @@ impl<'a> WriteCommand<'a> {
     pub fn unwrap_indent_mark(self) -> IndentMark<'a> {
         match self {
             WriteCommand::IndentMark(indent_mark) => indent_mark,
-            _ => panic!("tried to unwrap a WriteCommand that wasn't an IndentMark"),
+            _ => panic!("tried to unwrap a WriteCommand as an indent mark but it wasn't one"),
         }
     }
 
     pub fn unwrap_sequence(self) -> Vec<WriteCommand<'a>> {
         match self {
             WriteCommand::Sequence(write_commands) => write_commands,
-            _ => panic!("tried to unwrap a WriteCommand that wasn't an IndentMark"),
+            _ => panic!("tried to unwrap a WriteCommand as a sequence but it wasn't one"),
         }
     }
 
     fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        try_parse::quoted_string(&ctx)
-            .map(|s| Read::new(WriteCommand::Raw(&s[1..s.len() - 1]), s.len()))
+        try_parse::quoted_string(&ctx).map(|s| {
+            Read::new(
+                WriteCommand::Raw(unescape_newlines(&s[1..s.len() - 1])),
+                s.len(),
+            )
+        })
     }
 
     fn try_parse_node_reference(

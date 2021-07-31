@@ -56,7 +56,7 @@ pub fn eval(tree: tree_sitter::TreeCursor, fmt: parser::File) -> Result<String, 
         );
     }
     let cmd = cmd_result?;
-    eval_cmd(cmd, &mut ctx, &fmt);
+    eval_cmd(cmd, &mut ctx, &fmt)?;
     return Ok(ctx.result);
 }
 
@@ -69,9 +69,9 @@ fn eval_cmd(
     use parser::WriteCommand::*;
 
     let node = ctx.cursor.node();
-    let cmd = &fmt.nodes[node.kind()];
+    //let cmd = &fmt.nodes[node.kind()];
     // TODO: need to verify in a semantic analysis step that node children are written in order
-    ctx.cursor.goto_first_child();
+    let had_children = ctx.cursor.goto_first_child();
     match cmd {
         Raw(s) => ctx.result.push_str(s),
         NodeReference { ref name, .. } => {
@@ -80,7 +80,7 @@ fn eval_cmd(
             // $CHILDREN is a stop-gap for testing existing work
             if *name == "CHILDREN" {
                 ctx.cursor.goto_first_child();
-                while ctx.cursor.goto_next_sibling() {
+                loop {
                     // ugly copy-paste
                     let cmd_result = fmt
                         .nodes
@@ -94,6 +94,9 @@ fn eval_cmd(
                     }
                     let cmd = cmd_result?;
                     eval_cmd(cmd, ctx, fmt)?;
+                    if !ctx.cursor.goto_next_sibling() {
+                        break;
+                    }
                 }
                 ctx.cursor.goto_parent();
             } else {
@@ -102,6 +105,10 @@ fn eval_cmd(
                     .ok_or("couldn't find child field");
                 if cfg!(debug_assertions) && child_result.is_err() {
                     eprintln!("couldn't find child field: '{}'", name);
+                    eprintln!("cursor was: '{:#?}'", node);
+                    for child in node.named_children(&mut node.walk()) {
+                        eprintln!("had named child: '{:#?}'", child);
+                    }
                 }
                 let child = child_result?;
                 let child_cmd = &fmt.nodes[child.kind()];
@@ -131,6 +138,10 @@ fn eval_cmd(
             }
         }
     };
-    ctx.cursor.goto_parent();
+
+    if had_children {
+        ctx.cursor.goto_parent();
+    }
+
     Ok(())
 }

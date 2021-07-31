@@ -1,10 +1,20 @@
 
 node "module" = $CHILDREN
 
+node "def" = "def "
+
+node "(" = "("
+node "," = ","
+node ")" = ")"
+node ":" = ":\n"
+
+node "block" = { |> $CHILDREN }
+
 node "function_definition" = {
 	"def" $name "(" $parameters "):\n"
-	|> $body
+	$body
 }
 
-node "identifier" = "BLAH"
+node "parameters" = $CHILDREN
 
+node "identifier" = "BLAH"
