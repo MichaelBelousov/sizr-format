@@ -1,0 +1,8 @@
+
+node "module" = $body
+
+node "function_definition" = {
+	"def" $name "(" $parameters "):\n"
+	|> $body
+}
+

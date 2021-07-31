@@ -50,7 +50,12 @@ pub fn eval(tree: tree_sitter::TreeCursor, fmt: parser::File) -> Result<(), &'st
         .get(ctx.cursor.node().kind())
         .ok_or("couldn't find node");
     if cfg!(debug_assertions) && cmd_result.is_err() {
-        eprintln!("couldn't find child field: '{}'", ctx.cursor.node().kind());
+        eprintln!(
+            "couldn't find node declaration for '{}'",
+            ctx.cursor.node().kind()
+        );
+        eprintln!("fmt was {:#?}", fmt);
+        //eprintln!("node was {:#?}", ctx.cursor.node());
     }
     let cmd = cmd_result?;
     return eval_cmd(cmd, &mut ctx, &fmt);

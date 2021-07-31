@@ -297,7 +297,7 @@ impl<'a> Parseable<'a, IndentMark<'a>> for IndentMark<'a> {
         lazy_static! {
             static ref INDENT_MARK_PATTERN: regex::Regex =
                 // this is why I didn't want to do regex... maybe I'll rewrite this part later
-                regex::Regex::new(r#"^(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*"#)
+                regex::Regex::new(r#"^(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*)"#)
                     .expect("INDENT_MARK_PATTERN regex failed to compile");
         }
         let capture = INDENT_MARK_PATTERN
@@ -711,7 +711,8 @@ impl<'a> WriteCommand<'a> {
     fn try_parse_indent_mark(
         ctx: &'a ParseContext,
     ) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        unimplemented!()
+        IndentMark::try_parse(ctx)
+            .map(|result| result.map(|read| WriteCommand::IndentMark(read), 0))
     }
 
     fn try_parse_sequence(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
@@ -733,24 +734,24 @@ impl<'a> WriteCommand<'a> {
     }
 
     fn try_parse_atom(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        Self::try_parse_raw(&ctx)
-            .or_else(|_| Self::try_parse_node_reference(&ctx))
-            .or_else(|_| Self::try_parse_wrap_point(&ctx))
-            //.or_else(|_| Self::try_parse_conditional(&ctx)) // this is placeholder, I'll need some real parsing
-            .or_else(|_| Self::try_parse_indent_mark(&ctx))
-            .or_else(|_| Self::try_parse_sequence(&ctx))
+        Self::try_parse_raw(ctx)
+            .or_else(|_| Self::try_parse_node_reference(ctx))
+            .or_else(|_| Self::try_parse_wrap_point(ctx))
+            .or_else(|_| Self::try_parse_conditional(ctx))
+            .or_else(|_| Self::try_parse_indent_mark(ctx))
+            .or_else(|_| Self::try_parse_sequence(ctx))
             .map_err(|_| "expected atomic expression")
     }
 }
 
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
     fn try_parse(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        Self::try_parse_raw(&ctx)
-            .or_else(|_| Self::try_parse_sequence(&ctx))
-            .or_else(|_| Self::try_parse_node_reference(&ctx))
-            .or_else(|_| Self::try_parse_wrap_point(&ctx))
-            .or_else(|_| Self::try_parse_conditional(&ctx)) // this is placeholder, I'll need some real parsing
-            .or_else(|_| Self::try_parse_indent_mark(&ctx))
+        Self::try_parse_raw(ctx)
+            .or_else(|_| Self::try_parse_sequence(ctx))
+            .or_else(|_| Self::try_parse_node_reference(ctx))
+            .or_else(|_| Self::try_parse_wrap_point(ctx))
+            .or_else(|_| Self::try_parse_indent_mark(ctx))
+            .or_else(|_| Self::try_parse_conditional(ctx)) // this is placeholder, I'll need some real parsing
             .map_err(|_| "expected write command") // TODO: consider creating some kind of `Rope` of &str to make compounding error strings easy
     }
 }
@@ -848,8 +849,9 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> 
             ctx.remaining_src()
         );
     }
-    let name =
-        ctx.consume_read_and_space(try_parse::quoted_string(&ctx).map(|s| Read::new(s, s.len()))?);
+    let name = ctx.consume_read_and_space(
+        try_parse::quoted_string(&ctx).map(|s| Read::new(&s[1..s.len() - 1], s.len()))?,
+    );
     if cfg!(debug_assertions) {
         println!("name: {:#?}", name);
         println!("after read name remaining: '{}'", ctx.remaining_src());
