@@ -49,7 +49,9 @@ fn main() -> io::Result<()> {
     let mut python_cursor = python_ast.walk();
     let current = python_cursor.node();
 
-    eval::eval(python_cursor, node_fmt_ast);
+    if let Ok(fmt) = node_fmt_ast {
+        eval::eval(python_cursor, fmt);
+    }
 
     Ok(())
 }
