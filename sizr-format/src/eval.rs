@@ -45,7 +45,14 @@ impl<'a> EvalCtx<'a> {
 
 pub fn eval(tree: tree_sitter::TreeCursor, fmt: parser::File) -> Result<(), &'static str> {
     let mut ctx = EvalCtx::new(tree);
-    let cmd = &fmt.nodes[ctx.cursor.node().kind()];
+    let cmd_result = fmt
+        .nodes
+        .get(ctx.cursor.node().kind())
+        .ok_or("couldn't find node");
+    if cfg!(debug_assertions) && cmd_result.is_err() {
+        eprintln!("couldn't find child field: '{}'", ctx.cursor.node().kind());
+    }
+    let cmd = cmd_result?;
     return eval_cmd(cmd, &mut ctx, &fmt);
 }
 
@@ -68,7 +75,7 @@ fn eval_cmd(
                 .child_by_field_name(name)
                 .ok_or("couldn't find child field");
             if cfg!(debug_assertions) && child_result.is_err() {
-                println!("couldn't find child field: '{}'", name);
+                eprintln!("couldn't find child field: '{}'", name);
             }
             let child = child_result?;
             let child_cmd = &fmt.nodes[child.kind()];
