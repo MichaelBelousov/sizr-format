@@ -834,7 +834,7 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
     };
     while !ctx.at_eof() {
         let node_decl = parse_node_decl(ctx)?;
-        file.nodes[node_decl.name] = node_decl.commands;
+        file.nodes.insert(node_decl.name, node_decl.commands);
     }
     return Ok(file);
 }
