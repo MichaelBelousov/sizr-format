@@ -17,22 +17,20 @@ struct EvalCtx<'a> {
     // config
     targetLineLen: usize,
     indentString: &'a str,
-    fmt: parser::File<'a>,
 }
 
 impl<'a> EvalCtx<'a> {
-    pub fn new(cursor: tree_sitter::TreeCursor<'a>, fmt: parser::File<'a>) -> Self {
+    pub fn new(cursor: tree_sitter::TreeCursor<'a>) -> Self {
         EvalCtx {
             result: String::new(),
 
-            // I clearly don't know how to do mutable variables, I should consider separating these I suppose
+            // consider separating these?
             currentLineLen: Cell::new(0),
             cursor,
             currentIndentLevel: Cell::new(0),
 
             targetLineLen: 80,
             indentString: "  ",
-            fmt,
         }
     }
 
@@ -47,22 +45,29 @@ impl<'a> EvalCtx<'a> {
 }
 
 pub fn eval(tree: tree_sitter::TreeCursor, fmt: parser::File) -> Option<&'static str> {
-    let mut ctx = EvalCtx::new(tree, fmt);
-    return eval_cmd(&mut ctx);
+    let mut ctx = EvalCtx::new(tree);
+    let cmd = &fmt.nodes[ctx.cursor.node().kind()];
+    return eval_cmd(cmd, &mut ctx, &fmt);
 }
 
-fn eval_cmd<'a>(ctx: &mut EvalCtx<'a>) -> Option<&'static str> {
+fn eval_cmd(
+    cmd: &parser::WriteCommand,
+    ctx: &mut EvalCtx,
+    fmt: &parser::File,
+) -> Option<&'static str> {
     use parser::IndentMark::*;
     use parser::WriteCommand::*;
 
     let node = ctx.cursor.node();
-    let cmd = &ctx.fmt.nodes[node.kind()];
+    let cmd = &fmt.nodes[node.kind()];
     // TODO: need to verify in a semantic analysis step that node children are written in order
     ctx.cursor.goto_first_child();
     match cmd {
         Raw(s) => ctx.result.push_str(s),
-        NodeReference { .. } => {
-            eval_cmd(ctx)?;
+        NodeReference { name, .. } => {
+            let child = node.child_by_field_name(name)?;
+            let child_cmd = &fmt.nodes[child.kind()];
+            eval_cmd(child_cmd, ctx, fmt)?;
             ctx.cursor.goto_next_sibling();
         }
         WrapPoint => {
@@ -83,18 +88,10 @@ fn eval_cmd<'a>(ctx: &mut EvalCtx<'a>) -> Option<&'static str> {
         },
         Sequence(cmds) => {
             for cmd in cmds {
-                unsafe {
-                    if let Some(err) = eval_cmd(ctx) {
-                        return Some(err);
-                    }
+                if let Some(err) = eval_cmd(cmd, ctx, fmt) {
+                    return Some(err);
                 }
             }
-            /*
-            unsafe {
-                cmds.iter().any(|_| eval_cmd(ctx).is_some());
-            }
-            */
-            //cmds.map()
         }
     };
     ctx.cursor.goto_parent();
