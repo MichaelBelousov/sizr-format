@@ -117,9 +117,8 @@ fn eval_cmd(
     let node = ctx.cursor.node();
 
     // TODO: need to verify in a semantic analysis step that node children are written in order
-    //let had_children = ctx.cursor.goto_first_child();
     if cfg!(debug_assertions) {
-        println!("node kind is {}, evaluating cmd {:?}", node.kind(), cmd);
+        //println!("node kind is {}, evaluating cmd {:?}", node.kind(), cmd);
     }
     if node.named_child_count() == 0 {
         ctx.write(
