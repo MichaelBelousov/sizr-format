@@ -69,7 +69,7 @@ fn eval_cmd(
     use parser::WriteCommand::*;
 
     let node = ctx.cursor.node();
-    //let cmd = &fmt.nodes[node.kind()];
+
     // TODO: need to verify in a semantic analysis step that node children are written in order
     let had_children = ctx.cursor.goto_first_child();
     match cmd {
@@ -79,7 +79,7 @@ fn eval_cmd(
             // haven't decided how to handle unnamed child lists from tree_sitter yet so
             // $CHILDREN is a stop-gap for testing existing work
             if *name == "CHILDREN" {
-                ctx.cursor.goto_first_child();
+                let had_children = ctx.cursor.goto_first_child();
                 loop {
                     // ugly copy-paste
                     let cmd_result = fmt
@@ -98,7 +98,34 @@ fn eval_cmd(
                         break;
                     }
                 }
-                ctx.cursor.goto_parent();
+                if had_children {
+                    ctx.cursor.goto_parent();
+                }
+            } else if *name == "NAMED_CHILDREN" {
+                let had_children = ctx.cursor.goto_first_child();
+                loop {
+                    if ctx.cursor.node().is_named() {
+                        // ugly copy-paste
+                        let cmd_result = fmt
+                            .nodes
+                            .get(ctx.cursor.node().kind())
+                            .ok_or("couldn't find node");
+                        if cfg!(debug_assertions) && cmd_result.is_err() {
+                            eprintln!(
+                                "couldn't find node declaration for '{}'",
+                                ctx.cursor.node().kind()
+                            );
+                        }
+                        let cmd = cmd_result?;
+                        eval_cmd(cmd, ctx, fmt)?;
+                    }
+                    if !ctx.cursor.goto_next_sibling() {
+                        break;
+                    }
+                }
+                if had_children {
+                    ctx.cursor.goto_parent();
+                }
             } else {
                 let child_result = node
                     .child_by_field_name(name)
@@ -106,7 +133,7 @@ fn eval_cmd(
                 if cfg!(debug_assertions) && child_result.is_err() {
                     eprintln!("couldn't find child field: '{}'", name);
                     eprintln!("cursor was: '{:#?}'", node);
-                    for child in node.named_children(&mut node.walk()) {
+                    for child in node.children(&mut node.walk()) {
                         eprintln!("had named child: '{:#?}'", child);
                     }
                 }

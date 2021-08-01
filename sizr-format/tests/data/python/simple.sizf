@@ -8,12 +8,23 @@ node "," = ","
 node ")" = ")"
 node ":" = ":\n"
 
-node "block" = { |> $CHILDREN }
+node "block" = { |> $CHILDREN "\n" <| }
 
 node "function_definition" = {
 	"def" $name "(" $parameters "):\n"
-	$body
+		$body
 }
+
+node "if" = "if"
+node "else" = "else"
+
+node "if_statement" = {
+	$condition ":\n" $consequence "else:\n" $alternative
+}
+
+node "else_clause" = $body
+
+node "argument_list" = { "(" $NAMED_CHILDREN ")" }
 
 node "parameters" = $CHILDREN
 
