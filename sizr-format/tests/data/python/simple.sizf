@@ -1,31 +1,31 @@
 
-node "module" = $CHILDREN
+node "module" = $NAMED_CHILDREN
 
-node "def" = "def "
+node "def" = "def"
+node "if" = "if"
+node "else" = "else"
 
 node "(" = "("
 node "," = ","
 node ")" = ")"
-node ":" = ":\n"
+node ":" = ":"
 
-node "block" = { |> $CHILDREN "\n" <| }
+node "block" = { |> $NAMED_CHILDREN "\n" <| }
 
 node "function_definition" = {
-	"def" $name "(" $parameters "):\n"
-		$body
+	"def" " " $name $parameters ":\n" $body
 }
-
-node "if" = "if"
-node "else" = "else"
 
 node "if_statement" = {
-	$condition ":\n" $consequence "else:\n" $alternative
+	"if" " " $condition ":\n" $consequence "else:\n" $alternative
 }
 
-node "else_clause" = $body
+node "else_clause" = $NAMED_CHILDREN
 
+
+node "parameters" = { "(" $NAMED_CHILDREN ")" }
+
+node "identifier" = $CHILDREN
+node "expression_statement" = $NAMED_CHILDREN
+node "call" = { $function $arguments }
 node "argument_list" = { "(" $NAMED_CHILDREN ")" }
-
-node "parameters" = $CHILDREN
-
-node "identifier" = "BLAH"

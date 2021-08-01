@@ -35,18 +35,19 @@ fn main() -> io::Result<()> {
     ));
 
     let python_ast = python_parser
-        .parse(python_src, None)
+        // should remove this clone :(
+        .parse(python_src.clone(), None)
         .expect("invalid python code passed!");
 
     //let mut buffer = String::new();
     //io::stdin().read_to_string(&mut buffer)?;
+
     let ctx = parser::ParseContext::new(&tree_format);
     let node_fmt_ast = parser::parse_text(&ctx);
     println!("treefmt_ast: {:#?}", node_fmt_ast);
-    //println!("python_ast: {:#?}", python_ast.root_node().to_sexp());
     println!("python_ast: {}", python_ast.root_node().to_sexp());
 
-    match node_fmt_ast.and_then(|fmt| eval::eval(python_ast.walk(), fmt)) {
+    match node_fmt_ast.and_then(|fmt| eval::eval(&python_src, python_ast.walk(), fmt)) {
         Ok(fmted_python_src) => {
             println!("fmted src:\n{}", fmted_python_src);
         }

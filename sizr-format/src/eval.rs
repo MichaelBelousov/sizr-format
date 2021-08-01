@@ -6,45 +6,65 @@ use std::cell::Cell;
 use std::string::String;
 
 struct EvalCtx<'a> {
+    text: &'a str,
     result: String,
 
     // state
-    currentLineLen: Cell<usize>,
-    currentIndentLevel: Cell<u16>,
+    current_line_len: Cell<usize>,
+    current_indent_level: Cell<u16>,
     cursor: tree_sitter::TreeCursor<'a>,
 
     // config
-    targetLineLen: usize,
-    indentString: &'a str,
+    target_line_len: usize,
+    indent_str: &'a str,
 }
 
 impl<'a> EvalCtx<'a> {
-    pub fn new(cursor: tree_sitter::TreeCursor<'a>) -> Self {
+    pub fn new(text: &'a str, cursor: tree_sitter::TreeCursor<'a>) -> Self {
         EvalCtx {
+            text,
             result: String::new(),
 
             // consider separating these?
-            currentLineLen: Cell::new(0),
+            current_line_len: Cell::new(0),
             cursor,
-            currentIndentLevel: Cell::new(0),
+            current_indent_level: Cell::new(0),
 
-            targetLineLen: 80,
-            indentString: "  ",
+            target_line_len: 80,
+            indent_str: "  ",
         }
+    }
+
+    fn indent(&mut self) {
+        for _ in 0..self.current_indent_level.get() {
+            self.result.push_str(self.indent_str);
+        }
+        self.current_line_len
+            .set(self.indent_str.len() * self.current_indent_level.get() as usize);
     }
 
     pub fn wrap(&mut self) {
+        println!("\twrap {}!", self.current_indent_level.get());
         self.result.push_str("\n");
-        for _ in 0..self.currentIndentLevel.get() {
-            self.result.push_str(self.indentString);
+        self.indent();
+    }
+
+    pub fn write(&mut self, text: &str) {
+        if self.current_line_len.get() == 0 {
+            self.indent();
         }
-        self.currentLineLen
-            .set(self.indentString.len() * self.currentIndentLevel.get() as usize);
+        self.current_line_len
+            .set(self.current_line_len.get() + text.len());
+        self.result.push_str(text);
     }
 }
 
-pub fn eval(tree: tree_sitter::TreeCursor, fmt: parser::File) -> Result<String, &'static str> {
-    let mut ctx = EvalCtx::new(tree);
+pub fn eval(
+    text: &str,
+    tree: tree_sitter::TreeCursor,
+    fmt: parser::File,
+) -> Result<String, &'static str> {
+    let mut ctx = EvalCtx::new(text, tree);
     let cmd_result = fmt
         .nodes
         .get(ctx.cursor.node().kind())
@@ -71,104 +91,115 @@ fn eval_cmd(
     let node = ctx.cursor.node();
 
     // TODO: need to verify in a semantic analysis step that node children are written in order
-    let had_children = ctx.cursor.goto_first_child();
-    match cmd {
-        Raw(s) => ctx.result.push_str(s),
-        NodeReference { ref name, .. } => {
-            // TEMP HACK
-            // haven't decided how to handle unnamed child lists from tree_sitter yet so
-            // $CHILDREN is a stop-gap for testing existing work
-            if *name == "CHILDREN" {
-                let had_children = ctx.cursor.goto_first_child();
-                loop {
-                    // ugly copy-paste
-                    let cmd_result = fmt
-                        .nodes
-                        .get(ctx.cursor.node().kind())
-                        .ok_or("couldn't find node");
-                    if cfg!(debug_assertions) && cmd_result.is_err() {
-                        eprintln!(
-                            "couldn't find node declaration for '{}'",
-                            ctx.cursor.node().kind()
-                        );
-                    }
-                    let cmd = cmd_result?;
-                    eval_cmd(cmd, ctx, fmt)?;
-                    if !ctx.cursor.goto_next_sibling() {
-                        break;
+    //let had_children = ctx.cursor.goto_first_child();
+    if cfg!(debug_assertions) {
+        println!("node kind is {}, evaluating cmd {:?}", node.kind(), cmd);
+    }
+    if node.named_child_count() == 0 {
+        ctx.write(
+            node.utf8_text(ctx.text.as_bytes())
+                .expect("utf8 should be valid"),
+        );
+    } else {
+        match cmd {
+            Raw(s) => {
+                // TODO: move to evalCtx with some "write" method
+                // TODO: use intersperse
+                let part_count = s.split("\n").count();
+                for (i, part) in s.split("\n").enumerate() {
+                    ctx.write(part);
+                    println!("\tprinting raw part: '{}'", part);
+                    if i != part_count - 1 {
+                        ctx.wrap();
                     }
                 }
-                if had_children {
-                    ctx.cursor.goto_parent();
-                }
-            } else if *name == "NAMED_CHILDREN" {
-                let had_children = ctx.cursor.goto_first_child();
-                loop {
-                    if ctx.cursor.node().is_named() {
-                        // ugly copy-paste
-                        let cmd_result = fmt
-                            .nodes
-                            .get(ctx.cursor.node().kind())
-                            .ok_or("couldn't find node");
-                        if cfg!(debug_assertions) && cmd_result.is_err() {
-                            eprintln!(
-                                "couldn't find node declaration for '{}'",
-                                ctx.cursor.node().kind()
-                            );
+            }
+            // NOTE: need some kind of special handling for arrays, not just filters
+            // but a way to specify special delimiting of array elements, as well as language-defaults
+            NodeReference { ref name, .. } => {
+                // TEMP HACK
+                // haven't decided how to handle unnamed child lists from tree_sitter yet so
+                // $CHILDREN is a stop-gap for testing existing work
+                // HACK:
+                if *name == "CHILDREN" || *name == "NAMED_CHILDREN" {
+                    //ctx.cursor.reset(node);
+                    let had_children = ctx.cursor.goto_first_child();
+                    if had_children {
+                        loop {
+                            if ctx.cursor.node().is_named() || *name == "CHILDREN" {
+                                let cmd_result = fmt
+                                    .nodes
+                                    .get(ctx.cursor.node().kind())
+                                    .ok_or("couldn't find node");
+                                if cfg!(debug_assertions) && cmd_result.is_err() {
+                                    eprintln!(
+                                        "couldn't find node declaration for '{}'",
+                                        ctx.cursor.node().kind()
+                                    );
+                                }
+                                let cmd = cmd_result?;
+                                eval_cmd(cmd, ctx, fmt)?;
+                            }
+                            if !ctx.cursor.goto_next_sibling() {
+                                break;
+                            }
                         }
-                        let cmd = cmd_result?;
-                        eval_cmd(cmd, ctx, fmt)?;
+                        ctx.cursor.goto_parent();
+                    } else {
+                        //HACK:
+                        let raw = node
+                            .utf8_text(ctx.text.as_bytes())
+                            .expect("utf8 should be valid");
+                        println!("\tprinting {}", raw);
+                        ctx.write(raw);
                     }
-                    if !ctx.cursor.goto_next_sibling() {
-                        break;
+                } else {
+                    let child_result = node
+                        .child_by_field_name(name)
+                        .ok_or("couldn't find child field");
+                    if cfg!(debug_assertions) && child_result.is_err() {
+                        eprintln!("couldn't find child field: '{}'", name);
+                        eprintln!("cursor was: '{:#?}'", node);
+                        for child in node.children(&mut node.walk()) {
+                            eprintln!("had named child: '{:#?}'", child);
+                        }
                     }
+                    let child = child_result?;
+                    let child_cmd = &fmt.nodes[child.kind()];
+                    ctx.cursor.reset(child);
+                    eval_cmd(child_cmd, ctx, fmt)?;
+                    ctx.cursor.reset(node);
                 }
-                if had_children {
-                    ctx.cursor.goto_parent();
+            }
+            WrapPoint => {
+                if ctx.current_line_len.get() > ctx.target_line_len {
+                    ctx.wrap();
                 }
-            } else {
-                let child_result = node
-                    .child_by_field_name(name)
-                    .ok_or("couldn't find child field");
-                if cfg!(debug_assertions) && child_result.is_err() {
-                    eprintln!("couldn't find child field: '{}'", name);
-                    eprintln!("cursor was: '{:#?}'", node);
-                    for child in node.children(&mut node.walk()) {
-                        eprintln!("had named child: '{:#?}'", child);
-                    }
+            }
+            Conditional { .. } => unimplemented!(),
+            IndentMark(mark) => match mark {
+                Indent(amt) => ctx
+                    .current_indent_level
+                    .set(ctx.current_indent_level.get() + amt),
+                Outdent(amt) => ctx
+                    .current_indent_level
+                    .set(ctx.current_indent_level.get() - amt),
+                TokenAnchor(..) => unimplemented!(),
+                NumericAnchor(..) => unimplemented!(),
+            },
+            Sequence(cmds) => {
+                for cmd in cmds {
+                    eval_cmd(cmd, ctx, fmt)?;
                 }
-                let child = child_result?;
-                let child_cmd = &fmt.nodes[child.kind()];
-                eval_cmd(child_cmd, ctx, fmt)?;
-                ctx.cursor.goto_next_sibling();
             }
-        }
-        WrapPoint => {
-            if ctx.currentLineLen.get() > ctx.targetLineLen {
-                ctx.wrap();
-            }
-        }
-        Conditional { .. } => unimplemented!(),
-        IndentMark(mark) => match mark {
-            Indent(amt) => ctx
-                .currentIndentLevel
-                .set(ctx.currentIndentLevel.get() + amt),
-            Outdent(amt) => ctx
-                .currentIndentLevel
-                .set(ctx.currentIndentLevel.get() - amt),
-            TokenAnchor(..) => unimplemented!(),
-            NumericAnchor(..) => unimplemented!(),
-        },
-        Sequence(cmds) => {
-            for cmd in cmds {
-                eval_cmd(cmd, ctx, fmt)?;
-            }
-        }
-    };
+        };
+    }
 
+    /*
     if had_children {
         ctx.cursor.goto_parent();
     }
+    */
 
     Ok(())
 }

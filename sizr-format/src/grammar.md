@@ -91,6 +91,8 @@ node "VarDecl" = {
 oh crap did I even think about comments? does there need to be a comment anchor? like:
 `>c` or something? They can show up between any two nodes...
 
+need to add a shorthand for self-describing tokens (e.g. @if -> node "if" == "if")
+
 #### config
 
 `.sizrfmtrc.json`
