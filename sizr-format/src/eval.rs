@@ -43,8 +43,27 @@ impl<'a> EvalCtx<'a> {
             .set(self.indent_str.len() * self.current_indent_level.get() as usize);
     }
 
+    fn inc_line_len(&self, amt: usize) {
+        self.current_line_len.set(self.current_line_len.get() + amt)
+    }
+
+    pub fn inc_indent(&mut self, amt: i32) {
+        // FIXME: make sure this doesn't work unless we're on a fresh line
+        if amt > 0 {
+            for _ in 0..amt {
+                self.result.push_str(self.indent_str);
+                self.inc_line_len(self.indent_str.len());
+            }
+        } else {
+            self.result.truncate(
+                (self.result.len() as i32 + (self.indent_str.len() as i32) * amt) as usize,
+            );
+        }
+        self.current_indent_level
+            .set((self.current_indent_level.get() as i32 + amt) as u16);
+    }
+
     pub fn wrap(&mut self) {
-        println!("\twrap {}!", self.current_indent_level.get());
         self.result.push_str("\n");
         self.indent();
     }
@@ -53,9 +72,16 @@ impl<'a> EvalCtx<'a> {
         if self.current_line_len.get() == 0 {
             self.indent();
         }
-        self.current_line_len
-            .set(self.current_line_len.get() + text.len());
-        self.result.push_str(text);
+        // TODO: use intersperse
+        let part_count = text.split("\n").count();
+        for (i, part) in text.split("\n").enumerate() {
+            self.result.push_str(part);
+            if i != part_count - 1 {
+                self.wrap();
+            } else {
+                self.inc_line_len(part.len());
+            }
+        }
     }
 }
 
@@ -102,18 +128,7 @@ fn eval_cmd(
         );
     } else {
         match cmd {
-            Raw(s) => {
-                // TODO: move to evalCtx with some "write" method
-                // TODO: use intersperse
-                let part_count = s.split("\n").count();
-                for (i, part) in s.split("\n").enumerate() {
-                    ctx.write(part);
-                    println!("\tprinting raw part: '{}'", part);
-                    if i != part_count - 1 {
-                        ctx.wrap();
-                    }
-                }
-            }
+            Raw(s) => ctx.write(s),
             // NOTE: need some kind of special handling for arrays, not just filters
             // but a way to specify special delimiting of array elements, as well as language-defaults
             NodeReference { ref name, .. } => {
@@ -178,12 +193,8 @@ fn eval_cmd(
             }
             Conditional { .. } => unimplemented!(),
             IndentMark(mark) => match mark {
-                Indent(amt) => ctx
-                    .current_indent_level
-                    .set(ctx.current_indent_level.get() + amt),
-                Outdent(amt) => ctx
-                    .current_indent_level
-                    .set(ctx.current_indent_level.get() - amt),
+                Indent(amt) => ctx.inc_indent(*amt as i32),
+                Outdent(amt) => ctx.inc_indent(-(*amt as i32)),
                 TokenAnchor(..) => unimplemented!(),
                 NumericAnchor(..) => unimplemented!(),
             },
