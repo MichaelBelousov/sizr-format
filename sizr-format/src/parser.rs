@@ -249,9 +249,7 @@ impl<'a> Token<'a> {
         Self::try_lex_indent_mark(stream)
             .map(|im| Token::IndentMark(im))
             .ok_or("unknown token")
-            .or_else(|err| {
-                try_parse::quoted_string(stream).map(|s| Token::Literal(Literal::String(s)))
-            })
+            .or_else(|err| lex::quoted_string(stream).map(|s| Token::Literal(Literal::String(s))))
             .or_else(|err|
             // TODO: staircase match is slow or awkward, there ought to be a better way to test for string matches (maybe even a good regex)
             match &stream[0..=2] {
@@ -285,33 +283,32 @@ impl<'a> Token<'a> {
 }
 
 #[macro_use]
-pub mod try_parse {
+pub mod lex {
     use super::*;
 
     pub fn static_string<F: FnOnce(&char) -> bool>(
-        ctx: &ParseContext,
+        stream: &str,
         kind: &'static str,
         expect_msg: &'static str,
         test_is_after: F,
     ) -> Result<Read<()>, &'static str> {
-        (ctx.remaining_src().len() >= kind.len() // TODO: not sure how best to get a partial slice for comparison
-            && &ctx.remaining_src()[..kind.len()] == kind)
+        stream
+            .starts_with(kind)
             .then(|| ())
-            .ok_or(expect_msg)
             .and(
-                ctx.remaining_src()
+                stream
                     .chars()
                     .nth(kind.len())
                     .filter(test_is_after)
-                    .ok_or(expect_msg) // NEEDSWORK: (ok_or twice)
-                    .and(Ok(Read::new((), kind.len()))),
+                    .and(Some(Read::new((), kind.len()))),
             )
+            .ok_or(expect_msg)
     }
 
     #[macro_export]
     macro_rules! try_parse_keyword {
         ($ctx: expr, $keyword: expr) => {{
-            try_parse::static_string(
+            lex::static_string(
                 $ctx,
                 $keyword,
                 concat!("expected keyword '", $keyword, "'"),
@@ -324,7 +321,7 @@ pub mod try_parse {
     #[macro_export]
     macro_rules! try_parse_operator {
         ($ctx: expr, $operator: expr) => {{
-            try_parse::static_string(
+            lex::static_string(
                 $ctx,
                 $operator,
                 concat!("expected operator '", $operator, "'"),
@@ -370,7 +367,7 @@ pub mod try_parse {
         (ctx.remaining_src().starts_with("$"))
             .then(|| ())
             .ok_or("node references must start with a '$'")
-            .and(try_parse::name(&ctx.make_further_test_ctx(1)))
+            .and(lex::name(&ctx.make_further_test_ctx(1)))
             .map(|name| Read::new(&ctx.remaining_src()[..name.len + 1], name.len + 1))
     }
 }
@@ -542,12 +539,12 @@ impl<'a> Literal<'a> {
     }
 
     fn try_parse_string(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        try_parse::quoted_string(&ctx)
+        lex::quoted_string(ctx.remaining_src())
             .map(|s| Read::new(Literal::String(&s[1..s.len() - 1]), s.len()))
     }
 
     fn try_parse_regex(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        // TODO: dedup with try_parse::string which uses try_read_chars similarly
+        // TODO: dedup with lex::string which uses try_read_chars similarly
         try_read_chars(
             &ctx.remaining_src(),
             |i, c, next| match (i, c, next) {
@@ -627,7 +624,7 @@ impl<'a> FilterExpr<'a> {
     fn try_parse_node_reference(
         ctx: &'a ParseContext,
     ) -> Result<Read<FilterExpr<'a>>, &'static str> {
-        try_parse::node_reference(&ctx)
+        lex::node_reference(&ctx)
             .map(|r| r.map(|text| FilterExpr::NodeReference { name: &text[1..] }, 0))
     }
     fn try_parse_literal(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
@@ -777,7 +774,7 @@ impl<'a> WriteCommand<'a> {
     }
 
     fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        try_parse::quoted_string(&ctx).map(|s| {
+        lex::quoted_string(ctx.remaining_src()).map(|s| {
             Read::new(
                 WriteCommand::Raw(unescape_newlines(&s[1..s.len() - 1])),
                 s.len(),
@@ -788,7 +785,7 @@ impl<'a> WriteCommand<'a> {
     fn try_parse_node_reference(
         ctx: &'a ParseContext,
     ) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        try_parse::node_reference(&ctx).map(|r| {
+        lex::node_reference(&ctx).map(|r| {
             r.map(
                 |text| WriteCommand::NodeReference {
                     name: &text[1..],
@@ -821,10 +818,10 @@ impl<'a> WriteCommand<'a> {
 
     fn try_parse_sequence(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
         fn try_parse_sequence_start(ctx: &ParseContext) -> Result<Read<()>, &'static str> {
-            try_parse_operator!(ctx, "{")
+            try_parse_operator!(ctx.remaining_src(), "{")
         }
         fn try_parse_sequence_end(ctx: &ParseContext) -> Result<Read<()>, &'static str> {
-            try_parse_operator!(ctx, "}")
+            try_parse_operator!(ctx.remaining_src(), "}")
         }
 
         let mut seq = Vec::<WriteCommand<'a>>::new();
@@ -946,7 +943,7 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
 
 fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> {
     ctx.skip_whitespace();
-    ctx.consume_read_and_space(try_parse_keyword!(ctx, "node")?);
+    ctx.consume_read_and_space(try_parse_keyword!(ctx.remaining_src(), "node")?);
     if cfg!(debug_assertions) {
         println!(
             "after read node keyword remaining: '{}'",
@@ -954,13 +951,13 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> 
         );
     }
     let name = ctx.consume_read_and_space(
-        try_parse::quoted_string(&ctx).map(|s| Read::new(&s[1..s.len() - 1], s.len()))?,
+        lex::quoted_string(ctx.remaining_src()).map(|s| Read::new(&s[1..s.len() - 1], s.len()))?,
     );
     if cfg!(debug_assertions) {
         println!("name: {:#?}", name);
         println!("after read name remaining: '{}'", ctx.remaining_src());
     }
-    ctx.consume_read_and_space(try_parse_operator!(ctx, "=")?);
+    ctx.consume_read_and_space(try_parse_operator!(ctx.remaining_src(), "=")?);
     if cfg!(debug_assertions) {
         println!("after read '=' remaining: '{}'", ctx.remaining_src());
     }
