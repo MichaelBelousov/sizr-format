@@ -23,7 +23,7 @@ node "if_statement" = {
 node "else_clause" = $NAMED_CHILDREN
 
 
-node "parameters" = { "(" $CHILDREN ")" }
+node "parameters" = { "(" $NAMED_CHILDREN ")" }
 
 node "identifier" = $CHILDREN
 node "expression_statement" = $NAMED_CHILDREN

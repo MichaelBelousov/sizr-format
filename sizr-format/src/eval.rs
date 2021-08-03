@@ -10,9 +10,9 @@ struct EvalCtx<'a> {
     result: String,
 
     // state
-    current_line_len: Cell<usize>,
     current_indent_level: Cell<u16>,
     cursor: tree_sitter::TreeCursor<'a>,
+    current_line: String,
 
     // config
     target_line_len: usize,
@@ -21,65 +21,41 @@ struct EvalCtx<'a> {
 
 impl<'a> EvalCtx<'a> {
     pub fn new(text: &'a str, cursor: tree_sitter::TreeCursor<'a>) -> Self {
+        let target_line_len = 80;
         EvalCtx {
             text,
             result: String::new(),
 
             // consider separating these?
-            current_line_len: Cell::new(0),
             cursor,
             current_indent_level: Cell::new(0),
+            current_line: String::with_capacity(target_line_len + 20),
 
-            target_line_len: 80,
+            target_line_len,
             indent_str: "  ",
         }
     }
 
-    fn indent(&mut self) {
-        for _ in 0..self.current_indent_level.get() {
-            self.result.push_str(self.indent_str);
-        }
-        self.current_line_len
-            .set(self.indent_str.len() * self.current_indent_level.get() as usize);
-    }
-
-    fn inc_line_len(&self, amt: usize) {
-        self.current_line_len.set(self.current_line_len.get() + amt)
-    }
-
     pub fn inc_indent(&mut self, amt: i32) {
-        // FIXME: make sure this doesn't work unless we're on a fresh line
-        if amt > 0 {
-            for _ in 0..amt {
-                self.result.push_str(self.indent_str);
-                self.inc_line_len(self.indent_str.len());
-            }
-        } else {
-            self.result.truncate(
-                (self.result.len() as i32 + (self.indent_str.len() as i32) * amt) as usize,
-            );
-        }
         self.current_indent_level
             .set((self.current_indent_level.get() as i32 + amt) as u16);
     }
-
     pub fn wrap(&mut self) {
+        for _ in 0..self.current_indent_level.get() {
+            self.result.push_str(self.indent_str);
+        }
+        self.result.push_str(&self.current_line);
         self.result.push_str("\n");
-        self.indent();
+        self.current_line.clear();
     }
 
     pub fn write(&mut self, text: &str) {
-        if self.current_line_len.get() == 0 {
-            self.indent();
-        }
         // TODO: use intersperse
-        let part_count = text.split("\n").count();
-        for (i, part) in text.split("\n").enumerate() {
-            self.result.push_str(part);
-            if i != part_count - 1 {
+        let line_count = text.chars().filter(|c| c == &'\n').count() + 1;
+        for (line_no, line) in text.split("\n").enumerate() {
+            self.current_line.push_str(line);
+            if line_no != line_count - 1 {
                 self.wrap();
-            } else {
-                self.inc_line_len(part.len());
             }
         }
     }
@@ -186,7 +162,7 @@ fn eval_cmd(
                 }
             }
             WrapPoint => {
-                if ctx.current_line_len.get() > ctx.target_line_len {
+                if ctx.current_line.len() > ctx.target_line_len {
                     ctx.wrap();
                 }
             }
