@@ -191,10 +191,11 @@ pub enum Token<'a> {
     LBrace, RBrace, LBrack, RBrack, Gt, Lt, Pipe, BSlash, FSlash, Plus, Minus, Asterisk, Ampersand, Dot, Caret, At, Hash, Exclaim, Tilde,
     LtEq, GtEq, EqEq, NotEq, 
     IndentMark(IndentMark<'a>),
+    Comment(&'a str),
 }
 
 impl<'a> Token<'a> {
-    pub fn tokens(stream: &str) -> impl Iterator<Self> {}
+    //pub fn tokens(stream: &str) -> impl Iterator<Self> {}
 
     fn try_lex_indent_mark(src: &str) -> Option<IndentMark> {
         lazy_static! {
@@ -249,7 +250,7 @@ impl<'a> Token<'a> {
         Self::try_lex_indent_mark(stream)
             .map(|im| Token::IndentMark(im))
             .ok_or("unknown token")
-            .or_else(|err| lex::quoted_string(stream).map(|s| Token::Literal(Literal::String(s))))
+            .or_else(|err| lex::string_literal(stream).map(|s| Token::Literal(Literal::String(s))))
             .or_else(|err|
             // TODO: staircase match is slow or awkward, there ought to be a better way to test for string matches (maybe even a good regex)
             match &stream[0..=2] {
@@ -306,7 +307,7 @@ pub mod lex {
     }
 
     #[macro_export]
-    macro_rules! try_parse_keyword {
+    macro_rules! lex_keyword {
         ($ctx: expr, $keyword: expr) => {{
             lex::static_string(
                 $ctx,
@@ -319,7 +320,7 @@ pub mod lex {
 
     // NEEDWORK: too simple, i.e. can't tell the difference between = and == tokens
     #[macro_export]
-    macro_rules! try_parse_operator {
+    macro_rules! lex_operator {
         ($ctx: expr, $operator: expr) => {{
             lex::static_string(
                 $ctx,
@@ -330,18 +331,34 @@ pub mod lex {
         }};
     }
 
-    pub fn quoted_string<'a>(src: &'a str) -> Result<&'a str, &'static str> {
-        try_read_chars(
-            src,
-            |i, c, next| match (i, c, next) {
-                (_, _, None) => Err("unterminated string literal"),
-                (0, '"', _) => Ok(false),
-                (0, _, _) => Err("strings must start with a quote '\"'"),
-                (i, c, _) if c == '"' && &src[i - 1..=i - 1] != "\\" => Ok(true),
-                _ => Ok(false),
-            },
-            |s| Ok(s),
-        )
+    macro_rules! lex_escapable_delimited_string {
+        // src: &str, delimiter: char, name: expr
+        ($src: expr, $delimiter: expr, $literal_name: expr) => {{
+            try_read_chars(
+                $src,
+                |i, c, next| match (i, c, next) {
+                    (_, _, None) => Err(concat!("unterminated ", $literal_name, " literal")),
+                    (0, $delimiter, _) => Ok(false),
+                    (0, _, _) => Err(concat!(
+                        $literal_name,
+                        " literals must start with the delimiter '",
+                        $delimiter,
+                        "'"
+                    )),
+                    (i, c, _) if c == $delimiter && &$src[i - 1..=i - 1] != "\\" => Ok(true),
+                    _ => Ok(false),
+                },
+                |s| Ok(s),
+            )
+        }};
+    }
+
+    pub fn string_literal<'a>(src: &'a str) -> Result<&'a str, &'static str> {
+        lex_escapable_delimited_string!(src, '"', "string")
+    }
+
+    pub fn regex_literal<'a>(src: &'a str) -> Result<&'a str, &'static str> {
+        lex_escapable_delimited_string!(src, '"', "regex")
     }
 
     pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
@@ -539,7 +556,7 @@ impl<'a> Literal<'a> {
     }
 
     fn try_parse_string(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        lex::quoted_string(ctx.remaining_src())
+        lex::string_literal(ctx.remaining_src())
             .map(|s| Read::new(Literal::String(&s[1..s.len() - 1]), s.len()))
     }
 
@@ -774,7 +791,7 @@ impl<'a> WriteCommand<'a> {
     }
 
     fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        lex::quoted_string(ctx.remaining_src()).map(|s| {
+        lex::string_literal(ctx.remaining_src()).map(|s| {
             Read::new(
                 WriteCommand::Raw(unescape_newlines(&s[1..s.len() - 1])),
                 s.len(),
@@ -818,10 +835,10 @@ impl<'a> WriteCommand<'a> {
 
     fn try_parse_sequence(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
         fn try_parse_sequence_start(ctx: &ParseContext) -> Result<Read<()>, &'static str> {
-            try_parse_operator!(ctx.remaining_src(), "{")
+            lex_operator!(ctx.remaining_src(), "{")
         }
         fn try_parse_sequence_end(ctx: &ParseContext) -> Result<Read<()>, &'static str> {
-            try_parse_operator!(ctx.remaining_src(), "}")
+            lex_operator!(ctx.remaining_src(), "}")
         }
 
         let mut seq = Vec::<WriteCommand<'a>>::new();
@@ -943,7 +960,7 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
 
 fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> {
     ctx.skip_whitespace();
-    ctx.consume_read_and_space(try_parse_keyword!(ctx.remaining_src(), "node")?);
+    ctx.consume_read_and_space(lex_keyword!(ctx.remaining_src(), "node")?);
     if cfg!(debug_assertions) {
         println!(
             "after read node keyword remaining: '{}'",
@@ -951,13 +968,13 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> 
         );
     }
     let name = ctx.consume_read_and_space(
-        lex::quoted_string(ctx.remaining_src()).map(|s| Read::new(&s[1..s.len() - 1], s.len()))?,
+        lex::string_literal(ctx.remaining_src()).map(|s| Read::new(&s[1..s.len() - 1], s.len()))?,
     );
     if cfg!(debug_assertions) {
         println!("name: {:#?}", name);
         println!("after read name remaining: '{}'", ctx.remaining_src());
     }
-    ctx.consume_read_and_space(try_parse_operator!(ctx.remaining_src(), "=")?);
+    ctx.consume_read_and_space(lex_operator!(ctx.remaining_src(), "=")?);
     if cfg!(debug_assertions) {
         println!("after read '=' remaining: '{}'", ctx.remaining_src());
     }
