@@ -52,7 +52,7 @@ impl<'a> EvalCtx<'a> {
     pub fn write(&mut self, text: &str) {
         // TODO: use intersperse
         let line_count = text.chars().filter(|c| c == &'\n').count() + 1;
-        for (line_no, line) in text.split("\n").enumerate() {
+        for (line_no, line) in text.lines().enumerate() {
             self.current_line.push_str(line);
             if line_no != line_count - 1 {
                 self.wrap();

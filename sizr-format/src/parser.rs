@@ -10,29 +10,6 @@ use std::option::Option;
 use std::result::Result;
 use std::vec::Vec;
 
-// TODO: move to a separate util module
-trait StrUtils {
-    fn find_test<F>(&self, f: F) -> Option<usize>
-    where
-        F: Fn(char, usize) -> bool;
-}
-
-impl StrUtils for str {
-    fn find_test<F>(&self, f: F) -> Option<usize>
-    where
-        F: Fn(char, usize) -> bool,
-    {
-        // XXX: incorrect on multi-byte chars because str.find returns byte offset,
-        // this is character offset
-        for (i, c) in self.chars().enumerate() {
-            if f(c, i) {
-                return Some(i);
-            }
-        }
-        return None;
-    }
-}
-
 // TODO: make private to this module
 #[derive(Debug)]
 pub struct ParseContext<'a> {
@@ -191,7 +168,6 @@ pub enum Token<'a> {
     LBrace, RBrace, LBrack, RBrack, Gt, Lt, Pipe, BSlash, FSlash, Plus, Minus, Asterisk, Ampersand, Dot, Caret, At, Hash, Exclaim, Tilde,
     LtEq, GtEq, EqEq, NotEq, 
     IndentMark(IndentMark<'a>),
-    Comment(&'a str),
 }
 
 impl<'a> Token<'a> {
@@ -246,39 +222,76 @@ impl<'a> Token<'a> {
         });
     }
 
+    fn skip_whitespace(src: &str) -> (&str, usize) {
+        if let Some(jump) = src.find(|c: char| !c.is_whitespace()) {
+            (&src[jump..], jump)
+        } else {
+            ("", src.len())
+        }
+    }
+
+    fn skip_comments(src: &str) -> (&str, usize) {
+        src.starts_with("#")
+            .then(|| ())
+            .and_then(|_| src.find("\n").map(|dist| (&src[dist..], dist)))
+            .unwrap_or((src, 0))
+    }
+
     fn next_token(stream: &'a str) -> Result<Self, &'static str> {
+        let (stream, ws_skip_1) = Self::skip_whitespace(stream);
+        let (stream, comment_skip) = Self::skip_comments(stream);
+        let (stream, ws_skip_2) = Self::skip_whitespace(stream);
+        let skipped = ws_skip_1 + comment_skip + ws_skip_2;
         Self::try_lex_indent_mark(stream)
             .map(|im| Token::IndentMark(im))
             .ok_or("unknown token")
-            .or_else(|err| lex::string_literal(stream).map(|s| Token::Literal(Literal::String(s))))
-            .or_else(|err|
-            // TODO: staircase match is slow or awkward, there ought to be a better way to test for string matches (maybe even a good regex)
-            match &stream[0..=2] {
-                "<=" => Ok(Token::LtEq),
-                ">=" => Ok(Token::GtEq),
-                "==" => Ok(Token::EqEq),
-                "!=" => Ok(Token::NotEq), 
-                _ => match &stream[0..=1] {
-                    "{" => Ok(Token::LBrace),
-                    "}" => Ok(Token::RBrace),
-                    "[" => Ok(Token::LBrack),
-                    "]" => Ok(Token::RBrack),
-                    ">" => Ok(Token::Gt),
-                    "<" => Ok(Token::Lt),
-                    "|" => Ok(Token::Pipe),
-                    "&" => Ok(Token::Ampersand),
-                    "." => Ok(Token::Dot),
-                    "^" => Ok(Token::Caret),
-                    "@" => Ok(Token::At),
-                    "#" => Ok(Token::Hash),
-                    "/" => Ok(Token::FSlash),
-                    r"\" => Ok(Token::BSlash),
-                    "+" => Ok(Token::Plus),
-                    "-" => Ok(Token::Minus),
-                    "*" => Ok(Token::Asterisk),
-                    "!" => Ok(Token::Exclaim),
-                    "~" => Ok(Token::Tilde),
+            .or_else(|_err| lex::string_literal(stream).map(|s| Token::Literal(Literal::String(s))))
+            .or_else(|_err| {
+                match lex::regex_literal(stream).map(|s| {
+                    regex::Regex::new(s)
+                        .map_err(|_err| "invalid regex didn't compile") // TODO: propagate error correctly
+                        .map(|r| Token::Literal(Literal::Regex(Regex::new(r))))
+                }) {
+                    Ok(r) => r,
+                    Err(e) => Err(e),
                 }
+            })
+            .or_else(|_err|
+            // TODO: staircase match is slow or awkward, there ought to be a better way to test for string matches (maybe even regex)
+            match &stream[0..=0] {
+                "{" => Ok(Token::LBrace),
+                "}" => Ok(Token::RBrace),
+                "[" => Ok(Token::LBrack),
+                "]" => Ok(Token::RBrack),
+                ">" => match &stream[1..=1] {
+                    "=" => Ok(Token::GtEq),
+                    _ => Ok(Token::Gt),
+                }
+                "<" => match &stream[1..=1] {
+                    "=" => Ok(Token::LtEq),
+                    _ => Ok(Token::Lt),
+                }
+                "|" => Ok(Token::Pipe),
+                "&" => Ok(Token::Ampersand),
+                "." => Ok(Token::Dot),
+                "^" => Ok(Token::Caret),
+                "@" => Ok(Token::At),
+                "#" => Ok(Token::Hash),
+                "/" => Ok(Token::FSlash),
+                r"\" => Ok(Token::BSlash),
+                "+" => Ok(Token::Plus),
+                "-" => Ok(Token::Minus),
+                "*" => Ok(Token::Asterisk),
+                "!" => match &stream[1..=1] {
+                    "=" => Ok(Token::NotEq),
+                    _ => Ok(Token::Exclaim),
+                }
+                "=" => match &stream[1..=1] {
+                    "=" => Ok(Token::EqEq),
+                    _ => Ok(Token::Exclaim),
+                }
+                "~" => Ok(Token::Tilde),
+                _ => Err("unknown token")
             })
     }
 }
