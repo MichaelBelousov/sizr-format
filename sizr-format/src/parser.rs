@@ -116,7 +116,6 @@ pub mod ops {
         Dot,
     }
 
-    // XXX: replace with FromStr implementation
     pub trait FromToken {
         fn read<'a>(token: &'a str) -> Self;
     }
@@ -183,6 +182,108 @@ pub mod ops {
     }
 }
 
+#[rustfmt::skip]
+#[allow(dead_code)]
+#[derive(Debug)]
+pub enum Token<'a> {
+    Reference(&'a str),
+    Literal(Literal<'a>),
+    LBrace, RBrace, LBrack, RBrack, Gt, Lt, Pipe, BSlash, FSlash, Plus, Minus, Asterisk, Ampersand, Dot, Caret, At, Hash, Exclaim, Tilde,
+    LtEq, GtEq, EqEq, NotEq, 
+    IndentMark(IndentMark<'a>),
+}
+
+impl<'a> Token<'a> {
+    pub fn tokens(stream: &str) -> impl Iterator<Self> {}
+
+    fn try_lex_indent_mark(src: &str) -> Option<IndentMark> {
+        lazy_static! {
+            static ref INDENT_MARK_PATTERN: regex::Regex =
+                // this is why I didn't want to do regex... maybe I'll rewrite this part later
+                regex::Regex::new(r#"^(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*)"#)
+                    .expect("INDENT_MARK_PATTERN regex failed to compile");
+        }
+        let capture = INDENT_MARK_PATTERN
+            .captures(&src)
+            .map(|captures| {
+                captures
+                    .iter()
+                    .enumerate()
+                    .skip(1) // skip the implicit total capture group
+                    .find(|(_, capture)| capture.is_some())
+                    .expect("INDENT_MARK_PATTERN capture groups are exclusive, one should match")
+            })
+            .map(|(i, capture)| match capture {
+                Some(inner) => Some((i, inner)),
+                None => None,
+            })
+            .flatten();
+
+        return capture.and_then(|(i, capture)| {
+            use std::convert::TryInto;
+            let len = capture.range().len();
+            let len_u16: u16 = len
+                .try_into()
+                .expect("expected in/outdent jump of less than 2^16");
+            match i {
+                1 => Some(IndentMark::Indent(len_u16 - 1)),
+                2 => Some(IndentMark::Outdent(len_u16 - 1)),
+                3 => {
+                    let number = capture.as_str()[1..]
+                        .parse::<u16>()
+                        .expect("failed to parse a 16-bit unsigned integer in a numeric anchor");
+                    Some(IndentMark::NumericAnchor(number))
+                    // TODO: double check this rust feature
+                }
+                4 => {
+                    // XXX: might be off by a byte... should write a test
+                    let content = &capture.as_str()[2..capture.end() - 1];
+                    Some(IndentMark::TokenAnchor(content))
+                }
+                _ => unreachable!(),
+            }
+        });
+    }
+
+    fn next_token(stream: &'a str) -> Result<Self, &'static str> {
+        Self::try_lex_indent_mark(stream)
+            .map(|im| Token::IndentMark(im))
+            .ok_or("unknown token")
+            .or_else(|err| {
+                try_parse::quoted_string(stream).map(|s| Token::Literal(Literal::String(s)))
+            })
+            .or_else(|err|
+            // TODO: staircase match is slow or awkward, there ought to be a better way to test for string matches (maybe even a good regex)
+            match &stream[0..=2] {
+                "<=" => Ok(Token::LtEq),
+                ">=" => Ok(Token::GtEq),
+                "==" => Ok(Token::EqEq),
+                "!=" => Ok(Token::NotEq), 
+                _ => match &stream[0..=1] {
+                    "{" => Ok(Token::LBrace),
+                    "}" => Ok(Token::RBrace),
+                    "[" => Ok(Token::LBrack),
+                    "]" => Ok(Token::RBrack),
+                    ">" => Ok(Token::Gt),
+                    "<" => Ok(Token::Lt),
+                    "|" => Ok(Token::Pipe),
+                    "&" => Ok(Token::Ampersand),
+                    "." => Ok(Token::Dot),
+                    "^" => Ok(Token::Caret),
+                    "@" => Ok(Token::At),
+                    "#" => Ok(Token::Hash),
+                    "/" => Ok(Token::FSlash),
+                    r"\" => Ok(Token::BSlash),
+                    "+" => Ok(Token::Plus),
+                    "-" => Ok(Token::Minus),
+                    "*" => Ok(Token::Asterisk),
+                    "!" => Ok(Token::Exclaim),
+                    "~" => Ok(Token::Tilde),
+                }
+            })
+    }
+}
+
 #[macro_use]
 pub mod try_parse {
     use super::*;
@@ -232,14 +333,14 @@ pub mod try_parse {
         }};
     }
 
-    pub fn quoted_string<'a>(ctx: &'a ParseContext) -> Result<&'a str, &'static str> {
+    pub fn quoted_string<'a>(src: &'a str) -> Result<&'a str, &'static str> {
         try_read_chars(
-            ctx,
+            src,
             |i, c, next| match (i, c, next) {
                 (_, _, None) => Err("unterminated string literal"),
                 (0, '"', _) => Ok(false),
                 (0, _, _) => Err("strings must start with a quote '\"'"),
-                (i, c, _) if c == '"' && &ctx.remaining_src()[i - 1..=i - 1] != "\\" => Ok(true),
+                (i, c, _) if c == '"' && &src[i - 1..=i - 1] != "\\" => Ok(true),
                 _ => Ok(false),
             },
             |s| Ok(s),
@@ -254,7 +355,7 @@ pub mod try_parse {
             c.is_ascii_alphanumeric() || c == '_'
         }
         try_read_chars(
-            ctx,
+            &ctx.remaining_src(),
             |i, c, next| match (i, c, next) {
                 (0, c, _) if !is_name_start_char(c) => Err("identifiers must start with /[a-z_]/"),
                 (_, c, _) if !is_name_char(c) => Err("identifiers must contain with /[a-z_]/"),
@@ -367,7 +468,7 @@ pub enum Literal<'a> {
 
 // TODO: create an arg struct for this
 fn try_read_chars<'a, IsLastChar, Map, Expr>(
-    ctx: &'a ParseContext,
+    src: &'a str,
     is_last_char: IsLastChar,
     map_to_expr: Map,
 ) -> Result<Expr, &'static str>
@@ -375,14 +476,12 @@ where
     IsLastChar: Fn(usize, char, Option<char>) -> Result<bool, &'static str>,
     Map: FnOnce(&'a str) -> Result<Expr, &'static str>,
 {
-    ctx.remaining_src()
-        .chars()
+    src.chars()
         .nth(0)
         .ok_or("trying to start reading from EOF")
         .and(
-            ctx.remaining_src()
-                .chars()
-                .zip(ctx.remaining_src().chars().map(Some).skip(1).chain([None]))
+            src.chars()
+                .zip(src.chars().map(Some).skip(1).chain([None]))
                 .enumerate()
                 .find_map(|(i, (c, next))| {
                     let test = is_last_char(i, c, next);
@@ -396,7 +495,7 @@ where
                 .unwrap_or(Err("failed to find")),
         )
         .and_then(|end| {
-            let content = &ctx.remaining_src()[..=end];
+            let content = &src[..=end];
             map_to_expr(content)
         })
 }
@@ -404,7 +503,7 @@ where
 impl<'a> Literal<'a> {
     fn try_parse_integer(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
-            ctx,
+            &ctx.remaining_src(),
             |i, c, next| match (i, c, next) {
                 (0, c, _) if !matches!(c, '1'..='9') => {
                     Err("integers must start with a non-zero digit /[1-9]/")
@@ -424,7 +523,7 @@ impl<'a> Literal<'a> {
 
     fn try_parse_float(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
-            ctx,
+            &ctx.remaining_src(),
             |i, c, next| match (i, c, next) {
                 (0, c, _) if !matches!(c, '1'..='9') => {
                     Err("floats must start with a non-zero digit /[1-9]/")
@@ -450,7 +549,7 @@ impl<'a> Literal<'a> {
     fn try_parse_regex(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
         // TODO: dedup with try_parse::string which uses try_read_chars similarly
         try_read_chars(
-            ctx,
+            &ctx.remaining_src(),
             |i, c, next| match (i, c, next) {
                 (_, _, None) => Err("unterminated regex literal"),
                 (0, '/', _) => Ok(false),
