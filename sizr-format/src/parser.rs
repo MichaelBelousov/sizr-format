@@ -168,12 +168,19 @@ pub enum Token<'a> {
     LBrace, RBrace, LBrack, RBrack, Gt, Lt, Pipe, BSlash, FSlash, Plus, Minus, Asterisk, Ampersand, Dot, Caret, At, Hash, Exclaim, Tilde,
     LtEq, GtEq, EqEq, NotEq, 
     IndentMark(IndentMark<'a>),
+    Eof,
+    Unknown,
 }
 
-impl<'a> Token<'a> {
-    //pub fn tokens(stream: &str) -> impl Iterator<Self> {}
+struct TokenIter<'a> {
+    src: &'a str,
+}
+impl<'a> TokenIter<'a> {
+    pub fn new(src: &'a str) -> Self {
+        TokenIter { src }
+    }
 
-    fn try_lex_indent_mark(src: &str) -> Option<IndentMark> {
+    fn try_lex_indent_mark(src: &str) -> Option<Read<IndentMark>> {
         lazy_static! {
             static ref INDENT_MARK_PATTERN: regex::Regex =
                 // this is why I didn't want to do regex... maybe I'll rewrite this part later
@@ -202,23 +209,26 @@ impl<'a> Token<'a> {
             let len_u16: u16 = len
                 .try_into()
                 .expect("expected in/outdent jump of less than 2^16");
-            match i {
-                1 => Some(IndentMark::Indent(len_u16 - 1)),
-                2 => Some(IndentMark::Outdent(len_u16 - 1)),
-                3 => {
-                    let number = capture.as_str()[1..]
-                        .parse::<u16>()
-                        .expect("failed to parse a 16-bit unsigned integer in a numeric anchor");
-                    Some(IndentMark::NumericAnchor(number))
-                    // TODO: double check this rust feature
-                }
-                4 => {
-                    // XXX: might be off by a byte... should write a test
-                    let content = &capture.as_str()[2..capture.end() - 1];
-                    Some(IndentMark::TokenAnchor(content))
-                }
-                _ => unreachable!(),
-            }
+            Some(Read::new(
+                match i {
+                    1 => IndentMark::Indent(len_u16 - 1),
+                    2 => IndentMark::Outdent(len_u16 - 1),
+                    3 => {
+                        let number = capture.as_str()[1..].parse::<u16>().expect(
+                            "failed to parse a 16-bit unsigned integer in a numeric anchor",
+                        );
+                        IndentMark::NumericAnchor(number)
+                        // TODO: double check this rust feature
+                    }
+                    4 => {
+                        // XXX: might be off by a byte... should write a test
+                        let content = &capture.as_str()[2..capture.end() - 1];
+                        IndentMark::TokenAnchor(content)
+                    }
+                    _ => unreachable!(),
+                },
+                len,
+            ))
         });
     }
 
@@ -237,62 +247,88 @@ impl<'a> Token<'a> {
             .unwrap_or((src, 0))
     }
 
-    fn next_token(stream: &'a str) -> Result<Self, &'static str> {
+    fn next_token(&mut self) -> Result<Read<Token>, &'static str> {
+        // TODO: fix aliasing
+        let stream = self.src;
         let (stream, ws_skip_1) = Self::skip_whitespace(stream);
         let (stream, comment_skip) = Self::skip_comments(stream);
         let (stream, ws_skip_2) = Self::skip_whitespace(stream);
         let skipped = ws_skip_1 + comment_skip + ws_skip_2;
         Self::try_lex_indent_mark(stream)
-            .map(|im| Token::IndentMark(im))
+            .map(|read| read.map(|im| Token::IndentMark(im), 0))
             .ok_or("unknown token")
-            .or_else(|_err| lex::string_literal(stream).map(|s| Token::Literal(Literal::String(s))))
+            .or_else(|_err| {
+                lex::string_literal(stream)
+                    .map(|s| Read::new(Token::Literal(Literal::String(s)), s.len()))
+            })
             .or_else(|_err| {
                 match lex::regex_literal(stream).map(|s| {
                     regex::Regex::new(s)
                         .map_err(|_err| "invalid regex didn't compile") // TODO: propagate error correctly
-                        .map(|r| Token::Literal(Literal::Regex(Regex::new(r))))
+                        .map(|r| Read::new(Token::Literal(Literal::Regex(Regex::new(r))), s.len()))
                 }) {
                     Ok(r) => r,
                     Err(e) => Err(e),
                 }
             })
+            .or_else(|_err| {
+                Literal::try_parse(stream).map(|read| read.map(|lit| Token::Literal(lit), 0))
+            })
             .or_else(|_err|
             // TODO: staircase match is slow or awkward, there ought to be a better way to test for string matches (maybe even regex)
             match &stream[0..=0] {
-                "{" => Ok(Token::LBrace),
-                "}" => Ok(Token::RBrace),
-                "[" => Ok(Token::LBrack),
-                "]" => Ok(Token::RBrack),
+                "{" => Ok(Read::new(Token::LBrace, 1)),
+                "}" => Ok(Read::new(Token::RBrace, 1)),
+                "[" => Ok(Read::new(Token::LBrack, 1)),
+                "]" => Ok(Read::new(Token::RBrack, 1)),
                 ">" => match &stream[1..=1] {
-                    "=" => Ok(Token::GtEq),
-                    _ => Ok(Token::Gt),
+                    "=" => Ok(Read::new(Token::GtEq, 2)),
+                    _ => Ok(Read::new(Token::Gt, 1)),
                 }
                 "<" => match &stream[1..=1] {
-                    "=" => Ok(Token::LtEq),
-                    _ => Ok(Token::Lt),
+                    "=" => Ok(Read::new(Token::LtEq, 2)),
+                    _ => Ok(Read::new(Token::Lt, 1)),
                 }
-                "|" => Ok(Token::Pipe),
-                "&" => Ok(Token::Ampersand),
-                "." => Ok(Token::Dot),
-                "^" => Ok(Token::Caret),
-                "@" => Ok(Token::At),
-                "#" => Ok(Token::Hash),
-                "/" => Ok(Token::FSlash),
-                r"\" => Ok(Token::BSlash),
-                "+" => Ok(Token::Plus),
-                "-" => Ok(Token::Minus),
-                "*" => Ok(Token::Asterisk),
+                "|" => Ok(Read::new(Token::Pipe, 1)),
+                "&" => Ok(Read::new(Token::Ampersand, 1)),
+                "." => Ok(Read::new(Token::Dot, 1)),
+                "^" => Ok(Read::new(Token::Caret, 1)),
+                "@" => Ok(Read::new(Token::At, 1)),
+                "#" => Ok(Read::new(Token::Hash, 1)),
+                "/" => Ok(Read::new(Token::FSlash, 1)),
+                r"\" => Ok(Read::new(Token::BSlash, 1)),
+                "+" => Ok(Read::new(Token::Plus, 1)),
+                "-" => Ok(Read::new(Token::Minus, 1)),
+                "*" => Ok(Read::new(Token::Asterisk, 1)),
                 "!" => match &stream[1..=1] {
-                    "=" => Ok(Token::NotEq),
-                    _ => Ok(Token::Exclaim),
+                    "=" => Ok(Read::new(Token::NotEq, 1)),
+                    _ => Ok(Read::new(Token::Exclaim, 1)),
                 }
                 "=" => match &stream[1..=1] {
-                    "=" => Ok(Token::EqEq),
-                    _ => Ok(Token::Exclaim),
+                    "=" => Ok(Read::new(Token::EqEq, 2)),
+                    _ => Ok(Read::new(Token::Exclaim, 1)),
                 }
-                "~" => Ok(Token::Tilde),
+                "~" => Ok(Read::new(Token::Tilde, 1)),
                 _ => Err("unknown token")
             })
+    }
+}
+
+impl<'a> Iterator for TokenIter<'a> {
+    type Item = Result<Read<Token<'a>>, &'static str>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_token: Self::Item = self.next_token();
+        match next_token {
+            Eof => None,
+            other => Some(other),
+        }
+    }
+}
+
+impl<'a> Token<'a> {
+    pub fn tokens(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>, &'static str>> {
+        TokenIter::new(stream)
     }
 }
 
@@ -374,7 +410,7 @@ pub mod lex {
         lex_escapable_delimited_string!(src, '"', "regex")
     }
 
-    pub fn name<'a>(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    pub fn name<'a>(src: &'a str) -> Result<Read<FilterExpr<'a>>, &'static str> {
         fn is_name_start_char(c: char) -> bool {
             c.is_ascii_alphabetic() || c == '_'
         }
@@ -382,7 +418,7 @@ pub mod lex {
             c.is_ascii_alphanumeric() || c == '_'
         }
         try_read_chars(
-            &ctx.remaining_src(),
+            src,
             |i, c, next| match (i, c, next) {
                 (0, c, _) if !is_name_start_char(c) => Err("identifiers must start with /[a-z_]/"),
                 (_, c, _) if !is_name_char(c) => Err("identifiers must contain with /[a-z_]/"),
@@ -393,17 +429,17 @@ pub mod lex {
         )
     }
 
-    pub fn node_reference<'a>(ctx: &'a ParseContext) -> Result<Read<&'a str>, &'static str> {
-        (ctx.remaining_src().starts_with("$"))
+    pub fn node_reference<'a>(src: &'a str) -> Result<Read<&'a str>, &'static str> {
+        (src.starts_with("$"))
             .then(|| ())
             .ok_or("node references must start with a '$'")
-            .and(lex::name(&ctx.make_further_test_ctx(1)))
-            .map(|name| Read::new(&ctx.remaining_src()[..name.len + 1], name.len + 1))
+            .and(lex::name(src))
+            .map(|name| Read::new(&src[..name.len + 1], name.len + 1))
     }
 }
 
 pub trait Parseable<'a, T> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<T>, &'static str>;
+    fn try_parse(ctx: &'a str) -> Result<Read<T>, &'static str>;
 }
 
 // NOTE: rename to Anchor, or Aligner?
@@ -416,7 +452,7 @@ pub enum IndentMark<'a> {
 }
 
 impl<'a> Parseable<'a, IndentMark<'a>> for IndentMark<'a> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, &'static str> {
+    fn try_parse(src: &'a str) -> Result<Read<IndentMark<'a>>, &'static str> {
         lazy_static! {
             static ref INDENT_MARK_PATTERN: regex::Regex =
                 // this is why I didn't want to do regex... maybe I'll rewrite this part later
@@ -424,7 +460,7 @@ impl<'a> Parseable<'a, IndentMark<'a>> for IndentMark<'a> {
                     .expect("INDENT_MARK_PATTERN regex failed to compile");
         }
         let capture = INDENT_MARK_PATTERN
-            .captures(&ctx.remaining_src())
+            .captures(src)
             .map(|captures| {
                 captures
                     .iter()
@@ -528,9 +564,9 @@ where
 }
 
 impl<'a> Literal<'a> {
-    fn try_parse_integer(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+    fn try_parse_integer(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
-            &ctx.remaining_src(),
+            &src,
             |i, c, next| match (i, c, next) {
                 (0, c, _) if !matches!(c, '1'..='9') => {
                     Err("integers must start with a non-zero digit /[1-9]/")
@@ -548,9 +584,9 @@ impl<'a> Literal<'a> {
         )
     }
 
-    fn try_parse_float(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+    fn try_parse_float(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
         try_read_chars(
-            &ctx.remaining_src(),
+            &src,
             |i, c, next| match (i, c, next) {
                 (0, c, _) if !matches!(c, '1'..='9') => {
                     Err("floats must start with a non-zero digit /[1-9]/")
@@ -568,20 +604,19 @@ impl<'a> Literal<'a> {
         )
     }
 
-    fn try_parse_string(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        lex::string_literal(ctx.remaining_src())
-            .map(|s| Read::new(Literal::String(&s[1..s.len() - 1]), s.len()))
+    fn try_parse_string(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
+        lex::string_literal(src).map(|s| Read::new(Literal::String(&s[1..s.len() - 1]), s.len()))
     }
 
-    fn try_parse_regex(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
+    fn try_parse_regex(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
         // TODO: dedup with lex::string which uses try_read_chars similarly
         try_read_chars(
-            &ctx.remaining_src(),
+            &src,
             |i, c, next| match (i, c, next) {
                 (_, _, None) => Err("unterminated regex literal"),
                 (0, '/', _) => Ok(false),
                 (0, _, _) => Err("regex must start with a slash '/'"),
-                (i, '/', _) if &ctx.remaining_src()[i - 1..i] == "\\" => Ok(false),
+                (i, '/', _) if &src[i - 1..i] == "\\" => Ok(false),
                 (_, '/', _) => Ok(true),
                 _ => Ok(false),
             },
@@ -594,10 +629,10 @@ impl<'a> Literal<'a> {
         )
     }
 
-    fn try_parse_boolean(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        if ctx.remaining_src().starts_with("true") {
+    fn try_parse_boolean(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
+        if src.starts_with("true") {
             Ok(Read::new(Literal::Boolean(true), "true".len()))
-        } else if ctx.remaining_src().starts_with("false") {
+        } else if src.starts_with("false") {
             Ok(Read::new(Literal::Boolean(false), "false".len()))
         } else {
             Err("expected boolean literal ('true' or 'false')")
@@ -606,12 +641,12 @@ impl<'a> Literal<'a> {
 }
 
 impl<'a> Parseable<'a, Literal<'a>> for Literal<'a> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<Literal<'a>>, &'static str> {
-        Self::try_parse_integer(&ctx)
-            .or_else(|_| Self::try_parse_float(&ctx)) // TODO: consider combining integer and float parsing
-            .or_else(|_| Self::try_parse_string(&ctx))
-            .or_else(|_| Self::try_parse_regex(&ctx))
-            .or_else(|_| Self::try_parse_boolean(&ctx))
+    fn try_parse(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
+        Self::try_parse_integer(src)
+            .or_else(|_| Self::try_parse_float(src)) // TODO: consider combining integer and float parsing
+            .or_else(|_| Self::try_parse_string(src))
+            .or_else(|_| Self::try_parse_regex(src))
+            .or_else(|_| Self::try_parse_boolean(src))
             .map_err(|_| "expected literal") // TODO: consider creating some kind of `Rope` of &str to make compounding errors possible
     }
 }
@@ -637,33 +672,31 @@ pub enum FilterExpr<'a> {
 }
 
 impl<'a> FilterExpr<'a> {
-    fn try_parse_rest(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_rest(src: &'a str) -> Result<Read<FilterExpr<'a>>, &'static str> {
         // TODO: prefer read
-        if ctx.remaining_src().starts_with("...") {
+        if src.starts_with("...") {
             Ok(Read::new(FilterExpr::Rest, "...".len()))
         } else {
             Err("expected rest filter '...'")
         }
     }
-    fn try_parse_binop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_binop(src: &'a str) -> Result<Read<FilterExpr<'a>>, &'static str> {
         unimplemented!()
     }
-    fn try_parse_unaryop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_unaryop(src: &'a str) -> Result<Read<FilterExpr<'a>>, &'static str> {
         unimplemented!()
     }
-    fn try_parse_node_reference(
-        ctx: &'a ParseContext,
-    ) -> Result<Read<FilterExpr<'a>>, &'static str> {
-        lex::node_reference(&ctx)
+    fn try_parse_node_reference(src: &'a str) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        lex::node_reference(src)
             .map(|r| r.map(|text| FilterExpr::NodeReference { name: &text[1..] }, 0))
     }
-    fn try_parse_literal(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_literal(src: &'a str) -> Result<Read<FilterExpr<'a>>, &'static str> {
         unimplemented!()
     }
-    fn try_parse_group(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_group(src: &'a str) -> Result<Read<FilterExpr<'a>>, &'static str> {
         unimplemented!()
     }
-    fn try_parse_name(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_name(src: &'a str) -> Result<Read<FilterExpr<'a>>, &'static str> {
         unimplemented!()
     }
     /*
@@ -725,14 +758,14 @@ impl<'a> FilterExpr<'a> {
 
 impl<'a> Parseable<'a, FilterExpr<'a>> for FilterExpr<'a> {
     #[allow(dead_code)]
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
-        Self::try_parse_rest(&ctx)
-            .or_else(|_| Self::try_parse_binop(&ctx))
-            .or_else(|_| Self::try_parse_unaryop(&ctx))
-            .or_else(|_| Self::try_parse_node_reference(&ctx))
-            .or_else(|_| Self::try_parse_literal(&ctx))
-            .or_else(|_| Self::try_parse_group(&ctx))
-            .or_else(|_| Self::try_parse_name(&ctx))
+    fn try_parse(src: &'a str) -> Result<Read<FilterExpr<'a>>, &'static str> {
+        Self::try_parse_rest(src)
+            .or_else(|_| Self::try_parse_binop(src))
+            .or_else(|_| Self::try_parse_unaryop(src))
+            .or_else(|_| Self::try_parse_node_reference(src))
+            .or_else(|_| Self::try_parse_literal(src))
+            .or_else(|_| Self::try_parse_group(src))
+            .or_else(|_| Self::try_parse_name(src))
             .map_err(|_| "expected filter expr")
     }
 }
@@ -803,8 +836,8 @@ impl<'a> WriteCommand<'a> {
         }
     }
 
-    fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        lex::string_literal(ctx.remaining_src()).map(|s| {
+    fn try_parse_raw(src: &'a str) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        lex::string_literal(src).map(|s| {
             Read::new(
                 WriteCommand::Raw(unescape_newlines(&s[1..s.len() - 1])),
                 s.len(),
@@ -812,10 +845,8 @@ impl<'a> WriteCommand<'a> {
         })
     }
 
-    fn try_parse_node_reference(
-        ctx: &'a ParseContext,
-    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        lex::node_reference(&ctx).map(|r| {
+    fn try_parse_node_reference(src: &'a str) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        lex::node_reference(src).map(|r| {
             r.map(
                 |text| WriteCommand::NodeReference {
                     name: &text[1..],
@@ -826,23 +857,18 @@ impl<'a> WriteCommand<'a> {
         })
     }
 
-    fn try_parse_wrap_point(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        ctx.remaining_src()
-            .starts_with("\\")
+    fn try_parse_wrap_point(src: &'a str) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        src.starts_with("\\")
             .then(|| Read::new(WriteCommand::WrapPoint, 1))
             .ok_or("expected wrap point '\\'")
     }
 
-    fn try_parse_conditional(
-        ctx: &'a ParseContext,
-    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
+    fn try_parse_conditional(src: &'a str) -> Result<Read<WriteCommand<'a>>, &'static str> {
         unimplemented!()
     }
 
-    fn try_parse_indent_mark(
-        ctx: &'a ParseContext,
-    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        IndentMark::try_parse(ctx)
+    fn try_parse_indent_mark(src: &'a str) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        IndentMark::try_parse(src)
             .map(|result| result.map(|read| WriteCommand::IndentMark(read), 0))
     }
 
@@ -858,31 +884,31 @@ impl<'a> WriteCommand<'a> {
         // FIXME: need to get rid of all of my borrowing of already borrowed values...
         ctx.consume_read_and_space(try_parse_sequence_start(ctx)?);
         while try_parse_sequence_end(ctx).is_err() {
-            seq.push(ctx.consume_read_and_space(Self::try_parse(ctx)?));
+            seq.push(ctx.consume_read_and_space(Self::try_parse(ctx.remaining_src())?));
         }
         ctx.consume_read_and_space(try_parse_sequence_end(ctx)?);
         return Ok(Read::new(WriteCommand::Sequence(seq), 0));
     }
 
-    fn try_parse_atom(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        Self::try_parse_raw(ctx)
-            .or_else(|_| Self::try_parse_node_reference(ctx))
-            .or_else(|_| Self::try_parse_wrap_point(ctx))
-            .or_else(|_| Self::try_parse_conditional(ctx))
-            .or_else(|_| Self::try_parse_indent_mark(ctx))
-            .or_else(|_| Self::try_parse_sequence(ctx))
+    fn try_parse_atom(src: &'a str) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        Self::try_parse_raw(src)
+            .or_else(|_| Self::try_parse_node_reference(src))
+            .or_else(|_| Self::try_parse_wrap_point(src))
+            .or_else(|_| Self::try_parse_conditional(src))
+            .or_else(|_| Self::try_parse_indent_mark(src))
+            //.or_else(|_| Self::try_parse_sequence(src))
             .map_err(|_| "expected atomic expression")
     }
 }
 
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        Self::try_parse_raw(ctx)
-            .or_else(|_| Self::try_parse_sequence(ctx))
-            .or_else(|_| Self::try_parse_node_reference(ctx))
-            .or_else(|_| Self::try_parse_wrap_point(ctx))
-            .or_else(|_| Self::try_parse_indent_mark(ctx))
-            .or_else(|_| Self::try_parse_conditional(ctx)) // this is placeholder, I'll need some real parsing
+    fn try_parse(src: &'a str) -> Result<Read<WriteCommand<'a>>, &'static str> {
+        Self::try_parse_raw(src)
+            .or_else(|_| Self::try_parse_sequence(src))
+            .or_else(|_| Self::try_parse_node_reference(src))
+            .or_else(|_| Self::try_parse_wrap_point(src))
+            .or_else(|_| Self::try_parse_indent_mark(src))
+            .or_else(|_| Self::try_parse_conditional(src)) // this is placeholder, I'll need some real parsing
             .map_err(|_| "expected write command") // TODO: consider creating some kind of `Rope` of &str to make compounding error strings easy
     }
 }
@@ -991,7 +1017,7 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> 
     if cfg!(debug_assertions) {
         println!("after read '=' remaining: '{}'", ctx.remaining_src());
     }
-    let commands = ctx.consume_read_and_space(WriteCommand::try_parse(&ctx)?);
+    let commands = ctx.consume_read_and_space(WriteCommand::try_parse(ctx.remaining_src())?);
     Ok(Node { name, commands })
 }
 
