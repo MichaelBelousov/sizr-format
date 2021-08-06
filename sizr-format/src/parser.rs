@@ -361,20 +361,6 @@ impl<'a> TokenIter<'a> {
             .map(|read| read.map(|im| Token::IndentMark(im), 0))
             .ok_or("unknown token")
             .or_else(|_err| {
-                lex::string_literal(stream)
-                    .map(|s| Read::new(Token::Literal(Literal::String(s)), s.len()))
-            })
-            .or_else(|_err| {
-                match lex::regex_literal(stream).map(|s| {
-                    regex::Regex::new(s)
-                        .map_err(|_err| "invalid regex didn't compile") // TODO: propagate error correctly
-                        .map(|r| Read::new(Token::Literal(Literal::Regex(Regex::new(r))), s.len()))
-                }) {
-                    Ok(r) => r,
-                    Err(e) => Err(e),
-                }
-            })
-            .or_else(|_err| {
                 Literal::try_lex(stream).map(|read| read.map(|lit| Token::Literal(lit), 0))
             })
             .or_else(|_err| lex_keyword!(stream, "node").map(|_| Read::new(Token::Node, 4)))
