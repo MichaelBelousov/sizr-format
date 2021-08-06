@@ -618,24 +618,7 @@ impl<'a> Literal<'a> {
     }
 
     fn try_lex_regex(src: &'a str) -> Result<Read<Literal<'a>>, ParseError> {
-        // TODO: dedup with lex::string which uses try_read_chars similarly
-        try_read_chars(
-            src,
-            |i, c, next| match (i, c, next) {
-                (_, _, None) => Err("unterminated regex literal"),
-                (0, '/', _) => Ok(false),
-                (0, _, _) => Err("regex must start with a slash '/'"),
-                (i, '/', _) if &src[i - 1..i] == "\\" => Ok(false),
-                (_, '/', _) => Ok(true),
-                _ => Ok(false),
-            },
-            |s| {
-                regex::Regex::new(s)
-                    // NEEDSWORK: should combine with the regex failure message
-                    .map_err(|_err| "invalid regex didn't compile")
-                    .map(|r| Read::new(Literal::Regex(Regex::new(r)), s.len()))
-            },
-        )
+        lex::regex_literal(src).map(|s| Read::new(Literal::String(&s[1..s.len() - 1]), s.len()))
     }
 
     fn try_lex_boolean(src: &'a str) -> Result<Read<Literal<'a>>, ParseError> {
