@@ -73,6 +73,11 @@ impl<'a> ParseContext<'a> {
             .unwrap_or(self.remaining_src().len())
     }
 
+    pub fn consume_read<T>(&self, read: Read<T>) -> T {
+        self.inc_loc(read.len);
+        return read.result;
+    }
+
     pub fn consume_read_and_space<T>(&self, read: Read<T>) -> T {
         self.inc_loc(read.len);
         self.skip_whitespace();
@@ -95,10 +100,6 @@ pub mod ops {
         Dot,
     }
 
-    pub trait FromToken {
-        fn read<'a>(token: &'a str) -> Self;
-    }
-
     #[derive(Debug, PartialEq)]
     pub enum Assoc {
         Left,
@@ -110,17 +111,6 @@ pub mod ops {
         Negate,
         BitwiseComplement,
         LogicalComplement,
-    }
-
-    impl FromToken for UnaryOp {
-        fn read<'a>(token: &'a str) -> Self {
-            match token {
-                "-" => UnaryOp::Negate,
-                "~" => UnaryOp::BitwiseComplement,
-                "!" => UnaryOp::LogicalComplement,
-                _ => unreachable!(),
-            }
-        }
     }
 
     pub trait HasAssoc {
@@ -158,182 +148,6 @@ pub mod ops {
                 BinOp::Dot => Prec::Dot,
             }
         }
-    }
-}
-
-#[rustfmt::skip]
-#[allow(dead_code)]
-#[derive(Debug)]
-pub enum Token<'a> {
-    Reference(&'a str),
-    Literal(Literal<'a>),
-    LBrace, RBrace, LBrack, RBrack, Gt, Lt, Pipe, BSlash, FSlash, Plus, Minus, Asterisk, Ampersand, Dot, Caret, At, Hash, Exclaim, Tilde,
-    LtEq, GtEq, EqEq, NotEq, 
-    IndentMark(IndentMark<'a>),
-    Eof,
-    Unknown,
-}
-
-struct TokenIter<'a> {
-    src: &'a str,
-}
-impl<'a> TokenIter<'a> {
-    pub fn new(src: &'a str) -> Self {
-        TokenIter { src }
-    }
-
-    fn try_lex_indent_mark(src: &str) -> Option<Read<IndentMark>> {
-        lazy_static! {
-            static ref INDENT_MARK_PATTERN: regex::Regex =
-                // this is why I didn't want to do regex... maybe I'll rewrite this part later
-                regex::Regex::new(r#"^(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*)"#)
-                    .expect("INDENT_MARK_PATTERN regex failed to compile");
-        }
-        let capture = INDENT_MARK_PATTERN
-            .captures(&src)
-            .map(|captures| {
-                captures
-                    .iter()
-                    .enumerate()
-                    .skip(1) // skip the implicit total capture group
-                    .find(|(_, capture)| capture.is_some())
-                    .expect("INDENT_MARK_PATTERN capture groups are exclusive, one should match")
-            })
-            .map(|(i, capture)| match capture {
-                Some(inner) => Some((i, inner)),
-                None => None,
-            })
-            .flatten();
-
-        return capture.and_then(|(i, capture)| {
-            use std::convert::TryInto;
-            let len = capture.range().len();
-            let len_u16: u16 = len
-                .try_into()
-                .expect("expected in/outdent jump of less than 2^16");
-            Some(Read::new(
-                match i {
-                    1 => IndentMark::Indent(len_u16 - 1),
-                    2 => IndentMark::Outdent(len_u16 - 1),
-                    3 => {
-                        let number = capture.as_str()[1..].parse::<u16>().expect(
-                            "failed to parse a 16-bit unsigned integer in a numeric anchor",
-                        );
-                        IndentMark::NumericAnchor(number)
-                        // TODO: double check this rust feature
-                    }
-                    4 => {
-                        // XXX: might be off by a byte... should write a test
-                        let content = &capture.as_str()[2..capture.end() - 1];
-                        IndentMark::TokenAnchor(content)
-                    }
-                    _ => unreachable!(),
-                },
-                len,
-            ))
-        });
-    }
-
-    fn skip_whitespace(src: &str) -> (&str, usize) {
-        if let Some(jump) = src.find(|c: char| !c.is_whitespace()) {
-            (&src[jump..], jump)
-        } else {
-            ("", src.len())
-        }
-    }
-
-    fn skip_comments(src: &str) -> (&str, usize) {
-        src.starts_with("#")
-            .then(|| ())
-            .and_then(|_| src.find("\n").map(|dist| (&src[dist..], dist)))
-            .unwrap_or((src, 0))
-    }
-
-    fn next_token(&mut self) -> Result<Read<Token<'a>>, ParseError> {
-        // TODO: fix aliasing
-        let stream = self.src;
-        let (stream, ws_skip_1) = Self::skip_whitespace(stream);
-        let (stream, comment_skip) = Self::skip_comments(stream);
-        let (stream, ws_skip_2) = Self::skip_whitespace(stream);
-        let skipped = ws_skip_1 + comment_skip + ws_skip_2;
-        Self::try_lex_indent_mark(stream)
-            .map(|read| read.map(|im| Token::IndentMark(im), 0))
-            .ok_or("unknown token")
-            .or_else(|_err| {
-                lex::string_literal(stream)
-                    .map(|s| Read::new(Token::Literal(Literal::String(s)), s.len()))
-            })
-            .or_else(|_err| {
-                match lex::regex_literal(stream).map(|s| {
-                    regex::Regex::new(s)
-                        .map_err(|_err| "invalid regex didn't compile") // TODO: propagate error correctly
-                        .map(|r| Read::new(Token::Literal(Literal::Regex(Regex::new(r))), s.len()))
-                }) {
-                    Ok(r) => r,
-                    Err(e) => Err(e),
-                }
-            })
-            .or_else(|_err| {
-                Literal::try_lex(stream).map(|read| read.map(|lit| Token::Literal(lit), 0))
-            })
-            .or_else(|_err|
-            // TODO: staircase match is slow or awkward, there ought to be a better way to test for string matches (maybe even regex)
-            match &stream[0..=0] {
-                "{" => Ok(Read::new(Token::LBrace, 1)),
-                "}" => Ok(Read::new(Token::RBrace, 1)),
-                "[" => Ok(Read::new(Token::LBrack, 1)),
-                "]" => Ok(Read::new(Token::RBrack, 1)),
-                ">" => match &stream[1..=1] {
-                    "=" => Ok(Read::new(Token::GtEq, 2)),
-                    _ => Ok(Read::new(Token::Gt, 1)),
-                }
-                "<" => match &stream[1..=1] {
-                    "=" => Ok(Read::new(Token::LtEq, 2)),
-                    _ => Ok(Read::new(Token::Lt, 1)),
-                }
-                "|" => Ok(Read::new(Token::Pipe, 1)),
-                "&" => Ok(Read::new(Token::Ampersand, 1)),
-                "." => Ok(Read::new(Token::Dot, 1)),
-                "^" => Ok(Read::new(Token::Caret, 1)),
-                "@" => Ok(Read::new(Token::At, 1)),
-                "#" => Ok(Read::new(Token::Hash, 1)),
-                "/" => Ok(Read::new(Token::FSlash, 1)),
-                r"\" => Ok(Read::new(Token::BSlash, 1)),
-                "+" => Ok(Read::new(Token::Plus, 1)),
-                "-" => Ok(Read::new(Token::Minus, 1)),
-                "*" => Ok(Read::new(Token::Asterisk, 1)),
-                "!" => match &stream[1..=1] {
-                    "=" => Ok(Read::new(Token::NotEq, 1)),
-                    _ => Ok(Read::new(Token::Exclaim, 1)),
-                }
-                "=" => match &stream[1..=1] {
-                    "=" => Ok(Read::new(Token::EqEq, 2)),
-                    _ => Ok(Read::new(Token::Exclaim, 1)),
-                }
-                "~" => Ok(Read::new(Token::Tilde, 1)),
-                _ => Err("unknown token")
-            })
-    }
-}
-
-impl<'a> Iterator for TokenIter<'a> {
-    type Item = Result<Read<Token<'a>>, ParseError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let next_token = self.next_token();
-        match next_token {
-            Ok(Read {
-                result: Token::Eof, ..
-            }) => None,
-            Err(_) => None,
-            _ => Some(next_token),
-        }
-    }
-}
-
-impl<'a> Token<'a> {
-    pub fn tokens(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
-        TokenIter::new(stream)
     }
 }
 
@@ -441,6 +255,186 @@ pub mod lex {
             .and(lex::name(src))
             .map(|name| Read::new(&src[..name.len + 1], name.len + 1))
     }
+}
+
+#[rustfmt::skip]
+#[allow(dead_code)]
+#[derive(Debug)]
+pub enum Token<'a> {
+    // literals
+    Reference(&'a str),
+    Literal(Literal<'a>),
+    IndentMark(IndentMark<'a>),
+    // symbols
+    LBrace, RBrace, LBrack, RBrack, Gt, Lt, Pipe, BSlash, FSlash, Plus, Minus, Asterisk, Ampersand, Dot, Caret, At, Hash, Exclaim, Tilde,
+    LtEq, GtEq, EqEq, NotEq, 
+    // keywords
+    Node,
+    // special
+    Eof,
+    Unknown,
+}
+
+struct TokenIter<'a> {
+    src: &'a str,
+}
+impl<'a> TokenIter<'a> {
+    pub fn new(src: &'a str) -> Self {
+        TokenIter { src }
+    }
+
+    fn try_lex_indent_mark(src: &str) -> Option<Read<IndentMark>> {
+        lazy_static! {
+            static ref INDENT_MARK_PATTERN: regex::Regex =
+                // this is why I didn't want to do regex... maybe I'll rewrite this part later
+                regex::Regex::new(r#"^(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*)"#)
+                    .expect("INDENT_MARK_PATTERN regex failed to compile");
+        }
+        let capture = INDENT_MARK_PATTERN
+            .captures(&src)
+            .map(|captures| {
+                captures
+                    .iter()
+                    .enumerate()
+                    .skip(1) // skip the implicit total capture group
+                    .find(|(_, capture)| capture.is_some())
+                    .expect("INDENT_MARK_PATTERN capture groups are exclusive, one should match")
+            })
+            .map(|(i, capture)| match capture {
+                Some(inner) => Some((i, inner)),
+                None => None,
+            })
+            .flatten();
+
+        return capture.and_then(|(i, capture)| {
+            use std::convert::TryInto;
+            let len = capture.range().len();
+            let len_u16: u16 = len
+                .try_into()
+                .expect("expected in/outdent jump of less than 2^16");
+            Some(Read::new(
+                match i {
+                    1 => IndentMark::Indent(len_u16 - 1),
+                    2 => IndentMark::Outdent(len_u16 - 1),
+                    3 => {
+                        let number = capture.as_str()[1..].parse::<u16>().expect(
+                            "failed to parse a 16-bit unsigned integer in a numeric anchor",
+                        );
+                        IndentMark::NumericAnchor(number)
+                        // TODO: double check this rust feature
+                    }
+                    4 => {
+                        // XXX: might be off by a byte... should write a test
+                        let content = &capture.as_str()[2..capture.end() - 1];
+                        IndentMark::TokenAnchor(content)
+                    }
+                    _ => unreachable!(),
+                },
+                len,
+            ))
+        });
+    }
+
+    fn skip_whitespace(src: &str) -> (&str, usize) {
+        if let Some(jump) = src.find(|c: char| !c.is_whitespace()) {
+            (&src[jump..], jump)
+        } else {
+            ("", src.len())
+        }
+    }
+
+    fn skip_comments(src: &str) -> (&str, usize) {
+        src.starts_with("#")
+            .then(|| ())
+            .and_then(|_| src.find("\n").map(|dist| (&src[dist..], dist)))
+            .unwrap_or((src, 0))
+    }
+
+    fn next_token(&mut self) -> Result<Read<Token<'a>>, ParseError> {
+        // TODO: fix aliasing
+        let stream = self.src;
+        let (stream, ws_skip_1) = Self::skip_whitespace(stream);
+        let (stream, comment_skip) = Self::skip_comments(stream);
+        let (stream, ws_skip_2) = Self::skip_whitespace(stream);
+        let skipped = ws_skip_1 + comment_skip + ws_skip_2;
+        Self::try_lex_indent_mark(stream)
+            .map(|read| read.map(|im| Token::IndentMark(im), 0))
+            .ok_or("unknown token")
+            .or_else(|_err| {
+                lex::string_literal(stream)
+                    .map(|s| Read::new(Token::Literal(Literal::String(s)), s.len()))
+            })
+            .or_else(|_err| {
+                match lex::regex_literal(stream).map(|s| {
+                    regex::Regex::new(s)
+                        .map_err(|_err| "invalid regex didn't compile") // TODO: propagate error correctly
+                        .map(|r| Read::new(Token::Literal(Literal::Regex(Regex::new(r))), s.len()))
+                }) {
+                    Ok(r) => r,
+                    Err(e) => Err(e),
+                }
+            })
+            .or_else(|_err| {
+                Literal::try_lex(stream).map(|read| read.map(|lit| Token::Literal(lit), 0))
+            })
+            .or_else(|_err| lex_keyword!(stream, "node").map(|_| Read::new(Token::Node, 4)))
+            .or_else(|_err|
+            // TODO: staircase match is slow or awkward, there ought to be a better way to test for string matches (maybe even regex)
+            match &stream[0..=0] {
+                "{" => Ok(Read::new(Token::LBrace, 1)),
+                "}" => Ok(Read::new(Token::RBrace, 1)),
+                "[" => Ok(Read::new(Token::LBrack, 1)),
+                "]" => Ok(Read::new(Token::RBrack, 1)),
+                ">" => match &stream[1..=1] {
+                    "=" => Ok(Read::new(Token::GtEq, 2)),
+                    _ => Ok(Read::new(Token::Gt, 1)),
+                }
+                "<" => match &stream[1..=1] {
+                    "=" => Ok(Read::new(Token::LtEq, 2)),
+                    _ => Ok(Read::new(Token::Lt, 1)),
+                }
+                "|" => Ok(Read::new(Token::Pipe, 1)),
+                "&" => Ok(Read::new(Token::Ampersand, 1)),
+                "." => Ok(Read::new(Token::Dot, 1)),
+                "^" => Ok(Read::new(Token::Caret, 1)),
+                "@" => Ok(Read::new(Token::At, 1)),
+                "#" => Ok(Read::new(Token::Hash, 1)),
+                "/" => Ok(Read::new(Token::FSlash, 1)),
+                r"\" => Ok(Read::new(Token::BSlash, 1)),
+                "+" => Ok(Read::new(Token::Plus, 1)),
+                "-" => Ok(Read::new(Token::Minus, 1)),
+                "*" => Ok(Read::new(Token::Asterisk, 1)),
+                "!" => match &stream[1..=1] {
+                    "=" => Ok(Read::new(Token::NotEq, 1)),
+                    _ => Ok(Read::new(Token::Exclaim, 1)),
+                }
+                "=" => match &stream[1..=1] {
+                    "=" => Ok(Read::new(Token::EqEq, 2)),
+                    _ => Ok(Read::new(Token::Exclaim, 1)),
+                }
+                "~" => Ok(Read::new(Token::Tilde, 1)),
+                _ => Err("unknown token")
+            })
+    }
+}
+
+impl<'a> Iterator for TokenIter<'a> {
+    type Item = Result<Read<Token<'a>>, ParseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_token = self.next_token();
+        match next_token {
+            Ok(Read {
+                result: Token::Eof, ..
+            }) => None,
+            Err(_) => None,
+            _ => Some(next_token),
+        }
+    }
+}
+
+pub fn tokenize<'a>(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
+    TokenIter::new(stream)
 }
 
 pub trait Lexable<'a, T> {
@@ -993,6 +987,7 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
 }
 
 fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
+    for token in tokenize(ctx.remaining_src()) {}
     ctx.skip_whitespace();
     ctx.consume_read_and_space(lex_keyword!(ctx.remaining_src(), "node")?);
     if cfg!(debug_assertions) {
