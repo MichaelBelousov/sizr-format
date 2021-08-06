@@ -10,6 +10,8 @@ use std::option::Option;
 use std::result::Result;
 use std::vec::Vec;
 
+type ParseError = &'static str;
+
 // TODO: make private to this module
 #[derive(Debug)]
 pub struct ParseContext<'a> {
@@ -247,7 +249,7 @@ impl<'a> TokenIter<'a> {
             .unwrap_or((src, 0))
     }
 
-    fn next_token(&mut self) -> Result<Read<Token<'a>>, &'static str> {
+    fn next_token(&mut self) -> Result<Read<Token<'a>>, ParseError> {
         // TODO: fix aliasing
         let stream = self.src;
         let (stream, ws_skip_1) = Self::skip_whitespace(stream);
@@ -315,19 +317,22 @@ impl<'a> TokenIter<'a> {
 }
 
 impl<'a> Iterator for TokenIter<'a> {
-    type Item = Result<Read<Token<'a>>, &'static str>;
+    type Item = Result<Read<Token<'a>>, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next_token = self.next_token();
         match next_token {
-            Eof => None,
-            other => Some(other),
+            Ok(Read {
+                result: Token::Eof, ..
+            }) => None,
+            Err(_) => None,
+            _ => Some(next_token),
         }
     }
 }
 
 impl<'a> Token<'a> {
-    pub fn tokens(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>, &'static str>> {
+    pub fn tokens(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
         TokenIter::new(stream)
     }
 }
@@ -338,10 +343,10 @@ pub mod lex {
 
     pub fn static_string<F: FnOnce(&char) -> bool>(
         stream: &str,
-        kind: &'static str,
-        expect_msg: &'static str,
+        kind: ParseError,
+        expect_msg: ParseError,
         test_is_after: F,
-    ) -> Result<Read<()>, &'static str> {
+    ) -> Result<Read<()>, ParseError> {
         stream
             .starts_with(kind)
             .then(|| ())
@@ -402,15 +407,15 @@ pub mod lex {
         }};
     }
 
-    pub fn string_literal<'a>(src: &'a str) -> Result<&'a str, &'static str> {
+    pub fn string_literal<'a>(src: &'a str) -> Result<&'a str, ParseError> {
         lex_escapable_delimited_string!(src, '"', "string")
     }
 
-    pub fn regex_literal<'a>(src: &'a str) -> Result<&'a str, &'static str> {
+    pub fn regex_literal<'a>(src: &'a str) -> Result<&'a str, ParseError> {
         lex_escapable_delimited_string!(src, '"', "regex")
     }
 
-    pub fn name<'a>(src: &'a str) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    pub fn name<'a>(src: &'a str) -> Result<Read<FilterExpr<'a>>, ParseError> {
         fn is_name_start_char(c: char) -> bool {
             c.is_ascii_alphabetic() || c == '_'
         }
@@ -429,7 +434,7 @@ pub mod lex {
         )
     }
 
-    pub fn node_reference<'a>(src: &'a str) -> Result<Read<&'a str>, &'static str> {
+    pub fn node_reference<'a>(src: &'a str) -> Result<Read<&'a str>, ParseError> {
         (src.starts_with("$"))
             .then(|| ())
             .ok_or("node references must start with a '$'")
@@ -439,11 +444,11 @@ pub mod lex {
 }
 
 pub trait Lexable<'a, T> {
-    fn try_lex(src: &'a str) -> Result<Read<T>, &'static str>;
+    fn try_lex(src: &'a str) -> Result<Read<T>, ParseError>;
 }
 
 pub trait Parseable<'a, T> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<T>, &'static str>;
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<T>, ParseError>;
 }
 
 // NOTE: rename to Anchor, or Aligner?
@@ -456,7 +461,7 @@ pub enum IndentMark<'a> {
 }
 
 impl<'a> Parseable<'a, IndentMark<'a>> for IndentMark<'a> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, &'static str> {
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, ParseError> {
         lazy_static! {
             static ref INDENT_MARK_PATTERN: regex::Regex =
                 // this is why I didn't want to do regex... maybe I'll rewrite this part later
@@ -538,10 +543,10 @@ fn try_read_chars<'a, IsLastChar, Map, Expr>(
     src: &'a str,
     is_last_char: IsLastChar,
     map_to_expr: Map,
-) -> Result<Expr, &'static str>
+) -> Result<Expr, ParseError>
 where
-    IsLastChar: Fn(usize, char, Option<char>) -> Result<bool, &'static str>,
-    Map: FnOnce(&'a str) -> Result<Expr, &'static str>,
+    IsLastChar: Fn(usize, char, Option<char>) -> Result<bool, ParseError>,
+    Map: FnOnce(&'a str) -> Result<Expr, ParseError>,
 {
     src.chars()
         .nth(0)
@@ -568,7 +573,7 @@ where
 }
 
 impl<'a> Literal<'a> {
-    fn try_lex_integer(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
+    fn try_lex_integer(src: &'a str) -> Result<Read<Literal<'a>>, ParseError> {
         try_read_chars(
             src,
             |i, c, next| match (i, c, next) {
@@ -588,7 +593,7 @@ impl<'a> Literal<'a> {
         )
     }
 
-    fn try_lex_float(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
+    fn try_lex_float(src: &'a str) -> Result<Read<Literal<'a>>, ParseError> {
         try_read_chars(
             src,
             |i, c, next| match (i, c, next) {
@@ -608,11 +613,11 @@ impl<'a> Literal<'a> {
         )
     }
 
-    fn try_lex_string(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
+    fn try_lex_string(src: &'a str) -> Result<Read<Literal<'a>>, ParseError> {
         lex::string_literal(src).map(|s| Read::new(Literal::String(&s[1..s.len() - 1]), s.len()))
     }
 
-    fn try_lex_regex(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
+    fn try_lex_regex(src: &'a str) -> Result<Read<Literal<'a>>, ParseError> {
         // TODO: dedup with lex::string which uses try_read_chars similarly
         try_read_chars(
             src,
@@ -633,7 +638,7 @@ impl<'a> Literal<'a> {
         )
     }
 
-    fn try_lex_boolean(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
+    fn try_lex_boolean(src: &'a str) -> Result<Read<Literal<'a>>, ParseError> {
         if src.starts_with("true") {
             Ok(Read::new(Literal::Boolean(true), "true".len()))
         } else if src.starts_with("false") {
@@ -645,7 +650,7 @@ impl<'a> Literal<'a> {
 }
 
 impl<'a> Lexable<'a, Literal<'a>> for Literal<'a> {
-    fn try_lex(src: &'a str) -> Result<Read<Literal<'a>>, &'static str> {
+    fn try_lex(src: &'a str) -> Result<Read<Literal<'a>>, ParseError> {
         Self::try_lex_integer(src)
             .or_else(|_| Self::try_lex_float(src)) // TODO: consider combining integer and float parsing
             .or_else(|_| Self::try_lex_string(src))
@@ -676,7 +681,7 @@ pub enum FilterExpr<'a> {
 }
 
 impl<'a> FilterExpr<'a> {
-    fn try_parse_rest(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_rest(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
         // TODO: prefer read
         if ctx.remaining_src().starts_with("...") {
             Ok(Read::new(FilterExpr::Rest, "...".len()))
@@ -684,25 +689,23 @@ impl<'a> FilterExpr<'a> {
             Err("expected rest filter '...'")
         }
     }
-    fn try_parse_binop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_binop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
         unimplemented!()
     }
-    fn try_parse_unaryop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_unaryop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
         unimplemented!()
     }
-    fn try_parse_node_reference(
-        ctx: &'a ParseContext,
-    ) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_node_reference(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
         lex::node_reference(ctx.remaining_src())
             .map(|r| r.map(|text| FilterExpr::NodeReference { name: &text[1..] }, 0))
     }
-    fn try_parse_literal(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_literal(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
         unimplemented!()
     }
-    fn try_parse_group(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_group(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
         unimplemented!()
     }
-    fn try_parse_name(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse_name(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
         unimplemented!()
     }
     /*
@@ -764,7 +767,7 @@ impl<'a> FilterExpr<'a> {
 
 impl<'a> Parseable<'a, FilterExpr<'a>> for FilterExpr<'a> {
     #[allow(dead_code)]
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, &'static str> {
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
         Self::try_parse_rest(ctx)
             .or_else(|_| Self::try_parse_binop(ctx))
             .or_else(|_| Self::try_parse_unaryop(ctx))
@@ -842,7 +845,7 @@ impl<'a> WriteCommand<'a> {
         }
     }
 
-    fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+    fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
         lex::string_literal(ctx.remaining_src()).map(|s| {
             Read::new(
                 WriteCommand::Raw(unescape_newlines(&s[1..s.len() - 1])),
@@ -853,7 +856,7 @@ impl<'a> WriteCommand<'a> {
 
     fn try_parse_node_reference(
         ctx: &'a ParseContext,
-    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
+    ) -> Result<Read<WriteCommand<'a>>, ParseError> {
         lex::node_reference(ctx.remaining_src()).map(|r| {
             r.map(
                 |text| WriteCommand::NodeReference {
@@ -865,31 +868,27 @@ impl<'a> WriteCommand<'a> {
         })
     }
 
-    fn try_parse_wrap_point(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+    fn try_parse_wrap_point(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
         ctx.remaining_src()
             .starts_with("\\")
             .then(|| Read::new(WriteCommand::WrapPoint, 1))
             .ok_or("expected wrap point '\\'")
     }
 
-    fn try_parse_conditional(
-        ctx: &'a ParseContext,
-    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
+    fn try_parse_conditional(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
         unimplemented!()
     }
 
-    fn try_parse_indent_mark(
-        src: &'a ParseContext,
-    ) -> Result<Read<WriteCommand<'a>>, &'static str> {
+    fn try_parse_indent_mark(src: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
         IndentMark::try_parse(src)
             .map(|result| result.map(|read| WriteCommand::IndentMark(read), 0))
     }
 
-    fn try_parse_sequence(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
-        fn try_parse_sequence_start(ctx: &ParseContext) -> Result<Read<()>, &'static str> {
+    fn try_parse_sequence(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
+        fn try_parse_sequence_start(ctx: &ParseContext) -> Result<Read<()>, ParseError> {
             lex_operator!(ctx.remaining_src(), "{")
         }
-        fn try_parse_sequence_end(ctx: &ParseContext) -> Result<Read<()>, &'static str> {
+        fn try_parse_sequence_end(ctx: &ParseContext) -> Result<Read<()>, ParseError> {
             lex_operator!(ctx.remaining_src(), "}")
         }
 
@@ -903,7 +902,7 @@ impl<'a> WriteCommand<'a> {
         return Ok(Read::new(WriteCommand::Sequence(seq), 0));
     }
 
-    fn try_parse_atom(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+    fn try_parse_atom(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
         Self::try_parse_raw(ctx)
             .or_else(|_| Self::try_parse_node_reference(ctx))
             .or_else(|_| Self::try_parse_wrap_point(ctx))
@@ -915,7 +914,7 @@ impl<'a> WriteCommand<'a> {
 }
 
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, &'static str> {
+    fn try_parse(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
         Self::try_parse_raw(ctx)
             .or_else(|_| Self::try_parse_sequence(ctx))
             .or_else(|_| Self::try_parse_node_reference(ctx))
@@ -999,7 +998,7 @@ pub mod exprs {
     */
 }
 
-fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
+fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
     let mut file = File {
         nodes: HashMap::new(),
     };
@@ -1010,7 +1009,7 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
     return Ok(file);
 }
 
-fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> {
+fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
     ctx.skip_whitespace();
     ctx.consume_read_and_space(lex_keyword!(ctx.remaining_src(), "node")?);
     if cfg!(debug_assertions) {
@@ -1034,6 +1033,6 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, &'static str> 
     Ok(Node { name, commands })
 }
 
-pub(crate) fn parse_text<'a>(ctx: &'a ParseContext) -> Result<File<'a>, &'static str> {
+pub(crate) fn parse_text<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
     parse_file(&ctx)
 }

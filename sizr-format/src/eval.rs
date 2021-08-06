@@ -5,6 +5,8 @@ use crate::parser;
 use std::cell::Cell;
 use std::string::String;
 
+type EvalError = &'static str;
+
 struct EvalCtx<'a> {
     text: &'a str,
     result: String,
@@ -65,7 +67,7 @@ pub fn eval(
     text: &str,
     tree: tree_sitter::TreeCursor,
     fmt: parser::File,
-) -> Result<String, &'static str> {
+) -> Result<String, EvalError> {
     let mut ctx = EvalCtx::new(text, tree);
     let cmd_result = fmt
         .nodes
@@ -86,7 +88,7 @@ fn eval_cmd(
     cmd: &parser::WriteCommand,
     ctx: &mut EvalCtx,
     fmt: &parser::File,
-) -> Result<(), &'static str> {
+) -> Result<(), EvalError> {
     use parser::IndentMark::*;
     use parser::WriteCommand::*;
 
