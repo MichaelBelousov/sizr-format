@@ -432,16 +432,13 @@ macro_rules! expect_tokens {
             Some(Ok(Read{result: $first, ..})) => {
                 expect_tokens!($capture, $iter, [ $($toks),+ ] )
             }
-            Some(Err(e)) => {
-                Err(e)
-            }
-            _ => {
-                // FIXME: customizable error message
-                Err(concat!("unexpected token"))
-            }
+            Some(Err(e)) => Err(e),
+                // FIXME: customizable error messages
+            _ => Err(concat!("unexpected token"))
         }
     }};
-    ($capture:ident, $iter:expr, [ $first:tt ])  => {
+    ($capture:ident, $iter:expr, [ $first:pat ])  => {
+        // this should be able to just be Ok($capture) if I can figure out `$($toks),*`
         match $iter.next() {
             Some(Ok(Read{result: $first, ..})) => Ok($capture),
             Some(Err(e)) => Err(e),
