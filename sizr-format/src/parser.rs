@@ -424,14 +424,13 @@ fn tokenize<'a>(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>,
     TokenIter::new(stream)
 }
 
-//fn expect_tokens<'a, 'b>(iter: &mut TokenIter<'_>, tokens: [Token<'b>]) -> Result<Read<[Token<'a>]>, ParseError> {
+// FIXME: explore removing the need for the $capture param
 macro_rules! expect_tokens {
-    ($iter:expr, [ $first:expr, $($toks:expr),* ] ) => {{
-        // todo convert to using .and
-        let maybe_token = $iter.next();
-        match maybe_token {
-            Some(Ok(e)) if e.result == $first => {
-                expect_tokens!($iter, [ $($toks,)* ] )
+    ($capture:ident, $iter:expr, [ $first:pat, $($toks:pat),+ ] ) => {{
+        // TODO: consider composing `.map/.and` instead of a nested match
+        match $iter.next() {
+            Some(Ok(Read{result: $first, ..})) => {
+                expect_tokens!($capture, $iter, [ $($toks),+ ] )
             }
             Some(Err(e)) => {
                 Err(e)
@@ -442,9 +441,13 @@ macro_rules! expect_tokens {
             }
         }
     }};
-    ($iter:expr, [])  => {{
-        Ok(())
-    }};
+    ($capture:ident, $iter:expr, [ $first:tt ])  => {
+        match $iter.next() {
+            Some(Ok(Read{result: $first, ..})) => Ok($capture),
+            Some(Err(e)) => Err(e),
+            _ => Err("expected different token")
+        }
+    };
 }
 
 pub trait Lexable<'a, T> {
@@ -997,12 +1000,14 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
 }
 
 fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
+    // TODO: make tokenize consume Reads from the parse ctx.
     let mut tokens = tokenize(ctx.remaining_src());
-    // TODO: make this macro work without the extra comma...
-    expect_tokens!(tokens, [Token::Node, Token::Eq])?;
-    let name = ctx.consume_read_and_space(
-        lex::string_literal(ctx.remaining_src()).map(|s| Read::new(&s[1..s.len() - 1], s.len()))?,
-    );
+    // FIXME: these aren't actually consumed!
+    let name = expect_tokens!(
+        _s,
+        tokens,
+        [Token::Node, Token::Eq, Token::Literal(Literal::String(_s))]
+    )?;
     if cfg!(debug_assertions) {
         println!("name: {:#?}", name);
         println!("after read name remaining: '{}'", ctx.remaining_src());
