@@ -995,19 +995,11 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
     // TODO: make tokenize consume Reads from the parse ctx.
     let mut tokens = tokenize(ctx.remaining_src());
     //
-    let (_, _, name) = expect_tokens!(
+    let (_, name, _) = expect_tokens!(
         ctx,
         tokens,
-        [Token::Node => (), Token::Eq => (), Token::Literal(Literal::String(s)) => s]
+        [Token::Node => (), Token::Literal(Literal::String(name)) => name, Token::Eq => ()]
     );
-    if cfg!(debug_assertions) {
-        println!("name: {:#?}", name);
-        println!("after read name remaining: '{}'", ctx.remaining_src());
-    }
-    ctx.consume_read_and_space(lex_operator!(ctx.remaining_src(), "=")?);
-    if cfg!(debug_assertions) {
-        println!("after read '=' remaining: '{}'", ctx.remaining_src());
-    }
     let commands = ctx.consume_read_and_space(WriteCommand::try_parse(ctx)?);
     Ok(Node { name, commands })
 }
