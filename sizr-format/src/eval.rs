@@ -5,7 +5,7 @@ use crate::parser;
 use std::cell::Cell;
 use std::string::String;
 
-type EvalError = &'static str;
+type EvalError = parser::ParseError;
 
 struct EvalCtx<'a> {
     text: &'a str,
@@ -72,7 +72,7 @@ pub fn eval(
     let cmd_result = fmt
         .nodes
         .get(ctx.cursor.node().kind())
-        .ok_or("couldn't find node");
+        .ok_or(EvalError::new("couldn't find node"));
     if cfg!(debug_assertions) && cmd_result.is_err() {
         eprintln!(
             "couldn't find node declaration for '{}'",
@@ -122,7 +122,7 @@ fn eval_cmd(
                                 let cmd_result = fmt
                                     .nodes
                                     .get(ctx.cursor.node().kind())
-                                    .ok_or("couldn't find node");
+                                    .ok_or(EvalError::new("couldn't find node"));
                                 if cfg!(debug_assertions) && cmd_result.is_err() {
                                     eprintln!(
                                         "couldn't find node declaration for '{}'",
@@ -148,7 +148,7 @@ fn eval_cmd(
                 } else {
                     let child_result = node
                         .child_by_field_name(name)
-                        .ok_or("couldn't find child field");
+                        .ok_or(EvalError::new("couldn't find child field"));
                     if cfg!(debug_assertions) && child_result.is_err() {
                         eprintln!("couldn't find child field: '{}'", name);
                         eprintln!("cursor was: '{:#?}'", node);

@@ -10,7 +10,26 @@ use std::option::Option;
 use std::result::Result;
 use std::vec::Vec;
 
-type ParseError = &'static str;
+#[derive(Debug)]
+pub struct ParseError {
+    msg: String,
+}
+
+impl ParseError {
+    pub fn new(msg: &str) -> Self {
+        ParseError {
+            msg: String::from(msg),
+        }
+    }
+
+    pub fn from_string(msg: String) -> Self {
+        ParseError { msg }
+    }
+
+    pub fn err<T>(msg: &str) -> Result<T, Self> {
+        Err(ParseError::new(msg))
+    }
+}
 
 // TODO: make private to this module
 #[derive(Debug)]
@@ -157,7 +176,7 @@ pub mod lex {
 
     pub fn static_string<F: FnOnce(&char) -> bool>(
         stream: &str,
-        kind: ParseError,
+        kind: &'static str,
         expect_msg: ParseError,
         test_is_after: F,
     ) -> Result<Read<()>, ParseError> {
@@ -180,7 +199,7 @@ pub mod lex {
             lex::static_string(
                 $ctx,
                 $keyword,
-                concat!("expected keyword '", $keyword, "'"),
+                ParseError::from_string(format!("expected keyword '{}", $keyword)),
                 |c: &char| !c.is_ascii_alphabetic(),
             )
         }};
@@ -193,7 +212,7 @@ pub mod lex {
             lex::static_string(
                 $ctx,
                 $operator,
-                concat!("expected operator '", $operator, "'"),
+                ParseError::from_string(format!("expected operator '{}", $operator)),
                 |_| true,
             )
         }};
@@ -205,14 +224,15 @@ pub mod lex {
             try_read_chars(
                 $src,
                 |i, c, next| match (i, c, next) {
-                    (_, _, None) => Err(concat!("unterminated ", $literal_name, " literal")),
+                    (_, _, None) => Err(ParseError::from_string(format!(
+                        "unterminated {} literal",
+                        $literal_name
+                    ))),
                     (0, $delimiter, _) => Ok(false),
-                    (0, _, _) => Err(concat!(
-                        $literal_name,
-                        " literals must start with the delimiter '",
-                        $delimiter,
-                        "'"
-                    )),
+                    (0, _, _) => Err(ParseError::from_string(format!(
+                        "{} literals must start with the delimiter '{}'",
+                        $literal_name, $delimiter,
+                    ))),
                     (i, c, _) if c == $delimiter && &$src[i - 1..=i - 1] != "\\" => Ok(true),
                     _ => Ok(false),
                 },
@@ -239,8 +259,12 @@ pub mod lex {
         try_read_chars(
             src,
             |i, c, next| match (i, c, next) {
-                (0, c, _) if !is_name_start_char(c) => Err("identifiers must start with /[a-z_]/"),
-                (_, c, _) if !is_name_char(c) => Err("identifiers must contain with /[a-z_]/"),
+                (0, c, _) if !is_name_start_char(c) => {
+                    ParseError::err("identifiers must start with /[a-z_]/")
+                }
+                (_, c, _) if !is_name_char(c) => {
+                    ParseError::err("identifiers must contain with /[a-z_]/")
+                }
                 (_, _, Some(next)) => Ok(!is_name_char(next)),
                 (_, _, None) => Ok(true),
             },
@@ -249,9 +273,9 @@ pub mod lex {
     }
 
     pub fn node_reference<'a>(src: &'a str) -> Result<Read<&'a str>, ParseError> {
-        (src.starts_with("$"))
+        src.starts_with("$")
             .then(|| ())
-            .ok_or("node references must start with a '$'")
+            .ok_or(ParseError::new("node references must start with a '$'"))
             .and(lex::name(src))
             .map(|name| Read::new(&src[..name.len + 1], name.len + 1))
     }
@@ -359,7 +383,7 @@ impl<'a> TokenIter<'a> {
         let skipped = ws_skip_1 + comment_skip + ws_skip_2;
         Self::try_lex_indent_mark(stream)
             .map(|read| read.map(|im| Token::IndentMark(im), 0))
-            .ok_or("unknown token")
+            .ok_or(ParseError::new("next_token: unknown token"))
             .or_else(|_err| {
                 Literal::try_lex(stream).map(|read| read.map(|lit| Token::Literal(lit), 0))
             })
@@ -400,7 +424,7 @@ impl<'a> TokenIter<'a> {
                 }
                 "~" => Ok(Read::new(Token::Tilde, 1)),
                 // FIXME: should return Token::Invalid or keep Err?
-                _ => Err("unknown token")
+                _ => ParseError::err("unknown token")
             })
     }
 }
@@ -428,9 +452,9 @@ fn tokenize<'a>(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>,
 macro_rules! expect_tokens {
     (@consume $ctx:expr, $iter:expr, $p:pat, $result:expr) => {
         {
-            let token_read = $iter.next().ok_or("unexpected eof").and_then(|tok: Result<Read<Token>, ParseError>| match tok {
+            let token_read = $iter.next().ok_or(ParseError::new("unexpected eof")).and_then(|tok: Result<Read<Token>, ParseError>| match tok {
                 Ok(Read{result: $p, len}) => Ok(Read::new($result, len)),
-                _ => Err("unexpected token"),
+                _ => ParseError::err("unexpected token"),
             })?;
             $ctx.consume_read(token_read)
         }
@@ -482,7 +506,7 @@ impl<'a> Parseable<'a, IndentMark<'a>> for IndentMark<'a> {
                 None => None,
             })
             .flatten()
-            .ok_or("expected indent mark");
+            .ok_or(ParseError::new("expected indent mark"));
 
         return capture.and_then(|(i, capture)| {
             use std::convert::TryInto;
@@ -549,7 +573,7 @@ where
 {
     src.chars()
         .nth(0)
-        .ok_or("trying to start reading from EOF")
+        .ok_or(ParseError::new("trying to start reading from EOF"))
         .and(
             src.chars()
                 .zip(src.chars().map(Some).skip(1).chain([None]))
@@ -563,7 +587,7 @@ where
                         Err(e) => Some(Err(e)),  // error, we're done
                     }
                 })
-                .unwrap_or(Err("failed to find")),
+                .unwrap_or(ParseError::err("failed to find")),
         )
         .and_then(|end| {
             let content = &src[..=end];
@@ -577,7 +601,7 @@ impl<'a> Literal<'a> {
             src,
             |i, c, next| match (i, c, next) {
                 (0, c, _) if !matches!(c, '1'..='9') => {
-                    Err("integers must start with a non-zero digit /[1-9]/")
+                    ParseError::err("integers must start with a non-zero digit /[1-9]/")
                 }
                 (_, _, None) => Ok(true),
                 (_, _, Some(next)) if !(next.is_ascii_digit()) => Ok(true),
@@ -586,7 +610,7 @@ impl<'a> Literal<'a> {
             |s| {
                 s.parse::<i64>()
                     // NEEDSWORK: combine the parse error rather than swallow it?
-                    .map_err(|_err| "expected integer literal")
+                    .map_err(|_err| ParseError::new("expected integer literal"))
                     .map(|i| Read::new(Literal::Integer(i), s.len()))
             },
         )
@@ -597,7 +621,7 @@ impl<'a> Literal<'a> {
             src,
             |i, c, next| match (i, c, next) {
                 (0, c, _) if !matches!(c, '1'..='9') => {
-                    Err("floats must start with a non-zero digit /[1-9]/")
+                    ParseError::err("floats must start with a non-zero digit /[1-9]/")
                 }
                 (_, _, None) => Ok(true),
                 (_, _, Some(next)) if !(next.is_ascii_digit() || next == '.') => Ok(true),
@@ -606,7 +630,7 @@ impl<'a> Literal<'a> {
             |s| {
                 s.parse::<f64>()
                     // NEEDSWORK: combine the parse error rather than swallow it?
-                    .map_err(|_err| "expected float literal")
+                    .map_err(|_err| ParseError::new("expected float literal"))
                     .map(|f| Read::new(Literal::Float(f), s.len()))
             },
         )
@@ -626,7 +650,7 @@ impl<'a> Literal<'a> {
         } else if src.starts_with("false") {
             Ok(Read::new(Literal::Boolean(false), "false".len()))
         } else {
-            Err("expected boolean literal ('true' or 'false')")
+            ParseError::err("expected boolean literal ('true' or 'false')")
         }
     }
 }
@@ -638,7 +662,7 @@ impl<'a> Lexable<'a, Literal<'a>> for Literal<'a> {
             .or_else(|_| Self::try_lex_string(src))
             .or_else(|_| Self::try_lex_regex(src))
             .or_else(|_| Self::try_lex_boolean(src))
-            .map_err(|_| "expected literal") // TODO: consider creating some kind of `Rope` of &str to make compounding errors possible
+            .map_err(|_| ParseError::new("expected literal")) // compose errors
     }
 }
 
@@ -668,7 +692,7 @@ impl<'a> FilterExpr<'a> {
         if ctx.remaining_src().starts_with("...") {
             Ok(Read::new(FilterExpr::Rest, "...".len()))
         } else {
-            Err("expected rest filter '...'")
+            ParseError::err("expected rest filter '...'")
         }
     }
     fn try_parse_binop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
@@ -757,7 +781,7 @@ impl<'a> Parseable<'a, FilterExpr<'a>> for FilterExpr<'a> {
             .or_else(|_| Self::try_parse_literal(ctx))
             .or_else(|_| Self::try_parse_group(ctx))
             .or_else(|_| Self::try_parse_name(ctx))
-            .map_err(|_| "expected filter expr")
+            .map_err(|_| ParseError::new("expected filter expr"))
     }
 }
 
@@ -854,7 +878,7 @@ impl<'a> WriteCommand<'a> {
         ctx.remaining_src()
             .starts_with("\\")
             .then(|| Read::new(WriteCommand::WrapPoint, 1))
-            .ok_or("expected wrap point '\\'")
+            .ok_or(ParseError::new("expected wrap point '\\'"))
     }
 
     fn try_parse_conditional(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
@@ -891,7 +915,7 @@ impl<'a> WriteCommand<'a> {
             .or_else(|_| Self::try_parse_conditional(ctx))
             .or_else(|_| Self::try_parse_indent_mark(ctx))
             //.or_else(|_| Self::try_parse_sequence(src))
-            .map_err(|_| "expected atomic expression")
+            .map_err(|_| ParseError::new("expected atomic expression"))
     }
 }
 
@@ -902,8 +926,8 @@ impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
             .or_else(|_| Self::try_parse_node_reference(ctx))
             .or_else(|_| Self::try_parse_wrap_point(ctx))
             .or_else(|_| Self::try_parse_indent_mark(ctx))
-            .or_else(|_| Self::try_parse_conditional(ctx)) // this is placeholder, I'll need some real parsing
-            .map_err(|_| "expected write command") // TODO: consider creating some kind of `Rope` of &str to make compounding error strings easy
+            .or_else(|_| Self::try_parse_conditional(ctx))
+            .map_err(|_| ParseError::new("expected write command")) // TODO: compose errors
     }
 }
 
@@ -994,7 +1018,6 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
 fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
     // TODO: make tokenize consume Reads from the parse ctx.
     let mut tokens = tokenize(ctx.remaining_src());
-    //
     let (_, name, _) = expect_tokens!(
         ctx,
         tokens,

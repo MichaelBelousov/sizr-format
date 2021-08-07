@@ -52,7 +52,7 @@ fn main() -> io::Result<()> {
             println!("fmted src:\n{}", fmted_python_src);
         }
         Err(err) => {
-            println!("formatting had error: '{}'", err);
+            println!("formatting had error: '{:#?}'", err);
         }
     };
 
