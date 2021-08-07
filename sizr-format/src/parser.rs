@@ -259,14 +259,14 @@ pub mod lex {
 
 #[rustfmt::skip]
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Token<'a> {
     // literals
     Reference(&'a str),
     Literal(Literal<'a>),
     IndentMark(IndentMark<'a>),
     // symbols
-    LBrace, RBrace, LBrack, RBrack, Gt, Lt, Pipe, BSlash, FSlash, Plus, Minus, Asterisk, Ampersand, Dot, Caret, At, Hash, Exclaim, Tilde,
+    LBrace, RBrace, LBrack, RBrack, Gt, Lt, Eq, Pipe, BSlash, FSlash, Plus, Minus, Asterisk, Ampersand, Dot, Caret, At, Hash, Exclaim, Tilde,
     LtEq, GtEq, EqEq, NotEq, 
     // keywords
     Node,
@@ -396,9 +396,10 @@ impl<'a> TokenIter<'a> {
                 }
                 "=" => match &stream[1..=1] {
                     "=" => Ok(Read::new(Token::EqEq, 2)),
-                    _ => Ok(Read::new(Token::Exclaim, 1)),
+                    _ => Ok(Read::new(Token::Eq, 1)),
                 }
                 "~" => Ok(Read::new(Token::Tilde, 1)),
+                // FIXME: should return Token::Invalid or keep Err?
                 _ => Err("unknown token")
             })
     }
@@ -419,8 +420,31 @@ impl<'a> Iterator for TokenIter<'a> {
     }
 }
 
-pub fn tokenize<'a>(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
+fn tokenize<'a>(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
     TokenIter::new(stream)
+}
+
+//fn expect_tokens<'a, 'b>(iter: &mut TokenIter<'_>, tokens: [Token<'b>]) -> Result<Read<[Token<'a>]>, ParseError> {
+macro_rules! expect_tokens {
+    ($iter:expr, [ $first:expr, $($toks:expr),* ] ) => {{
+        // todo convert to using .and
+        let maybe_token = $iter.next();
+        match maybe_token {
+            Some(Ok(e)) if e.result == $first => {
+                expect_tokens!($iter, [ $($toks,)* ] )
+            }
+            Some(Err(e)) => {
+                Err(e)
+            }
+            _ => {
+                // FIXME: customizable error message
+                Err(concat!("unexpected token"))
+            }
+        }
+    }};
+    ($iter:expr, [])  => {{
+        Ok(())
+    }};
 }
 
 pub trait Lexable<'a, T> {
@@ -432,7 +456,7 @@ pub trait Parseable<'a, T> {
 }
 
 // NOTE: rename to Anchor, or Aligner?
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum IndentMark<'a> {
     Indent(u16),          // |>
     Outdent(u16),         // <|
@@ -973,15 +997,9 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
 }
 
 fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
-    for token in tokenize(ctx.remaining_src()) {}
-    ctx.skip_whitespace();
-    ctx.consume_read_and_space(lex_keyword!(ctx.remaining_src(), "node")?);
-    if cfg!(debug_assertions) {
-        println!(
-            "after read node keyword remaining: '{}'",
-            ctx.remaining_src()
-        );
-    }
+    let mut tokens = tokenize(ctx.remaining_src());
+    // TODO: make this macro work without the extra comma...
+    expect_tokens!(tokens, [Token::Node, Token::Eq])?;
     let name = ctx.consume_read_and_space(
         lex::string_literal(ctx.remaining_src()).map(|s| Read::new(&s[1..s.len() - 1], s.len()))?,
     );
