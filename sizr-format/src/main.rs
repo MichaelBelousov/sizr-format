@@ -44,8 +44,8 @@ fn main() -> io::Result<()> {
 
     let ctx = parser::ParseContext::new(&tree_format);
     let node_fmt_ast = parser::parse_text(&ctx);
-    println!("treefmt_ast: {:#?}", node_fmt_ast);
-    println!("python_ast: {}", python_ast.root_node().to_sexp());
+    // println!("treefmt_ast: {:#?}", node_fmt_ast);
+    // println!("python_ast: {}", python_ast.root_node().to_sexp());
 
     match node_fmt_ast.and_then(|fmt| eval::eval(&python_src, python_ast.walk(), fmt)) {
         Ok(fmted_python_src) => {

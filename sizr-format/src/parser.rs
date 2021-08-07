@@ -311,7 +311,7 @@ impl<'a> TokenIter<'a> {
         lazy_static! {
             static ref INDENT_MARK_PATTERN: regex::Regex =
                 // this is why I didn't want to do regex... maybe I'll rewrite this part later
-                regex::Regex::new(r#"^(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*)"#)
+                regex::Regex::new(r#"^(?:(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*))"#)
                     .expect("INDENT_MARK_PATTERN regex failed to compile");
         }
         let capture = INDENT_MARK_PATTERN
@@ -426,6 +426,8 @@ impl<'a> TokenIter<'a> {
                 // FIXME: should return Token::Invalid or keep Err?
                 _ => ParseError::err("unknown token")
             })
+            // add skipped whitespace to the read size
+            .map(|read| read.map(|r| r, skipped))
     }
 }
 
@@ -434,11 +436,15 @@ impl<'a> Iterator for TokenIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let next_token = self.next_token();
+        // HACK, should prefer to use ParserCtx::consume_read
+        if let Ok(ref read) = next_token {
+            self.src = &self.src[read.len..]
+        }
         match next_token {
             Ok(Read {
                 result: Token::Eof, ..
             }) => None,
-            Err(_) => None,
+            Err(e) => Some(Err(e)),
             _ => Some(next_token),
         }
     }
@@ -452,7 +458,8 @@ fn tokenize<'a>(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>,
 macro_rules! expect_tokens {
     (@consume $ctx:expr, $iter:expr, $p:pat, $result:expr) => {
         {
-            let token_read = $iter.next().ok_or(ParseError::new("unexpected eof")).and_then(|tok: Result<Read<Token>, ParseError>| match tok {
+            let next = $iter.next();
+            let token_read = next.ok_or(ParseError::new("unexpected end of token stream")).and_then(|tok: Result<Read<Token>, ParseError>| match tok {
                 Ok(Read{result: $p, len}) => {
                     if cfg!(debug_assertions) {
                         println!("parsed: {:?}", stringify!($p));
@@ -460,7 +467,7 @@ macro_rules! expect_tokens {
                     Ok(Read::new($result, len))
                 },
                 // TODO: create a format_parse_error! macro
-                other => Err(ParseError::from_string(format!("unexpected token, {:?}, expected '{}' but source was at '{:?}'...", other, stringify!($p), &$ctx.remaining_src()[0..=50]))),
+                other => Err(ParseError::from_string(format!("unexpected token, got '{:?}', but expected '{}; source was {:?}...", other, stringify!($p), &$ctx.remaining_src()[0..=50]))),
             })?;
             $ctx.consume_read(token_read)
         }
@@ -814,49 +821,6 @@ fn unescape_newlines(s: &str) -> String {
 }
 
 impl<'a> WriteCommand<'a> {
-    pub fn unwrap_raw(self) -> String {
-        match self {
-            WriteCommand::Raw(content) => content,
-            _ => panic!("tried to unwrap a raw"),
-        }
-    }
-
-    pub fn unwrap_node_reference(self) -> (&'a str, Vec<FilterExpr<'a>>) {
-        match self {
-            WriteCommand::NodeReference { name, filters } => (name, filters),
-            _ => panic!("tried to unwrap a WriteCommand that wasn't a node reference"),
-        }
-    }
-
-    pub fn unwrap_conditional(
-        self,
-    ) -> (
-        FilterExpr<'a>,
-        Option<WriteCommand<'a>>,
-        Option<WriteCommand<'a>>,
-    ) {
-        match self {
-            WriteCommand::Conditional { test, then, r#else } => {
-                (test, then.map(|o| *o), r#else.map(|o| *o))
-            }
-            _ => panic!("tried to unwrap a WriteCommand that wasn't a Conditional"),
-        }
-    }
-
-    pub fn unwrap_indent_mark(self) -> IndentMark<'a> {
-        match self {
-            WriteCommand::IndentMark(indent_mark) => indent_mark,
-            _ => panic!("tried to unwrap a WriteCommand as an indent mark but it wasn't one"),
-        }
-    }
-
-    pub fn unwrap_sequence(self) -> Vec<WriteCommand<'a>> {
-        match self {
-            WriteCommand::Sequence(write_commands) => write_commands,
-            _ => panic!("tried to unwrap a WriteCommand as a sequence but it wasn't one"),
-        }
-    }
-
     fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
         lex::string_literal(ctx.remaining_src()).map(|s| {
             Read::new(
@@ -906,11 +870,11 @@ impl<'a> WriteCommand<'a> {
 
         let mut seq = Vec::<WriteCommand<'a>>::new();
         // FIXME: need to get rid of all of my borrowing of already borrowed values...
-        ctx.consume_read_and_space(try_parse_sequence_start(ctx)?);
+        ctx.consume_read(try_parse_sequence_start(ctx)?);
         while try_parse_sequence_end(ctx).is_err() {
-            seq.push(ctx.consume_read_and_space(Self::try_parse(ctx)?));
+            seq.push(ctx.consume_read(Self::try_parse(ctx)?));
         }
-        ctx.consume_read_and_space(try_parse_sequence_end(ctx)?);
+        ctx.consume_read(try_parse_sequence_end(ctx)?);
         return Ok(Read::new(WriteCommand::Sequence(seq), 0));
     }
 
@@ -1029,7 +993,7 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
         tokens,
         [Token::Node => (), Token::Literal(Literal::String(name)) => name, Token::Eq => ()]
     );
-    let commands = ctx.consume_read_and_space(WriteCommand::try_parse(ctx)?);
+    let commands = ctx.consume_read(WriteCommand::try_parse(ctx)?);
     Ok(Node { name, commands })
 }
 
