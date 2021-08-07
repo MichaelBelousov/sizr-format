@@ -51,8 +51,8 @@ fn main() -> io::Result<()> {
         Ok(fmted_python_src) => {
             println!("fmted src:\n{}", fmted_python_src);
         }
-        Err(err) => {
-            println!("formatting had error: '{:#?}'", err);
+        Err(parser::ParseError { msg }) => {
+            println!("{}", msg);
         }
     };
 

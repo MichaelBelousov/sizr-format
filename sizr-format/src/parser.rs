@@ -12,7 +12,7 @@ use std::vec::Vec;
 
 #[derive(Debug)]
 pub struct ParseError {
-    msg: String,
+    pub msg: String,
 }
 
 impl ParseError {
@@ -453,8 +453,14 @@ macro_rules! expect_tokens {
     (@consume $ctx:expr, $iter:expr, $p:pat, $result:expr) => {
         {
             let token_read = $iter.next().ok_or(ParseError::new("unexpected eof")).and_then(|tok: Result<Read<Token>, ParseError>| match tok {
-                Ok(Read{result: $p, len}) => Ok(Read::new($result, len)),
-                _ => ParseError::err("unexpected token"),
+                Ok(Read{result: $p, len}) => {
+                    if cfg!(debug_assertions) {
+                        println!("parsed: {:?}", stringify!($p));
+                    }
+                    Ok(Read::new($result, len))
+                },
+                // TODO: create a format_parse_error! macro
+                other => Err(ParseError::from_string(format!("unexpected token, {:?}, expected '{}' but source was at '{:?}'...", other, stringify!($p), &$ctx.remaining_src()[0..=50]))),
             })?;
             $ctx.consume_read(token_read)
         }
