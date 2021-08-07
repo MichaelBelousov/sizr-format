@@ -426,20 +426,18 @@ fn tokenize<'a>(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>,
 
 // FIXME: explore removing the need for the $capture param
 macro_rules! expect_tokens {
-    (@consume $ctx:expr, $iter:expr, $p:pat) => {
+    (@consume $ctx:expr, $iter:expr, $p:pat, $result:expr) => {
         {
             let token_read = $iter.next().ok_or("unexpected eof").and_then(|tok: Result<Read<Token>, ParseError>| match tok {
-                Ok(read @ Read{result: $p, ..}) => Ok(read),
+                Ok(Read{result: $p, len}) => Ok(Read::new($result, len)),
                 _ => Err("unexpected token"),
             })?;
-            $ctx.consume_read(token_read);
-            token_read
+            $ctx.consume_read(token_read)
         }
     };
-    ($ctx:expr, $iter:expr, [ $($toks:pat),* ] ) => {
-        //(expect_tokens!(@consume $ctx, $iter, $first), expect_tokens!($ctx, $iter, [ $($toks),+ ]))
+    ($ctx:expr, $iter:expr, [ $($toks:pat => $result:expr),* ] ) => {
         (
-        $(expect_tokens!(@consume $ctx, $iter, $toks)),*
+        $(expect_tokens!(@consume $ctx, $iter, $toks, $result)),*
         )
     };
 }
@@ -997,17 +995,10 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
     // TODO: make tokenize consume Reads from the parse ctx.
     let mut tokens = tokenize(ctx.remaining_src());
     //
-    let (
-        _,
-        _,
-        Read {
-            result: Token::Literal(Literal::String(name)),
-            ..
-        },
-    ) = expect_tokens!(
+    let (_, _, name) = expect_tokens!(
         ctx,
         tokens,
-        [Token::Node, Token::Eq, Token::Literal(Literal::String(_))]
+        [Token::Node => (), Token::Eq => (), Token::Literal(Literal::String(s)) => s]
     );
     if cfg!(debug_assertions) {
         println!("name: {:#?}", name);
