@@ -47,6 +47,7 @@ impl<'a> ParseContext<'a> {
         }
     }
 
+    // maybe call "pump" or "propagate"... need a better name...
     pub fn make_further_test_ctx(&self, advance: usize) -> Self {
         let result = ParseContext {
             src: self.src,
@@ -60,46 +61,13 @@ impl<'a> ParseContext<'a> {
         &self.src[self.loc.get()..]
     }
 
-    pub fn distance_to_eof(&self) -> usize {
-        self.src.len() - self.loc.get()
-    }
-
-    pub fn at_eof(&self) -> bool {
-        self.src.len() == self.loc.get()
-    }
-
     pub fn inc_loc(&self, amount: usize) -> usize {
         &self.loc.set(self.loc.get() + amount);
         self.loc.get()
     }
 
-    // really this should be done over "Iterator::skip_while" and ParserContext should
-    // be an interator, no?
-    pub fn skip_whitespace(&self) {
-        if let Some(jump) = &self.remaining_src().find(|c: char| !c.is_whitespace()) {
-            &self.inc_loc(*jump);
-        } else {
-            self.loc.set(self.src.len());
-        }
-    }
-
-    /**
-     * return the distance from the current location to the end of the current token
-     */
-    pub fn cur_token_end(&self) -> usize {
-        self.remaining_src()
-            .find(|c: char| c.is_whitespace())
-            .unwrap_or(self.remaining_src().len())
-    }
-
     pub fn consume_read<T>(&self, read: Read<T>) -> T {
         self.inc_loc(read.len);
-        return read.result;
-    }
-
-    pub fn consume_read_and_space<T>(&self, read: Read<T>) -> T {
-        self.inc_loc(read.len);
-        self.skip_whitespace();
         return read.result;
     }
 }
@@ -302,11 +270,8 @@ pub enum Token<'a> {
 struct TokenIter<'a> {
     src: &'a str,
 }
-impl<'a> TokenIter<'a> {
-    pub fn new(src: &'a str) -> Self {
-        TokenIter { src }
-    }
 
+impl<'a> ParseContext<'a> {
     fn try_lex_indent_mark(src: &str) -> Option<Read<IndentMark>> {
         lazy_static! {
             static ref INDENT_MARK_PATTERN: regex::Regex =
@@ -374,7 +339,7 @@ impl<'a> TokenIter<'a> {
             .unwrap_or((src, 0))
     }
 
-    fn next_token(&mut self) -> Result<Read<Token<'a>>, ParseError> {
+    fn next_token(&self) -> Result<Read<Token<'a>>, ParseError> {
         // TODO: fix aliasing
         let stream = self.src;
         let (stream, ws_skip_1) = Self::skip_whitespace(stream);
@@ -429,17 +394,21 @@ impl<'a> TokenIter<'a> {
             // add skipped whitespace to the read size
             .map(|read| read.map(|r| r, skipped))
     }
+
+    pub fn tokenize(&self) -> &impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
+        self
+    }
+
+    pub fn iter(&self) -> &impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
+        self.tokenize()
+    }
 }
 
-impl<'a> Iterator for TokenIter<'a> {
+impl<'a> Iterator for ParseContext<'a> {
     type Item = Result<Read<Token<'a>>, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next_token = self.next_token();
-        // HACK, should prefer to use ParserCtx::consume_read
-        if let Ok(ref read) = next_token {
-            self.src = &self.src[read.len..]
-        }
         match next_token {
             Ok(Read {
                 result: Token::Eof, ..
@@ -450,15 +419,48 @@ impl<'a> Iterator for TokenIter<'a> {
     }
 }
 
-fn tokenize<'a>(stream: &'a str) -> impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
-    TokenIter::new(stream)
+#[allow(unused_macros)]
+macro_rules! try_read_tokens {
+    (@consume $ctx:expr, $p:pat, $result:expr) => {
+        {
+            let next = $ctx.iter().next();
+            let token_read = next.ok_or(ParseError::new("unexpected end of token stream")).and_then(|tok: Result<Read<Token>, ParseError>| match tok {
+                Ok(Read{result: $p, len}) => {
+                    if cfg!(debug_assertions) {
+                        println!("parsed: {:?}", stringify!($p));
+                    }
+                    Ok(Read::new($result, len))
+                },
+                // TODO: create a format_parse_error! macro
+                other => Err(ParseError::from_string(format!("unexpected token, got '{:?}', but expected '{}; source was {:?}...", other, stringify!($p), &$ctx.remaining_src()[0..=50]))),
+            });
+            token_read
+        }
+    };
+    (@count $first:expr, $($rest:expr),+) => (
+        1 + try_read_tokens!(@count, $(rest)+)
+    );
+    (@count $first:expr) => (1);
+    ($ctx:expr, [ $($toks:pat => $result:expr),* ] ) => {
+        {
+            for i in 0..=try_read_tokens!(@count $($result),+) {
+                let pumped = $ctx.make_further_test_ctx();
+            }
+            let tuple = (
+            $(try_read_tokens!(@consume pumped, $toks, $result)),*
+            ,
+            );
+            return tuple;
+        }
+    };
 }
 
 // FIXME: explore removing the need for the $capture param
 macro_rules! expect_tokens {
-    (@consume $ctx:expr, $iter:expr, $p:pat, $result:expr) => {
+    (@consume $ctx:expr, $p:pat, $result:expr) => {
         {
-            let next = $iter.next();
+            let iter = $ctx.iter();
+            let next = iter.next();
             let token_read = next.ok_or(ParseError::new("unexpected end of token stream")).and_then(|tok: Result<Read<Token>, ParseError>| match tok {
                 Ok(Read{result: $p, len}) => {
                     if cfg!(debug_assertions) {
@@ -472,9 +474,10 @@ macro_rules! expect_tokens {
             $ctx.consume_read(token_read)
         }
     };
-    ($ctx:expr, $iter:expr, [ $($toks:pat => $result:expr),* ] ) => {
+    ($ctx:expr, [ $($toks:pat => $result:expr),* ] ) => {
         (
-        $(expect_tokens!(@consume $ctx, $iter, $toks, $result)),*
+        $(expect_tokens!(@consume $ctx, $toks, $result)),*
+        ,
         )
     };
 }
@@ -494,58 +497,6 @@ pub enum IndentMark<'a> {
     Outdent(u16),         // <|
     TokenAnchor(&'a str), // >'"'
     NumericAnchor(u16),   // >10
-}
-
-impl<'a> Parseable<'a, IndentMark<'a>> for IndentMark<'a> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<IndentMark<'a>>, ParseError> {
-        lazy_static! {
-            static ref INDENT_MARK_PATTERN: regex::Regex =
-                // this is why I didn't want to do regex... maybe I'll rewrite this part later
-                regex::Regex::new(r#"^(\|>+)|(<+\|)|(>[1-9][0-9]*)|(>"[^"\\]*(?:\\.[^"\\]*)*)"#)
-                    .expect("INDENT_MARK_PATTERN regex failed to compile");
-        }
-        let capture = INDENT_MARK_PATTERN
-            .captures(ctx.remaining_src())
-            .map(|captures| {
-                captures
-                    .iter()
-                    .enumerate()
-                    .skip(1) // skip the implicit total capture group
-                    .find(|(_, capture)| capture.is_some())
-                    .expect("INDENT_MARK_PATTERN capture groups are exclusive, one should match")
-            })
-            .map(|(i, capture)| match capture {
-                Some(inner) => Some((i, inner)),
-                None => None,
-            })
-            .flatten()
-            .ok_or(ParseError::new("expected indent mark"));
-
-        return capture.and_then(|(i, capture)| {
-            use std::convert::TryInto;
-            let len = capture.range().len();
-            let len_u16: u16 = len
-                .try_into()
-                .expect("expected in/outdent jump of less than 2^16");
-            match i {
-                1 => Ok(Read::new(IndentMark::Indent(len_u16 - 1), len)),
-                2 => Ok(Read::new(IndentMark::Outdent(len_u16 - 1), len)),
-                3 => {
-                    let number = capture.as_str()[1..]
-                        .parse::<u16>()
-                        .expect("failed to parse a 16-bit unsigned integer in a numeric anchor");
-                    Ok(Read::new(IndentMark::NumericAnchor(number), len))
-                    // TODO: double check this rust feature
-                }
-                4 => {
-                    // XXX: might be off by a byte... should write a test
-                    let content = &capture.as_str()[2..capture.end() - 1];
-                    Ok(Read::new(IndentMark::TokenAnchor(content), len))
-                }
-                _ => unreachable!(),
-            }
-        });
-    }
 }
 
 #[derive(Debug)]
@@ -855,9 +806,19 @@ impl<'a> WriteCommand<'a> {
         unimplemented!()
     }
 
-    fn try_parse_indent_mark(src: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
-        IndentMark::try_parse(src)
-            .map(|result| result.map(|read| WriteCommand::IndentMark(read), 0))
+    fn try_parse_indent_mark(
+        ctx: &'a mut ParseContext,
+    ) -> Result<Read<WriteCommand<'a>>, ParseError> {
+        // TODO: base expect_tokens on this?
+        #[rustfmt::skip]
+        ctx.iter()
+            .next()
+            .ok_or(ParseError::new("expected indent mark, found EOF"))
+            .and_then(|tok| match tok {
+                Ok(Read { result: Token::IndentMark(im), len, })
+                => Ok(Read { result: WriteCommand::IndentMark(im), len, }),
+                _ => ParseError::err("expected indent mark"),
+            })
     }
 
     fn try_parse_sequence(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
@@ -978,7 +939,13 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
     let mut file = File {
         nodes: HashMap::new(),
     };
-    while !ctx.at_eof() {
+    while !matches!(
+        ctx.iter().next(),
+        Some(Ok(Read {
+            result: Token::Eof,
+            ..
+        }))
+    ) {
         let node_decl = parse_node_decl(ctx)?;
         file.nodes.insert(node_decl.name, node_decl.commands);
     }
@@ -987,10 +954,8 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
 
 fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
     // TODO: make tokenize consume Reads from the parse ctx.
-    let mut tokens = tokenize(ctx.remaining_src());
     let (_, name, _) = expect_tokens!(
         ctx,
-        tokens,
         [Token::Node => (), Token::Literal(Literal::String(name)) => name, Token::Eq => ()]
     );
     let commands = ctx.consume_read(WriteCommand::try_parse(ctx)?);
