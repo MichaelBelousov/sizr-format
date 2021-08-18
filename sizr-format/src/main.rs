@@ -42,8 +42,8 @@ fn main() -> io::Result<()> {
     //let mut buffer = String::new();
     //io::stdin().read_to_string(&mut buffer)?;
 
-    let ctx = parser::ParseContext::new(&tree_format);
-    let node_fmt_ast = parser::parse_text(&ctx);
+    let mut ctx = parser::ParseContext::new(&tree_format);
+    let node_fmt_ast = parser::parse_text(&mut ctx);
     // println!("treefmt_ast: {:#?}", node_fmt_ast);
     // println!("python_ast: {}", python_ast.root_node().to_sexp());
 

@@ -339,7 +339,7 @@ impl<'a> ParseContext<'a> {
             .unwrap_or((src, 0))
     }
 
-    fn next_token(&self) -> Result<Read<Token<'a>>, ParseError> {
+    fn next_token(&mut self) -> Result<Read<Token<'a>>, ParseError> {
         // TODO: fix aliasing
         let stream = self.src;
         let (stream, ws_skip_1) = Self::skip_whitespace(stream);
@@ -395,11 +395,11 @@ impl<'a> ParseContext<'a> {
             .map(|read| read.map(|r| r, skipped))
     }
 
-    pub fn tokenize(&self) -> &impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
+    pub fn tokenize(&mut self) -> &impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
         self
     }
 
-    pub fn iter(&self) -> &impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
+    pub fn iter(&mut self) -> &impl Iterator<Item = Result<Read<Token<'a>>, ParseError>> {
         self.tokenize()
     }
 }
@@ -459,9 +459,7 @@ macro_rules! try_read_tokens {
 macro_rules! expect_tokens {
     (@consume $ctx:expr, $p:pat, $result:expr) => {
         {
-            let iter = $ctx.iter();
-            let next = iter.next();
-            let token_read = next.ok_or(ParseError::new("unexpected end of token stream")).and_then(|tok: Result<Read<Token>, ParseError>| match tok {
+            let token_read = $ctx.iter().next().ok_or(ParseError::new("unexpected end of token stream")).and_then(|tok: Result<Read<Token>, ParseError>| match tok {
                 Ok(Read{result: $p, len}) => {
                     if cfg!(debug_assertions) {
                         println!("parsed: {:?}", stringify!($p));
@@ -487,7 +485,7 @@ pub trait Lexable<'a, T> {
 }
 
 pub trait Parseable<'a, T> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<T>, ParseError>;
+    fn try_parse(ctx: ParseContext) -> (ParseContext, Result<Read<T>, ParseError>);
 }
 
 // NOTE: rename to Anchor, or Aligner?
@@ -651,35 +649,51 @@ pub enum FilterExpr<'a> {
 }
 
 impl<'a> FilterExpr<'a> {
-    fn try_parse_rest(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
-        // TODO: prefer read
+    fn try_parse_rest(
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<FilterExpr<'a>>, ParseError>) {
         if ctx.remaining_src().starts_with("...") {
-            Ok(Read::new(FilterExpr::Rest, "...".len()))
+            (ctx, Ok(Read::new(FilterExpr::Rest, "...".len())))
         } else {
-            ParseError::err("expected rest filter '...'")
+            (ctx, ParseError::err("expected rest filter '...'"))
         }
     }
-    fn try_parse_binop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
+    fn try_parse_binop(
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<FilterExpr<'a>>, ParseError>) {
         unimplemented!()
     }
-    fn try_parse_unaryop(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
+    fn try_parse_unaryop(
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<FilterExpr<'a>>, ParseError>) {
         unimplemented!()
     }
-    fn try_parse_node_reference(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
-        lex::node_reference(ctx.remaining_src())
-            .map(|r| r.map(|text| FilterExpr::NodeReference { name: &text[1..] }, 0))
+    fn try_parse_node_reference(
+        mut ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<FilterExpr<'a>>, ParseError>) {
+        (
+            ctx,
+            lex::node_reference(ctx.remaining_src())
+                .map(|r| r.map(|text| FilterExpr::NodeReference { name: &text[1..] }, 0)),
+        )
     }
-    fn try_parse_literal(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
+    fn try_parse_literal(
+        ctx: ParseContext,
+    ) -> (ParseContext, Result<Read<FilterExpr<'a>>, ParseError>) {
         unimplemented!()
     }
-    fn try_parse_group(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
+    fn try_parse_group(
+        ctx: ParseContext,
+    ) -> (ParseContext, Result<Read<FilterExpr<'a>>, ParseError>) {
         unimplemented!()
     }
-    fn try_parse_name(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
+    fn try_parse_name(
+        ctx: ParseContext,
+    ) -> (ParseContext, Result<Read<FilterExpr<'a>>, ParseError>) {
         unimplemented!()
     }
     /*
-    pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+    pub fn parse<'a>(ctx: ParseContext) -> Ast<'a> {
         let tok = ctx.next_token().expect("unexpected end of input");
         match tok {
             Token::LPar => {
@@ -737,15 +751,25 @@ impl<'a> FilterExpr<'a> {
 
 impl<'a> Parseable<'a, FilterExpr<'a>> for FilterExpr<'a> {
     #[allow(dead_code)]
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<FilterExpr<'a>>, ParseError> {
-        Self::try_parse_rest(ctx)
-            .or_else(|_| Self::try_parse_binop(ctx))
-            .or_else(|_| Self::try_parse_unaryop(ctx))
-            .or_else(|_| Self::try_parse_node_reference(ctx))
-            .or_else(|_| Self::try_parse_literal(ctx))
-            .or_else(|_| Self::try_parse_group(ctx))
-            .or_else(|_| Self::try_parse_name(ctx))
-            .map_err(|_| ParseError::new("expected filter expr"))
+    fn try_parse(ctx: ParseContext) -> (ParseContext, Result<Read<FilterExpr<'a>>, ParseError>) {
+        #[rustfmt::skip]
+        {
+        let (ctx, result) = Self::try_parse_rest(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_binop(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_unaryop(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_node_reference(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_literal(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_group(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_name(ctx);
+        if result.is_ok() { return (ctx, result); }
+        };
+        return (ctx, ParseError::err("expected filter expr"));
     }
 }
 
@@ -772,7 +796,7 @@ fn unescape_newlines(s: &str) -> String {
 }
 
 impl<'a> WriteCommand<'a> {
-    fn try_parse_raw(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
+    fn try_parse_raw(ctx: ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
         lex::string_literal(ctx.remaining_src()).map(|s| {
             Read::new(
                 WriteCommand::Raw(unescape_newlines(&s[1..s.len() - 1])),
@@ -782,64 +806,76 @@ impl<'a> WriteCommand<'a> {
     }
 
     fn try_parse_node_reference(
-        ctx: &'a ParseContext,
-    ) -> Result<Read<WriteCommand<'a>>, ParseError> {
-        lex::node_reference(ctx.remaining_src()).map(|r| {
-            r.map(
-                |text| WriteCommand::NodeReference {
-                    name: &text[1..],
-                    filters: Vec::new(),
-                },
-                0,
-            )
-        })
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<WriteCommand<'a>>, ParseError>) {
+        (
+            ctx,
+            lex::node_reference(ctx.remaining_src()).map(|r| {
+                r.map(
+                    |text| WriteCommand::NodeReference {
+                        name: &text[1..],
+                        filters: Vec::new(),
+                    },
+                    0,
+                )
+            }),
+        )
     }
 
-    fn try_parse_wrap_point(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
-        ctx.remaining_src()
-            .starts_with("\\")
-            .then(|| Read::new(WriteCommand::WrapPoint, 1))
-            .ok_or(ParseError::new("expected wrap point '\\'"))
+    fn try_parse_wrap_point(
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<WriteCommand<'a>>, ParseError>) {
+        (
+            ctx,
+            ctx.remaining_src()
+                .starts_with("\\")
+                .then(|| Read::new(WriteCommand::WrapPoint, 1))
+                .ok_or(ParseError::new("expected wrap point '\\'")),
+        )
     }
 
-    fn try_parse_conditional(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
+    fn try_parse_conditional(
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<WriteCommand<'a>>, ParseError>) {
         unimplemented!()
     }
 
     fn try_parse_indent_mark(
-        ctx: &'a mut ParseContext,
-    ) -> Result<Read<WriteCommand<'a>>, ParseError> {
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<WriteCommand<'a>>, ParseError>) {
         // TODO: base expect_tokens on this?
-        #[rustfmt::skip]
-        ctx.iter()
-            .next()
-            .ok_or(ParseError::new("expected indent mark, found EOF"))
-            .and_then(|tok| match tok {
-                Ok(Read { result: Token::IndentMark(im), len, })
-                => Ok(Read { result: WriteCommand::IndentMark(im), len, }),
-                _ => ParseError::err("expected indent mark"),
-            })
+        (
+            ctx,
+            ctx.iter()
+                .next()
+                .ok_or(ParseError::new("expected indent mark, found EOF"))
+                .and_then(|tok| match tok {
+                    Ok(Read {
+                        result: Token::IndentMark(im),
+                        len,
+                    }) => Ok(Read {
+                        result: WriteCommand::IndentMark(im),
+                        len,
+                    }),
+                    _ => ParseError::err("expected indent mark"),
+                }),
+        )
     }
 
-    fn try_parse_sequence(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
-        fn try_parse_sequence_start(ctx: &ParseContext) -> Result<Read<()>, ParseError> {
-            lex_operator!(ctx.remaining_src(), "{")
-        }
-        fn try_parse_sequence_end(ctx: &ParseContext) -> Result<Read<()>, ParseError> {
-            lex_operator!(ctx.remaining_src(), "}")
-        }
-
+    fn try_parse_sequence(
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<WriteCommand<'a>>, ParseError>) {
+        let (start,) = expect_tokens!(ctx, [Token::LBrace => ()]);
         let mut seq = Vec::<WriteCommand<'a>>::new();
-        // FIXME: need to get rid of all of my borrowing of already borrowed values...
-        ctx.consume_read(try_parse_sequence_start(ctx)?);
-        while try_parse_sequence_end(ctx).is_err() {
+        ctx.consume_read(start);
+        while expect_tokens!(ctx, [Token::RBrace => ()]).1.is_err() {
             seq.push(ctx.consume_read(Self::try_parse(ctx)?));
         }
-        ctx.consume_read(try_parse_sequence_end(ctx)?);
+        let (end,) = expect_tokens!(ctx, [Token::RBrace => ()]);
         return Ok(Read::new(WriteCommand::Sequence(seq), 0));
     }
 
-    fn try_parse_atom(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
+    fn try_parse_atom(ctx: ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
         Self::try_parse_raw(ctx)
             .or_else(|_| Self::try_parse_node_reference(ctx))
             .or_else(|_| Self::try_parse_wrap_point(ctx))
@@ -851,7 +887,7 @@ impl<'a> WriteCommand<'a> {
 }
 
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
-    fn try_parse(ctx: &'a ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
+    fn try_parse(ctx: ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
         Self::try_parse_raw(ctx)
             .or_else(|_| Self::try_parse_sequence(ctx))
             .or_else(|_| Self::try_parse_node_reference(ctx))
@@ -899,7 +935,7 @@ pub mod exprs {
     // TODO: support conditional write commands
 
     /*
-    pub fn parse_aux<'a>(ctx: &'a ParseContext, min_prec: i32) -> Ast<'a> {
+    pub fn parse_aux<'a>(ctx: ParseContext, min_prec: i32) -> Ast<'a> {
         let mut lhs = atoms::parse(ctx);
         loop {
             let tok = ctx.next_token().expect("unexpected end of input");
@@ -929,13 +965,13 @@ pub mod exprs {
         lhs
     }
 
-    pub fn parse<'a>(ctx: &'a ParseContext) -> Ast<'a> {
+    pub fn parse<'a>(ctx: ParseContext) -> Ast<'a> {
         parse_aux(ctx, 0)
     }
     */
 }
 
-fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
+fn parse_file<'a>(ctx: ParseContext) -> Result<File<'a>, ParseError> {
     let mut file = File {
         nodes: HashMap::new(),
     };
@@ -952,7 +988,7 @@ fn parse_file<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
     return Ok(file);
 }
 
-fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
+fn parse_node_decl<'a>(ctx: ParseContext) -> Result<Node<'a>, ParseError> {
     // TODO: make tokenize consume Reads from the parse ctx.
     let (_, name, _) = expect_tokens!(
         ctx,
@@ -962,6 +998,6 @@ fn parse_node_decl<'a>(ctx: &'a ParseContext) -> Result<Node<'a>, ParseError> {
     Ok(Node { name, commands })
 }
 
-pub(crate) fn parse_text<'a>(ctx: &'a ParseContext) -> Result<File<'a>, ParseError> {
-    parse_file(&ctx)
+pub(crate) fn parse_text<'a>(ctx: ParseContext) -> Result<File<'a>, ParseError> {
+    parse_file(ctx)
 }
