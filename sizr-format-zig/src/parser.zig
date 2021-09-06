@@ -125,32 +125,32 @@ const LexError = error{
 
 pub fn next_token(src: []const u8) !Token {
     if (mem.startsWith(u8, src, "{")) return Token{ .lbrace = {} };
-    if (mem.startsWith(u8, src, "}")) return Token.rbrace;
-    if (mem.startsWith(u8, src, "[")) return Token.lbrack;
-    if (mem.startsWith(u8, src, "]")) return Token.rbrack;
+    if (mem.startsWith(u8, src, "}")) return Token{ .rbrace = {} };
+    if (mem.startsWith(u8, src, "[")) return Token{ .lbrack = {} };
+    if (mem.startsWith(u8, src, "]")) return Token{ .rbrack = {} };
     // TODO: handle indentation and anchors here
     //if (mem.startsWith(u8, src, "<|")) return Token.indent_mark;
-    if (mem.startsWith(u8, src, ">=")) return Token.gteq;
-    if (mem.startsWith(u8, src, ">")) return Token.gt;
-    if (mem.startsWith(u8, src, "<=")) return Token.lteq;
-    if (mem.startsWith(u8, src, "<")) return Token.lt;
-    if (mem.startsWith(u8, src, "|")) return Token.pipe;
-    if (mem.startsWith(u8, src, "&")) return Token.ampersand;
-    if (mem.startsWith(u8, src, ".")) return Token.dot;
-    if (mem.startsWith(u8, src, "^")) return Token.caret;
-    if (mem.startsWith(u8, src, "@")) return Token.at;
-    if (mem.startsWith(u8, src, "#")) return Token.hash;
+    if (mem.startsWith(u8, src, ">=")) return Token{ .gteq = {} };
+    if (mem.startsWith(u8, src, ">")) return Token{ .gt = {} };
+    if (mem.startsWith(u8, src, "<=")) return Token{ .lteq = {} };
+    if (mem.startsWith(u8, src, "<")) return Token{ .lt = {} };
+    if (mem.startsWith(u8, src, "|")) return Token{ .pipe = {} };
+    if (mem.startsWith(u8, src, "&")) return Token{ .ampersand = {} };
+    if (mem.startsWith(u8, src, ".")) return Token{ .dot = {} };
+    if (mem.startsWith(u8, src, "^")) return Token{ .caret = {} };
+    if (mem.startsWith(u8, src, "@")) return Token{ .at = {} };
+    if (mem.startsWith(u8, src, "#")) return Token{ .hash = {} };
     // NOTE: need to figure out how to disambiguate this from regex literals
-    if (mem.startsWith(u8, src, "/")) return Token.fslash;
-    if (mem.startsWith(u8, src, "\\")) return Token.bslash;
-    if (mem.startsWith(u8, src, "+")) return Token.plus;
-    if (mem.startsWith(u8, src, "-")) return Token.minus;
-    if (mem.startsWith(u8, src, "*")) return Token.asterisk;
-    if (mem.startsWith(u8, src, "!=")) return Token.noteq;
-    if (mem.startsWith(u8, src, "!")) return Token.noteq;
-    if (mem.startsWith(u8, src, "==")) return Token.eqeq;
-    if (mem.startsWith(u8, src, "=")) return Token.eq;
-    if (mem.startsWith(u8, src, "~")) return Token.tilde;
+    if (mem.startsWith(u8, src, "/")) return Token{ .fslash = {} };
+    if (mem.startsWith(u8, src, "\\")) return Token{ .bslash = {} };
+    if (mem.startsWith(u8, src, "+")) return Token{ .plus = {} };
+    if (mem.startsWith(u8, src, "-")) return Token{ .minus = {} };
+    if (mem.startsWith(u8, src, "*")) return Token{ .asterisk = {} };
+    if (mem.startsWith(u8, src, "!=")) return Token{ .noteq = {} };
+    if (mem.startsWith(u8, src, "!")) return Token{ .noteq = {} };
+    if (mem.startsWith(u8, src, "==")) return Token{ .eqeq = {} };
+    if (mem.startsWith(u8, src, "=")) return Token{ .eq = {} };
+    if (mem.startsWith(u8, src, "~")) return Token{ .tilde = {} };
     if (mem.startsWith(u8, src, "\"")) {
         return Token{ .literal = Literal{ .string = try readCharDelimitedContent(src, '"') } };
     }
@@ -160,7 +160,7 @@ pub fn next_token(src: []const u8) !Token {
     }
     if (isIdentStart(src[0])) {
         const ident = readIdent(src);
-        if (mem.eql(u8, ident, "node")) return Token.kw_node;
+        if (mem.eql(u8, ident, "node")) return Token{ .kw_node = {} };
         return LexError.Unknown;
     }
     if (ascii.isDigit(src[0])) {
@@ -187,8 +187,10 @@ const FilterExpr = union(enum) {
 };
 
 const expect = @import("std").testing.expect;
+const expectError = @import("std").testing.expectError;
 test "lexer" {
-    try expect(next_token("node_example") == error.unknown);
+    try expectError(LexError.Unknown, next_token("node_example"));
+    try expectError(LexError.UnexpectedEof, next_token("\"unterminated string"));
 }
 
 fn isIdent(c: u8) bool {
