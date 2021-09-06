@@ -188,9 +188,12 @@ const FilterExpr = union(enum) {
 
 const expect = @import("std").testing.expect;
 const expectError = @import("std").testing.expectError;
+
 test "lexer" {
     try expectError(LexError.Unknown, next_token("node_example"));
     try expectError(LexError.UnexpectedEof, next_token("\"unterminated string"));
+    // FIXME: is this idiomatic equality checking?
+    try expect(std.mem.eql(u8, (try next_token("\"escape containing\\\" string \" ")).literal.string, "escape containing\\\" string "));
 }
 
 fn isIdent(c: u8) bool {
@@ -232,13 +235,16 @@ fn readNumber(src: []const u8) !Token {
     }
 }
 
-// TODO: figure out specific error sets
-// has precondition that src starts with the delimiter
+// FIXME: this might need to allocate to remove the escapes, or we can make it a special
+// string type which is interpreted with those escapes.
+// @precondition that src starts with the delimiter
 fn readCharDelimitedContent(src: []const u8, comptime delimiter: u8) LexError![]const u8 {
     const escaper = '\\';
     for (src[1..]) |c, i| {
-        if (c == delimiter and src[i - 1] != escaper)
-            return src[i..i];
+        // we're iterating over src[1..]: src[1..][i] = src[i + 1]
+        if (c == delimiter and src[i] != escaper) {
+            return src[1 .. i + 1];
+        }
     }
     return LexError.UnexpectedEof;
 }
