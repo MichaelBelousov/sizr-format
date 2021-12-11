@@ -155,7 +155,7 @@ pub fn next_token(src: []const u8) !Token {
         return Token{ .literal = Literal{ .string = try readCharDelimitedContent(src, '"') } };
     }
     if (mem.startsWith(u8, src, "$")) {
-        const ident = readIdent(src);
+        const ident = readIdent(src[1..]);
         return Token{ .reference = ident };
     }
     if (isIdentStart(src[0])) {
@@ -194,6 +194,10 @@ test "lexer" {
     try expectError(LexError.UnexpectedEof, next_token("\"unterminated string"));
     // FIXME: is this idiomatic equality checking?
     try expect(std.mem.eql(u8, (try next_token("\"escape containing\\\" string \" ")).literal.string, "escape containing\\\" string "));
+    try expect((try next_token("4.56 ")).literal.float == 4.56);
+    try expect((try next_token("1005 ")).literal.integer == 1005);
+    try expect((try next_token("0x5_6 ")).literal.integer == 0x56);
+    try expect((try next_token("0xb1001_0000_1111 ")).literal.integer == 0b1001_0000_1111);
 }
 
 fn isIdent(c: u8) bool {
@@ -220,8 +224,11 @@ fn readNumber(src: []const u8) !Token {
     var hadPoint = false;
     var tok_end: usize = 0;
     for (src) |c, i| {
-        if (!(ascii.isDigit(c) or c == '.')) {
+        if (c == '.') {
             hadPoint = true;
+            continue;
+        }
+        if (!(ascii.isDigit(c))) {
             tok_end = i;
             break;
         }
