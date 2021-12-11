@@ -35,40 +35,27 @@ impl ParseError {
 #[derive(Debug)]
 pub struct ParseContext<'a> {
     pub src: &'a str,
-    // TODO: consider other types of cell
-    pub loc: Cell<usize>,
 }
 
 impl<'a> ParseContext<'a> {
     pub fn new(in_src: &'a str) -> Self {
+        ParseContext { src: in_src }
+    }
+
+    pub fn consume_read<T>(self, read: Read<T>) -> ParseContext<'a> {
         ParseContext {
-            src: in_src,
-            loc: Cell::new(0),
+            src: &self.src[read.len..],
         }
     }
 
-    // maybe call "pump" or "propagate"... need a better name...
-    pub fn make_further_test_ctx(&self, advance: usize) -> Self {
-        let result = ParseContext {
-            src: self.src,
-            loc: self.loc.clone(),
-        };
-        result.inc_loc(advance);
-        result
-    }
-
-    pub fn remaining_src(&self) -> &'a str {
-        &self.src[self.loc.get()..]
-    }
-
-    pub fn inc_loc(&self, amount: usize) -> usize {
-        &self.loc.set(self.loc.get() + amount);
-        self.loc.get()
-    }
-
-    pub fn consume_read<T>(&self, read: Read<T>) -> T {
-        self.inc_loc(read.len);
-        return read.result;
+    pub fn try_consume<T, E>(
+        self,
+        r: Result<Read<T>, E>,
+    ) -> (ParseContext<'a>, Result<Read<T>, E>) {
+        match r {
+            Ok(ok) => (self.consume_read(ok), r),
+            Err(e) => (self, r),
+        }
     }
 }
 
@@ -467,9 +454,9 @@ macro_rules! expect_tokens {
                     Ok(Read::new($result, len))
                 },
                 // TODO: create a format_parse_error! macro
-                other => Err(ParseError::from_string(format!("unexpected token, got '{:?}', but expected '{}; source was {:?}...", other, stringify!($p), &$ctx.remaining_src()[0..=50]))),
-            })?;
-            $ctx.consume_read(token_read)
+                other => Err(ParseError::from_string(format!("unexpected token, got '{:?}', but expected '{}; source was {:?}...", other, stringify!($p), &$ctx.src[0..=50]))),
+            });
+            $ctx.try_consume(token_read?)
         }
     };
     ($ctx:expr, [ $($toks:pat => $result:expr),* ] ) => {
@@ -485,7 +472,7 @@ pub trait Lexable<'a, T> {
 }
 
 pub trait Parseable<'a, T> {
-    fn try_parse(ctx: ParseContext) -> (ParseContext, Result<Read<T>, ParseError>);
+    fn try_parse(ctx: ParseContext<'a>) -> (ParseContext<'a>, Result<Read<T>, ParseError>);
 }
 
 // NOTE: rename to Anchor, or Aligner?
@@ -652,7 +639,7 @@ impl<'a> FilterExpr<'a> {
     fn try_parse_rest(
         ctx: ParseContext<'a>,
     ) -> (ParseContext<'a>, Result<Read<FilterExpr<'a>>, ParseError>) {
-        if ctx.remaining_src().starts_with("...") {
+        if ctx.src.starts_with("...") {
             (ctx, Ok(Read::new(FilterExpr::Rest, "...".len())))
         } else {
             (ctx, ParseError::err("expected rest filter '...'"))
@@ -673,7 +660,7 @@ impl<'a> FilterExpr<'a> {
     ) -> (ParseContext<'a>, Result<Read<FilterExpr<'a>>, ParseError>) {
         (
             ctx,
-            lex::node_reference(ctx.remaining_src())
+            lex::node_reference(ctx.src)
                 .map(|r| r.map(|text| FilterExpr::NodeReference { name: &text[1..] }, 0)),
         )
     }
@@ -751,7 +738,9 @@ impl<'a> FilterExpr<'a> {
 
 impl<'a> Parseable<'a, FilterExpr<'a>> for FilterExpr<'a> {
     #[allow(dead_code)]
-    fn try_parse(ctx: ParseContext) -> (ParseContext, Result<Read<FilterExpr<'a>>, ParseError>) {
+    fn try_parse(
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<FilterExpr<'a>>, ParseError>) {
         #[rustfmt::skip]
         {
         let (ctx, result) = Self::try_parse_rest(ctx);
@@ -796,38 +785,36 @@ fn unescape_newlines(s: &str) -> String {
 }
 
 impl<'a> WriteCommand<'a> {
-    fn try_parse_raw(ctx: ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
-        lex::string_literal(ctx.remaining_src()).map(|s| {
+    fn try_parse_raw(
+        ctx: ParseContext,
+    ) -> (ParseContext, Result<Read<WriteCommand<'a>>, ParseError>) {
+        ctx.try_consume(lex::string_literal(ctx.src).map(|s| {
             Read::new(
                 WriteCommand::Raw(unescape_newlines(&s[1..s.len() - 1])),
                 s.len(),
             )
-        })
+        }))
     }
 
     fn try_parse_node_reference(
         ctx: ParseContext<'a>,
     ) -> (ParseContext<'a>, Result<Read<WriteCommand<'a>>, ParseError>) {
-        (
-            ctx,
-            lex::node_reference(ctx.remaining_src()).map(|r| {
-                r.map(
-                    |text| WriteCommand::NodeReference {
-                        name: &text[1..],
-                        filters: Vec::new(),
-                    },
-                    0,
-                )
-            }),
-        )
+        ctx.try_consume(lex::node_reference(ctx.src).map(|r| {
+            r.map(
+                |text| WriteCommand::NodeReference {
+                    name: &text[1..],
+                    filters: Vec::new(),
+                },
+                0,
+            )
+        }))
     }
 
     fn try_parse_wrap_point(
         ctx: ParseContext<'a>,
     ) -> (ParseContext<'a>, Result<Read<WriteCommand<'a>>, ParseError>) {
-        (
-            ctx,
-            ctx.remaining_src()
+        ctx.try_consume(
+            ctx.src
                 .starts_with("\\")
                 .then(|| Read::new(WriteCommand::WrapPoint, 1))
                 .ok_or(ParseError::new("expected wrap point '\\'")),
@@ -844,8 +831,7 @@ impl<'a> WriteCommand<'a> {
         ctx: ParseContext<'a>,
     ) -> (ParseContext<'a>, Result<Read<WriteCommand<'a>>, ParseError>) {
         // TODO: base expect_tokens on this?
-        (
-            ctx,
+        ctx.try_consume(
             ctx.iter()
                 .next()
                 .ok_or(ParseError::new("expected indent mark, found EOF"))
@@ -868,33 +854,57 @@ impl<'a> WriteCommand<'a> {
         let (start,) = expect_tokens!(ctx, [Token::LBrace => ()]);
         let mut seq = Vec::<WriteCommand<'a>>::new();
         ctx.consume_read(start);
+        let mut ctx = ctx;
         while expect_tokens!(ctx, [Token::RBrace => ()]).1.is_err() {
-            seq.push(ctx.consume_read(Self::try_parse(ctx)?));
+            let (ctx, result) = Self::try_parse(ctx);
+            result?;
+            let (ctx, result) = ctx.try_consume(result);
+            seq.push(result);
         }
         let (end,) = expect_tokens!(ctx, [Token::RBrace => ()]);
-        return Ok(Read::new(WriteCommand::Sequence(seq), 0));
+        return (ctx, Ok(Read::new(WriteCommand::Sequence(seq), 0)));
     }
 
-    fn try_parse_atom(ctx: ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
-        Self::try_parse_raw(ctx)
-            .or_else(|_| Self::try_parse_node_reference(ctx))
-            .or_else(|_| Self::try_parse_wrap_point(ctx))
-            .or_else(|_| Self::try_parse_conditional(ctx))
-            .or_else(|_| Self::try_parse_indent_mark(ctx))
-            //.or_else(|_| Self::try_parse_sequence(src))
-            .map_err(|_| ParseError::new("expected atomic expression"))
+    fn try_parse_atom(
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<WriteCommand<'a>>, ParseError>) {
+        #[rustfmt::skip]
+        {
+        let (ctx, result) = Self::try_parse_raw(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_node_reference(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_wrap_point(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_conditional(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_indent_mark(ctx);
+        if result.is_ok() { return (ctx, result); }
+        };
+        return (ctx, ParseError::err("expected atomic expression"));
     }
 }
 
 impl<'a> Parseable<'a, WriteCommand<'a>> for WriteCommand<'a> {
-    fn try_parse(ctx: ParseContext) -> Result<Read<WriteCommand<'a>>, ParseError> {
-        Self::try_parse_raw(ctx)
-            .or_else(|_| Self::try_parse_sequence(ctx))
-            .or_else(|_| Self::try_parse_node_reference(ctx))
-            .or_else(|_| Self::try_parse_wrap_point(ctx))
-            .or_else(|_| Self::try_parse_indent_mark(ctx))
-            .or_else(|_| Self::try_parse_conditional(ctx))
-            .map_err(|_| ParseError::new("expected write command")) // TODO: compose errors
+    fn try_parse(
+        ctx: ParseContext<'a>,
+    ) -> (ParseContext<'a>, Result<Read<WriteCommand<'a>>, ParseError>) {
+        #[rustfmt::skip]
+        {
+        let (ctx, result) = Self::try_parse_raw(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_sequence(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_node_reference(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_wrap_point(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_indent_mark(ctx);
+        if result.is_ok() { return (ctx, result); }
+        let (ctx, result) = Self::try_parse_conditional(ctx);
+        if result.is_ok() { return (ctx, result); }
+        };
+        return (ctx, ParseError::err("expected write command")); // TODO: compose errors
     }
 }
 
@@ -912,7 +922,7 @@ pub struct File<'a> {
 // NEXT: need to add the ability for a Read to be partially consumed so that larger syntax structures that are in process of being made can be vomited back
 // used to be in try_parse, probably belongs in some module...
 #[derive(Debug)]
-pub struct Read<T> {
+struct Read<T> {
     result: T,
     pub len: usize,
 }
@@ -926,6 +936,11 @@ impl<T> Read<T> {
         Read::<U>::new(f(self.result), self.len + added_len)
     }
 }
+
+#[derive(Debug)]
+struct Parse<'a, T, E>(ParseContext<'a>, Result<T, E>);
+
+impl<'a, T, E> Parse<'a, T, E> {}
 
 #[macro_use]
 pub mod exprs {
@@ -994,8 +1009,13 @@ fn parse_node_decl<'a>(ctx: ParseContext) -> Result<Node<'a>, ParseError> {
         ctx,
         [Token::Node => (), Token::Literal(Literal::String(name)) => name, Token::Eq => ()]
     );
-    let commands = ctx.consume_read(WriteCommand::try_parse(ctx)?);
-    Ok(Node { name, commands })
+    let (ctx, commands) = WriteCommand::try_parse(ctx);
+    // parsing returns actual items, only lexing returns "Read"s
+    //let commands = ctx.consume_read();
+    Ok(Node {
+        name,
+        commands: commands?,
+    })
 }
 
 pub(crate) fn parse_text<'a>(ctx: ParseContext) -> Result<File<'a>, ParseError> {
