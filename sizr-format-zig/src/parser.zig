@@ -196,8 +196,9 @@ test "lexer" {
     try expect(std.mem.eql(u8, (try next_token("\"escape containing\\\" string \" ")).literal.string, "escape containing\\\" string "));
     try expect((try next_token("4.56 ")).literal.float == 4.56);
     try expect((try next_token("1005 ")).literal.integer == 1005);
-    try expect((try next_token("0x5_6 ")).literal.integer == 0x56);
-    try expect((try next_token("0xb1001_0000_1111 ")).literal.integer == 0b1001_0000_1111);
+    //std.debug.print("found '{s}'\n", .{try next_token("0x56 ")});
+    try expect((try next_token("0x5_6 ")).literal.integer == 0x5_6);
+    try expect((try next_token("0b1001_0000_1111 ")).literal.integer == 0b1001_0000_1111);
 }
 
 fn isIdent(c: u8) bool {
@@ -220,7 +221,8 @@ fn readIdent(src: []const u8) []const u8 {
 
 // has a precondition that src starts with a digit
 fn readNumber(src: []const u8) !Token {
-    // TODO: roll my own parser to not reparse here
+    // TODO: roll my own parser to not have redundant logic
+    const hasPrefixChar = ascii.isAlpha(src[1]) and ascii.isDigit(src[2]);
     var hadPoint = false;
     var tok_end: usize = 0;
     for (src) |c, i| {
@@ -228,7 +230,9 @@ fn readNumber(src: []const u8) !Token {
             hadPoint = true;
             continue;
         }
-        if (!(ascii.isDigit(c))) {
+        if (c == '_') continue;
+        const isPrefixChar = i == 1 and hasPrefixChar;
+        if (!ascii.isDigit(c) and !isPrefixChar) {
             tok_end = i;
             break;
         }

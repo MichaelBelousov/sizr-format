@@ -28,7 +28,7 @@ commands:
   - |> indent
   - |>> indent twice (etc...)
   - <| outdent
-  - >( indent to outer parenthesis (anchor, not indent...)
+  - >( indent to outer parenthesis (align/anchor, not indent...)
   - >[ indent to outer bracket
   - >{ indent to outer brace
   - >" indent to outer quote
@@ -44,7 +44,7 @@ operators:
 - cast '@' e.g. 5@f
 - no assignment
 lambdas:
-- .property, .propery=
+- .property, .property=
 - lambdas are cast to predicates implicitly when using set operators to
   manipulate them
   - i.e. .static&.private - .returns=double
