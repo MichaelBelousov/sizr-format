@@ -128,52 +128,56 @@ const LexError = error{
     Unknown,
 };
 
-pub fn next_token(inSrc: []const u8) !Token {
+// TODO: rename size to len probably in the return type
+pub fn next_token(inSrc: []const u8) !struct { tok: Token, size: usize } {
+    const ReturnType = @typeInfo(@typeInfo(@TypeOf(next_token)).Fn.return_type.?).ErrorUnion.payload;
     // first eat all white space
-    const firstNonSpace = util.indexOfNotAny(u8, inSrc, &[_]u8{ ' ', '\t', '\n' }) orelse return Token{ .eof = {} };
+    const firstNonSpace = util.indexOfNotAny(u8, inSrc, &[_]u8{ ' ', '\t', '\n' }) orelse return ReturnType{ .tok = Token.eof, .size = 0 };
     const src = inSrc[firstNonSpace..];
-    std.debug.print("inSrc: '{s}', firstNonSpace: '{}', src: '{s}'\n", .{ inSrc, firstNonSpace, src });
-    if (mem.startsWith(u8, src, "{")) return Token{ .lbrace = {} };
-    if (mem.startsWith(u8, src, "}")) return Token{ .rbrace = {} };
-    if (mem.startsWith(u8, src, "[")) return Token{ .lbrack = {} };
-    if (mem.startsWith(u8, src, "]")) return Token{ .rbrack = {} };
+
+    if (mem.startsWith(u8, src, "{")) return ReturnType{ .tok = Token.lbrace, .size = 1 };
+    if (mem.startsWith(u8, src, "}")) return ReturnType{ .tok = Token.rbrace, .size = 1 };
+    if (mem.startsWith(u8, src, "[")) return ReturnType{ .tok = Token.lbrack, .size = 1 };
+    if (mem.startsWith(u8, src, "]")) return ReturnType{ .tok = Token.rbrack, .size = 1 };
     // TODO: handle indentation and anchors here
     //if (mem.startsWith(u8, src, "<|")) return Token.indent_mark;
-    if (mem.startsWith(u8, src, ">=")) return Token{ .gteq = {} };
-    if (mem.startsWith(u8, src, ">")) return Token{ .gt = {} };
-    if (mem.startsWith(u8, src, "<=")) return Token{ .lteq = {} };
-    if (mem.startsWith(u8, src, "<")) return Token{ .lt = {} };
-    if (mem.startsWith(u8, src, "|")) return Token{ .pipe = {} };
-    if (mem.startsWith(u8, src, "&")) return Token{ .ampersand = {} };
-    if (mem.startsWith(u8, src, ".")) return Token{ .dot = {} };
-    if (mem.startsWith(u8, src, "^")) return Token{ .caret = {} };
-    if (mem.startsWith(u8, src, "@")) return Token{ .at = {} };
-    if (mem.startsWith(u8, src, "#")) return Token{ .hash = {} };
+    if (mem.startsWith(u8, src, ">=")) return ReturnType{ .tok = Token.gteq, .size = 1 };
+    if (mem.startsWith(u8, src, ">")) return ReturnType{ .tok = Token.gt, .size = 1 };
+    if (mem.startsWith(u8, src, "<=")) return ReturnType{ .tok = Token.lteq, .size = 1 };
+    if (mem.startsWith(u8, src, "<")) return ReturnType{ .tok = Token.lt, .size = 1 };
+    if (mem.startsWith(u8, src, "|")) return ReturnType{ .tok = Token.pipe, .size = 1 };
+    if (mem.startsWith(u8, src, "&")) return ReturnType{ .tok = Token.ampersand, .size = 1 };
+    if (mem.startsWith(u8, src, ".")) return ReturnType{ .tok = Token.dot, .size = 1 };
+    if (mem.startsWith(u8, src, "^")) return ReturnType{ .tok = Token.caret, .size = 1 };
+    if (mem.startsWith(u8, src, "@")) return ReturnType{ .tok = Token.at, .size = 1 };
+    if (mem.startsWith(u8, src, "#")) return ReturnType{ .tok = Token.hash, .size = 1 };
     // NOTE: need to figure out how to disambiguate this from regex literals
-    if (mem.startsWith(u8, src, "/")) return Token{ .fslash = {} };
-    if (mem.startsWith(u8, src, "\\")) return Token{ .bslash = {} };
-    if (mem.startsWith(u8, src, "+")) return Token{ .plus = {} };
-    if (mem.startsWith(u8, src, "-")) return Token{ .minus = {} };
-    if (mem.startsWith(u8, src, "*")) return Token{ .asterisk = {} };
-    if (mem.startsWith(u8, src, "!=")) return Token{ .noteq = {} };
-    if (mem.startsWith(u8, src, "!")) return Token{ .noteq = {} };
-    if (mem.startsWith(u8, src, "==")) return Token{ .eqeq = {} };
-    if (mem.startsWith(u8, src, "=")) return Token{ .eq = {} };
-    if (mem.startsWith(u8, src, "~")) return Token{ .tilde = {} };
+    if (mem.startsWith(u8, src, "/")) return ReturnType{ .tok = Token.fslash, .size = 1 };
+    if (mem.startsWith(u8, src, "\\")) return ReturnType{ .tok = Token.bslash, .size = 1 };
+    if (mem.startsWith(u8, src, "+")) return ReturnType{ .tok = Token.plus, .size = 1 };
+    if (mem.startsWith(u8, src, "-")) return ReturnType{ .tok = Token.minus, .size = 1 };
+    if (mem.startsWith(u8, src, "*")) return ReturnType{ .tok = Token.asterisk, .size = 1 };
+    if (mem.startsWith(u8, src, "!=")) return ReturnType{ .tok = Token.noteq, .size = 2 };
+    if (mem.startsWith(u8, src, "!")) return ReturnType{ .tok = Token.exclaim, .size = 1 };
+    if (mem.startsWith(u8, src, "==")) return ReturnType{ .tok = Token.eqeq, .size = 2 };
+    if (mem.startsWith(u8, src, "=")) return ReturnType{ .tok = Token.eq, .size = 1 };
+    if (mem.startsWith(u8, src, "~")) return ReturnType{ .tok = Token.tilde, .size = 1 };
     if (mem.startsWith(u8, src, "\"")) {
-        return Token{ .literal = Literal{ .string = try readCharDelimitedContent(src, '"') } };
+        const content = try readCharDelimitedContent(src, '"');
+        return ReturnType{ .tok = Token{ .literal = Literal{ .string = content } }, .size = content.len };
     }
     if (mem.startsWith(u8, src, "$")) {
         const ident = readIdent(src[1..]);
-        return Token{ .reference = ident };
+        return ReturnType{ .tok = Token{ .reference = ident }, .size = ident.len };
     }
     if (isIdentStart(src[0])) {
         const ident = readIdent(src);
-        if (mem.eql(u8, ident, "node")) return Token{ .kw_node = {} };
+        if (mem.eql(u8, ident, "node")) return ReturnType{ .tok = Token{ .kw_node = {} }, .size = ident.len };
         return LexError.Unknown;
     }
     if (ascii.isDigit(src[0])) {
-        return readNumber(src);
+        const number = try readNumber(src);
+        return ReturnType{ .tok = number.tok, .size = number.size };
     }
     return LexError.Unknown;
 }
@@ -198,16 +202,15 @@ const FilterExpr = union(enum) {
 test "lexer" {
     try expectError(LexError.Unknown, next_token("node_example"));
     try expectError(LexError.UnexpectedEof, next_token("\"unterminated string"));
-    try expect(Token.eof == next_token("") catch unreachable);
-    try expect(Token.eof == next_token("  \t  \n ") catch unreachable);
-    try expect((try next_token("    4.56 ")).literal.float == 4.56);
+    try expect(Token.eof == (next_token("") catch unreachable).tok);
+    try expect(Token.eof == (next_token("  \t  \n ") catch unreachable).tok);
+    try expect((try next_token("    4.56 ")).tok.literal.float == 4.56);
     // FIXME: is this idiomatic equality checking?
-    try expect(std.mem.eql(u8, (try next_token("\"escape containing\\\" string \" ")).literal.string, "escape containing\\\" string "));
-    try expect((try next_token("4.56 ")).literal.float == 4.56);
-    try expect((try next_token("1005 ")).literal.integer == 1005);
-    //std.debug.print("found '{s}'\n", .{try next_token("0x56 ")});
-    try expect((try next_token("0x5_6 ")).literal.integer == 0x5_6);
-    try expect((try next_token("0b1001_0000_1111 ")).literal.integer == 0b1001_0000_1111);
+    try expect(std.mem.eql(u8, (try next_token("\"escape containing\\\" string \" ")).tok.literal.string, "escape containing\\\" string "));
+    try expect((try next_token("4.56 ")).tok.literal.float == 4.56);
+    try expect((try next_token("1005 ")).tok.literal.integer == 1005);
+    try expect((try next_token("0x5_6 ")).tok.literal.integer == 0x5_6);
+    try expect((try next_token("0b1001_0000_1111 ")).tok.literal.integer == 0b1001_0000_1111);
 }
 
 fn isIdent(c: u8) bool {
@@ -229,7 +232,8 @@ fn readIdent(src: []const u8) []const u8 {
 }
 
 // has a precondition that src starts with a digit
-fn readNumber(src: []const u8) !Token {
+fn readNumber(src: []const u8) !struct { tok: Token, size: usize } {
+    const ReturnType = @typeInfo(@typeInfo(@TypeOf(readNumber)).Fn.return_type.?).ErrorUnion.payload;
     // TODO: roll my own parser to not have redundant logic
     const hasPrefixChar = ascii.isAlpha(src[1]) and ascii.isDigit(src[2]);
     var hadPoint = false;
@@ -248,10 +252,10 @@ fn readNumber(src: []const u8) !Token {
     }
     if (hadPoint) {
         const val = try std.fmt.parseFloat(f64, src[0..tok_end]);
-        return Token{ .literal = Literal{ .float = val } };
+        return ReturnType{ .tok = Token{ .literal = Literal{ .float = val } }, .size = tok_end };
     } else {
         const val = try std.fmt.parseInt(i64, src[0..tok_end], 0);
-        return Token{ .literal = Literal{ .integer = val } };
+        return ReturnType{ .tok = Token{ .literal = Literal{ .integer = val } }, .size = tok_end };
     }
 }
 
@@ -274,8 +278,56 @@ const ParseError = error{
     Unknown,
 };
 
-fn parse(inSrc: []const u8) ![]Token {
-    var inSrc = src;
-    //while srcPtr
-    //srcPtr++;
+fn token_stream(inSrc: []const u8) !std.ArrayList(Token) {
+    var cur = inSrc;
+    var tok: ?Token = null;
+    var result = std.ArrayList(Token).init(std.heap.c_allocator);
+    while (true) {
+        const tok_result = try next_token(cur);
+        const definitely_a_token = tok_result.tok;
+        tok = definitely_a_token;
+        cur = cur[tok_result.size..];
+        try result.append(definitely_a_token);
+        if (definitely_a_token == Token.eof) break;
+    }
+    return result;
+}
+
+test "token_stream" {
+    try expect(std.mem.eql(Token, &[]const Token{ Token{ .literal = Literal{ .float = 5.2 } }, Token{ .literal = Literal{ .integer = 100 } }, Token.eof }, try token_stream(" 5.2 100 ")));
+
+    try expectError(LexError.UnexpectedEof, next_token("\"unterminated string"));
+    try expect(Token.eof == next_token("") catch unreachable);
+    try expect(Token.eof == next_token("  \t  \n ") catch unreachable);
+    try expect((try next_token("    4.56 ")).literal.float == 4.56);
+    // FIXME: is this idiomatic equality checking?
+    try expect(std.mem.eql(u8, (try next_token("\"escape containing\\\" string \" ")).literal.string, "escape containing\\\" string "));
+    try expect((try next_token("4.56 ")).literal.float == 4.56);
+    try expect((try next_token("1005 ")).literal.integer == 1005);
+    //std.debug.print("found '{s}'\n", .{try next_token("0x56 ")});
+    try expect((try next_token("0x5_6 ")).literal.integer == 0x5_6);
+    try expect((try next_token("0b1001_0000_1111 ")).literal.integer == 0b1001_0000_1111);
+}
+
+const WriteCommand = union(enum) {
+    raw: []const u8,
+    referenceExpr: struct {
+        name: []const u8,
+        name: []const u8,
+        filters: std.ArrayList(FilterExpr), // comma-separated
+    },
+    wrapPoint,
+    conditional: struct {
+        test_: FilterExpr,
+        then: ?*WriteCommand,
+        else_: ?*WriteCommand,
+    },
+    indentMark: IndentMark,
+    sequence: std.ArrayList(WriteCommand),
+};
+
+fn parse(src: []const u8) !std.ArrayList(WriteCommand) {
+    // FIXME: don't use the c_allocator until we integrate with treesitter
+    var result = std.ArrayList(WriteCommand).init(std.heap.c_allocator);
+    return result;
 }
