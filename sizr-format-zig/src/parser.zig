@@ -4,6 +4,11 @@ const std = @import("std");
 const mem = std.mem;
 const ascii = std.ascii;
 
+const expect = @import("std").testing.expect;
+const expectError = @import("std").testing.expectError;
+
+const util = @import("./util.zig");
+
 const Prec = enum {
     or_,
     and_,
@@ -123,7 +128,11 @@ const LexError = error{
     Unknown,
 };
 
-pub fn next_token(src: []const u8) !Token {
+pub fn next_token(inSrc: []const u8) !Token {
+    // first eat all white space
+    const firstNonSpace = util.indexOfNotAny(u8, inSrc, &[_]u8{ ' ', '\t', '\n' }) orelse return Token{ .eof = {} };
+    const src = inSrc[firstNonSpace..];
+    std.debug.print("inSrc: '{s}', firstNonSpace: '{}', src: '{s}'\n", .{ inSrc, firstNonSpace, src });
     if (mem.startsWith(u8, src, "{")) return Token{ .lbrace = {} };
     if (mem.startsWith(u8, src, "}")) return Token{ .rbrace = {} };
     if (mem.startsWith(u8, src, "[")) return Token{ .lbrack = {} };
@@ -185,9 +194,6 @@ const FilterExpr = union(enum) {
     group: *FilterExpr,
     name: []const u8,
 };
-
-const expect = @import("std").testing.expect;
-const expectError = @import("std").testing.expectError;
 
 test "lexer" {
     try expectError(LexError.Unknown, next_token("node_example"));
@@ -258,4 +264,15 @@ fn readCharDelimitedContent(src: []const u8, comptime delimiter: u8) LexError![]
         }
     }
     return LexError.UnexpectedEof;
+}
+
+const ParseError = error{
+    CloserWithoutCorrespondingOpener,
+    Unknown,
+};
+
+fn parse(inSrc: []const u8) ![]Token {
+    var inSrc = src;
+    //while srcPtr
+    //srcPtr++;
 }
