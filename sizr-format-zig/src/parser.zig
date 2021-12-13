@@ -128,7 +128,7 @@ const LexError = error{
     Unknown,
 };
 
-// TODO: rename size to len probably in the return type
+// TODO: rename size to bytesRead
 pub fn next_token(inSrc: []const u8) !struct { tok: Token, size: usize } {
     const ReturnType = @typeInfo(@typeInfo(@TypeOf(next_token)).Fn.return_type.?).ErrorUnion.payload;
     // first eat all white space
@@ -294,7 +294,8 @@ fn token_stream(inSrc: []const u8) !std.ArrayList(Token) {
 }
 
 test "token_stream" {
-    try expect(std.mem.eql(Token, &[]const Token{ Token{ .literal = Literal{ .float = 5.2 } }, Token{ .literal = Literal{ .integer = 100 } }, Token.eof }, try token_stream(" 5.2 100 ")));
+    const toks = [_]Token{ Token{ .literal = Literal{ .float = 5.2 } }, Token{ .literal = Literal{ .integer = 100 } }, Token.eof };
+    try expect(std.mem.eql(Token, &toks, (try token_stream(" 5.2 100 "))[0..]));
 
     try expectError(LexError.UnexpectedEof, next_token("\"unterminated string"));
     try expect(Token.eof == next_token("") catch unreachable);
