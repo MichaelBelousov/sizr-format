@@ -198,6 +198,9 @@ const FilterExpr = union(enum) {
 test "lexer" {
     try expectError(LexError.Unknown, next_token("node_example"));
     try expectError(LexError.UnexpectedEof, next_token("\"unterminated string"));
+    try expect(Token.eof == next_token("") catch unreachable);
+    try expect(Token.eof == next_token("  \t  \n ") catch unreachable);
+    try expect((try next_token("    4.56 ")).literal.float == 4.56);
     // FIXME: is this idiomatic equality checking?
     try expect(std.mem.eql(u8, (try next_token("\"escape containing\\\" string \" ")).literal.string, "escape containing\\\" string "));
     try expect((try next_token("4.56 ")).literal.float == 4.56);
