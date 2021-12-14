@@ -16,7 +16,6 @@ pub fn indexOfNotAny(comptime T: type, slice: []const T, values: []const T) ?usi
 }
 
 test "indexOfNotAny" {
-    const vals = [_]i64{ 10, 17, 25 };
     const items = [_]i64{ 1, 2, 3, 4, 5, 6, 7 };
     try expect(indexOfNotAny(i64, &items, &[_]i64{ 1, 2, 3 }) == @as(usize, 3));
     try expect(indexOfNotAny(i64, &items, &[_]i64{ 8, -5, 0 }) == @as(usize, 0));

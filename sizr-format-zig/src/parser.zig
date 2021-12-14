@@ -327,7 +327,9 @@ const WriteCommand = union(enum) {
     sequence: std.ArrayList(WriteCommand),
 };
 
-fn parse(src: []const u8) !std.ArrayList(WriteCommand) {
+fn parse(
+  //src: []const u8
+) !std.ArrayList(WriteCommand) {
     // FIXME: don't use the c_allocator until we integrate with treesitter
     var result = std.ArrayList(WriteCommand).init(std.heap.c_allocator);
     return result;
