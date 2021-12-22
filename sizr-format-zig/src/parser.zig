@@ -130,6 +130,7 @@ const LexError = error{
 
 // TODO: rename size to bytesRead
 pub fn next_token(inSrc: []const u8) !struct { tok: Token, size: usize } {
+    // NOTE: there is a new tuple return syntax in zig 0.10.0 I believe, should switch to that
     const ReturnType = @typeInfo(@typeInfo(@TypeOf(next_token)).Fn.return_type.?).ErrorUnion.payload;
     // first eat all white space
     const firstNonSpace = util.indexOfNotAny(u8, inSrc, &[_]u8{ ' ', '\t', '\n' }) orelse return ReturnType{ .tok = Token.eof, .size = 0 };
@@ -328,7 +329,7 @@ const WriteCommand = union(enum) {
 };
 
 fn parse(
-  //src: []const u8
+    //src: []const u8
 ) !std.ArrayList(WriteCommand) {
     // FIXME: don't use the c_allocator until we integrate with treesitter
     var result = std.ArrayList(WriteCommand).init(std.heap.c_allocator);
