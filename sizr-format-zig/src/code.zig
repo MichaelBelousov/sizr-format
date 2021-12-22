@@ -61,24 +61,38 @@ const WriteCommand = union(enum) {
 };
 
 const Value = union(enum) {
+  boolean: bool,
+  string: []const u8,
+  regex: []const u8,
+  integer: i64,
+  float: f64,
 };
 
 fn Resolver(
-  comptime T: typename,
-  comptime resolveFn: fn(ctx: T) Value
+  comptime Ctx: typename,
+  comptime State: typename,
+  comptime resolveFn: fn(state: State, ctx: Ctx) Value
 ) type {
   return struct {
-    pub fn resolve(ctx: T) {
-      resolveFn(ctx);
+    pub fn resolve(state: State, ctx: Ctx) {
+      resolveFn(state, ctx);
     }
   };
 };
 
-struct LangVarResolver {
-  pub const resolver = 
-  resolve: VarResolver
-  pub fn init(json: Json) {
+const nodeTypes = HashMap([]const u8, u16).init();
+
+// TODO: use treesitter here
+struct Node {
+  type: u16,
+  namedChildren: HashMap([]const u8, *Node)
+};
+
+struct LangResolver {
+  fn resolveFn(self: @This(), node: Node) Value {
+
   }
+  pub const Resolver = Resolver(@This(), NodeType, resolveFn);
 };
 
 struct EvalCtx {
