@@ -133,7 +133,7 @@ pub fn next_token(inSrc: []const u8) !struct { tok: Token, size: usize } {
     // NOTE: there is a new tuple return syntax in zig 0.10.0 I believe, should switch to that
     const ReturnType = @typeInfo(@typeInfo(@TypeOf(next_token)).Fn.return_type.?).ErrorUnion.payload;
     // first eat all white space
-    const firstNonSpace = util.indexOfNotAny(u8, inSrc, &[_]u8{ ' ', '\t', '\n' }) orelse return ReturnType{ .tok = Token.eof, .size = 0 };
+    const firstNonSpace = util.indexOfNotAny(u8, inSrc, &[_]u8{ ' ', '\t', '\n', '\r' }) orelse return ReturnType{ .tok = Token.eof, .size = 0 };
     const src = inSrc[firstNonSpace..];
 
     if (mem.startsWith(u8, src, "{")) return ReturnType{ .tok = Token.lbrace, .size = 1 };

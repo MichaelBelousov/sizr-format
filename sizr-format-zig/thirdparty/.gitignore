@@ -1,0 +1,6 @@
+# intermediate C compilation files
+*.o
+
+# output binaries
+peg
+leg
