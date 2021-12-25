@@ -1,7 +1,10 @@
+// thank you https://zig.news/xq/zig-build-explained-part-1-59lf
+
 const std = @import("std");
 
 pub fn build(b: *std.build.Builder) void {
     var peg_step = buildPeg(b);
+    var tree_sitter_step = buildTreeSitter(b);
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -13,7 +16,11 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("sizr-format", "src/main.zig");
-    exe.step.dependOn(peg_step); // TODO: switch to conditionally depend based on language support or even dynamically linked plugins
+
+    // TODO: switch to conditionally depend based on language support or even dynamically linked plugins
+    exe.step.dependOn(peg_step);
+    exe.step.dependOn(tree_sitter_step);
+
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.linkLibC(); // to share a heap with c and eventually support tree_sitter
@@ -29,7 +36,6 @@ pub fn build(b: *std.build.Builder) void {
     run_step.dependOn(&run_cmd.step);
 }
 
-// thank you https://zig.news/xq/zig-build-explained-part-1-59lf
 pub fn buildPeg(b: *std.build.Builder) *std.build.Step {
     // TODO: the makefile is so simple probably can just use zig cc instead here
     const make_peg_bins = std.build.RunStep.create(b, "run 'make' in thirdparty peg dep");
@@ -41,4 +47,14 @@ pub fn buildPeg(b: *std.build.Builder) *std.build.Step {
     //b.addStep();
 
     return &make_peg_bins.step;
+}
+
+pub fn buildTreeSitter(b: *std.build.Builder) *std.build.Step {
+    // TODO: the makefile is so simple probably can just use zig cc instead here
+    const make_tree_sitter = std.build.RunStep.create(b, "run 'make' in thirdparty tree_sitter dep");
+    make_tree_sitter.addArgs(&[_][]const u8{ "/bin/make", "--directory", "thirdparty/tree-sitter" });
+    b.getInstallStep().dependOn(&make_tree_sitter.step);
+    //b.installBinFile("thirdparty/peg-0.1.18/peg", "peg");
+
+    return &make_tree_sitter.step;
 }
