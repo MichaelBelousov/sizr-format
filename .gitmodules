@@ -10,3 +10,6 @@
 [submodule "sizr-format/thirdparty/tree-sitter-python"]
 	path = sizr-format/thirdparty/tree-sitter-python
 	url = https://github.com/tree-sitter/tree-sitter-python.git
+[submodule "sizr-format-zig/thirdparty/tree-sitter"]
+	path = sizr-format-zig/thirdparty/tree-sitter
+	url = git@github.com:tree-sitter/tree-sitter.git
