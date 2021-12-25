@@ -26,6 +26,11 @@ const IndentMark = union(enum) {
     numeric_anchor: u16,
 };
 
+const BinOp = enum {
+    add,
+    sub,
+};
+
 const FilterExpr = union(enum) {
     rest,
     binop: struct {
@@ -68,15 +73,16 @@ const Value = union(enum) {
     float: f64,
 };
 
-fn Resolver(comptime Ctx: typename, comptime State: typename, comptime resolveFn: fn (state: State, ctx: Ctx) Value) type {
+// TODO: use idiomatic zig polymorphism
+fn Resolver(comptime Ctx: type, comptime resolveFn: fn (ctx: Ctx) Value) type {
     return struct {
-        pub fn resolve(state: State, ctx: Ctx) Value {
-            resolveFn(state, ctx);
+        pub fn resolve(ctx: Ctx) Value {
+            resolveFn(ctx);
         }
     };
 }
 
-//const nodeTypes = StringArrayHashMap(u16).init(mem.c_allocator);
+const nodeTypes = StringArrayHashMap(u16).init(mem.c_allocator);
 
 // TODO: use treesitter here
 const Node = struct {
@@ -85,22 +91,37 @@ const Node = struct {
 };
 
 const LangResolver = struct {
-    fn resolveFn(self: @This(), node: Node) Value {}
-    pub const Resolver = Resolver(@This(), NodeType, resolveFn);
+    const Self = @This();
+
+    resolver: Resolver,
+
+    fn resolveFn(resolver: Resolver, node: Node) Value {
+        const self = @fieldParentPtr(Self, "resolver", resolver);
+        _ = self;
+        _ = node;
+    }
+
+    pub fn init() Resolver {
+        return Self{
+            .resolver = Resolver(Node, resolveFn),
+        };
+    }
 };
 
 const EvalCtx = struct {
     indentLevel: u32,
     aligners: StringArrayHashMap(u32),
     // could layer resolvers, e.g. getting linesep vars from osEnv
-    varResolver: LangVarResolver(Cpp),
+    varResolver: LangResolver,
 
-    fn eval(self: Self, ctx: Cpp.Node) Value {
+    const Self = @This();
+
+    fn eval(self: Self, ctx: Node) Value {
         self.varResolver.resolve(ctx);
     }
 
     // TODO: future zig will have @"test" syntax for raw identifiers
-    fn test_(self: Self, ctx: Cpp.Node) Value {
+    fn test_(self: Self, ctx: Node) Value {
         self.eval(ctx) == Value{ .bool = true };
     }
 };
@@ -111,11 +132,11 @@ pub fn write(evalCtx: EvalCtx, cmd: WriteCommand, writer: Writer) void {
         .referenceExpr => |val| writer.write(evalCtx.eval(val)),
         .wrapPoint => writer.write(evalCtx.tryWrap()),
         .conditional => |val| {
-            write(evalCtx, if (evalCtx.eval(evalCtxrtest_(val.test_))) val.then else val.else_, writer);
+            write(evalCtx, if (evalCtx.eval(evalCtx.test_(val.test_))) val.then else val.else_, writer);
         },
         .indentMark => |val| evalCtx.indent(val),
-        .sequence => |cmds| for (cmds) |cmd| {
-            write(ctx, cmd, writer);
+        .sequence => |cmds| for (cmds) |c| {
+            write(evalCtx, c, writer);
         },
     }
 }
