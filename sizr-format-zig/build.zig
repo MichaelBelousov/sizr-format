@@ -27,6 +27,7 @@ pub fn build(b: *std.build.Builder) void {
     // (in reality, tree_sitter might avoid a libc dependency)
     exe.linkLibC();
     exe.linkLibrary(tree_sitter_step);
+    exe.addIncludeDir("thirdparty/tree-sitter/lib/include");
     exe.install();
 
     const run_cmd = exe.run();
@@ -37,6 +38,15 @@ pub fn build(b: *std.build.Builder) void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    var tests = b.addTest("src/main.zig");
+    tests.setBuildMode(mode);
+    tests.linkLibC();
+    tests.linkLibrary(tree_sitter_step);
+    tests.addIncludeDir("thirdparty/tree-sitter/lib/include");
+
+    const test_step = b.step("test", "run tests");
+    test_step.dependOn(&tests.step);
 }
 
 pub fn buildPeg(b: *std.build.Builder) *std.build.Step {
@@ -52,6 +62,7 @@ pub fn buildPeg(b: *std.build.Builder) *std.build.Step {
 }
 
 // TODO: abstract the concept of adding a gnumake invocation step (also check if zig has something for this)
+// TODO: maybe it's better to addSystemLibrary and addLibPath?
 pub fn buildTreeSitter(b: *std.build.Builder) *std.build.LibExeObjStep {
     const make_tree_sitter = std.build.RunStep.create(b, "run 'make' in thirdparty tree_sitter dep");
     make_tree_sitter.addArgs(&[_][]const u8{ "/bin/make", "--directory", "thirdparty/tree-sitter" });
