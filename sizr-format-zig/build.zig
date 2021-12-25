@@ -19,11 +19,14 @@ pub fn build(b: *std.build.Builder) void {
 
     // TODO: switch to conditionally depend based on language support or even dynamically linked plugins
     exe.step.dependOn(peg_step);
-    exe.step.dependOn(tree_sitter_step);
+    exe.step.dependOn(&tree_sitter_step.step);
 
     exe.setTarget(target);
     exe.setBuildMode(mode);
-    exe.linkLibC(); // to share a heap with c and eventually support tree_sitter
+    // I'm using some C libraries (e.g. tree_sitter), so share the heap
+    // (in reality, tree_sitter might avoid a libc dependency)
+    exe.linkLibC();
+    exe.linkLibrary(tree_sitter_step);
     exe.install();
 
     const run_cmd = exe.run();
@@ -37,7 +40,6 @@ pub fn build(b: *std.build.Builder) void {
 }
 
 pub fn buildPeg(b: *std.build.Builder) *std.build.Step {
-    // TODO: the makefile is so simple probably can just use zig cc instead here
     const make_peg_bins = std.build.RunStep.create(b, "run 'make' in thirdparty peg dep");
     make_peg_bins.addArgs(&[_][]const u8{ "/bin/make", "--directory", "thirdparty/peg-0.1.18" });
     b.getInstallStep().dependOn(&make_peg_bins.step);
@@ -49,12 +51,11 @@ pub fn buildPeg(b: *std.build.Builder) *std.build.Step {
     return &make_peg_bins.step;
 }
 
-pub fn buildTreeSitter(b: *std.build.Builder) *std.build.Step {
-    // TODO: the makefile is so simple probably can just use zig cc instead here
+// TODO: abstract the concept of adding a gnumake invocation step (also check if zig has something for this)
+pub fn buildTreeSitter(b: *std.build.Builder) *std.build.LibExeObjStep {
     const make_tree_sitter = std.build.RunStep.create(b, "run 'make' in thirdparty tree_sitter dep");
     make_tree_sitter.addArgs(&[_][]const u8{ "/bin/make", "--directory", "thirdparty/tree-sitter" });
-    b.getInstallStep().dependOn(&make_tree_sitter.step);
-    //b.installBinFile("thirdparty/peg-0.1.18/peg", "peg");
-
-    return &make_tree_sitter.step;
+    const install_tree_sitter_step = std.build.LibExeObjStep.createStaticLibrary(b, "tree-sitter", std.build.FileSource{ .path = "thirdparty/tree-sitter/libtree-sitter.a" });
+    install_tree_sitter_step.step.dependOn(&make_tree_sitter.step);
+    return install_tree_sitter_step;
 }
