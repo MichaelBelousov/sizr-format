@@ -1,17 +1,17 @@
 const c_api = @cImport({
     @cInclude("tree_sitter/api.h");
-    //@cInclude("api.h");
 });
 
 const TsParser = struct {
-    _ts_parser: [*c]c_api.TSParser,
+    _ts_parser: *c_api.TSParser,
 
     const Self = @This();
 
     fn init() Self {
-        return Self{
-            ._ts_parser = c_api.ts_parser_new(),
-        };
+        const maybe_c_parser = c_api.ts_parser_new();
+        if (maybe_c_parser) |c_parser| {
+            return Self{ ._ts_parser = c_parser };
+        } else unreachable;
     }
 
     // TODO: check zig idioms
@@ -23,6 +23,6 @@ const TsParser = struct {
 test "TsParser" {
     var parser = TsParser.init();
     defer {
-        parser.delete();
+        parser.free();
     }
 }

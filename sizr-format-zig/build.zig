@@ -19,15 +19,16 @@ pub fn build(b: *std.build.Builder) void {
 
     // TODO: switch to conditionally depend based on language support or even dynamically linked plugins
     exe.step.dependOn(peg_step);
-    exe.step.dependOn(&tree_sitter_step.step);
+    exe.step.dependOn(tree_sitter_step);
 
     exe.setTarget(target);
     exe.setBuildMode(mode);
     // I'm using some C libraries (e.g. tree_sitter), so share the heap
     // (in reality, tree_sitter might avoid a libc dependency)
     exe.linkLibC();
-    exe.linkLibrary(tree_sitter_step);
     exe.addIncludeDir("thirdparty/tree-sitter/lib/include");
+    exe.addLibPath("thirdparty/tree-sitter");
+    exe.linkSystemLibrary("tree-sitter");
     exe.install();
 
     const run_cmd = exe.run();
@@ -42,8 +43,9 @@ pub fn build(b: *std.build.Builder) void {
     var tests = b.addTest("src/main.zig");
     tests.setBuildMode(mode);
     tests.linkLibC();
-    tests.linkLibrary(tree_sitter_step);
     tests.addIncludeDir("thirdparty/tree-sitter/lib/include");
+    tests.addLibPath("thirdparty/tree-sitter");
+    tests.linkSystemLibrary("tree-sitter");
 
     const test_step = b.step("test", "run tests");
     test_step.dependOn(&tests.step);
@@ -62,11 +64,8 @@ pub fn buildPeg(b: *std.build.Builder) *std.build.Step {
 }
 
 // TODO: abstract the concept of adding a gnumake invocation step (also check if zig has something for this)
-// TODO: maybe it's better to addSystemLibrary and addLibPath?
-pub fn buildTreeSitter(b: *std.build.Builder) *std.build.LibExeObjStep {
+pub fn buildTreeSitter(b: *std.build.Builder) *std.build.Step {
     const make_tree_sitter = std.build.RunStep.create(b, "run 'make' in thirdparty tree_sitter dep");
     make_tree_sitter.addArgs(&[_][]const u8{ "/bin/make", "--directory", "thirdparty/tree-sitter" });
-    const install_tree_sitter_step = std.build.LibExeObjStep.createStaticLibrary(b, "tree-sitter", std.build.FileSource{ .path = "thirdparty/tree-sitter/libtree-sitter.a" });
-    install_tree_sitter_step.step.dependOn(&make_tree_sitter.step);
-    return install_tree_sitter_step;
+    return &make_tree_sitter.step;
 }
