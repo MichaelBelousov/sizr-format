@@ -1,10 +1,10 @@
 /// ~~byte~~code for sizr-format
-
 const std = @import("std");
 const mem = std.mem;
 const ascii = std.ascii;
 
-comst Writer = std.io.Writer;
+const Writer = std.io.Writer;
+const StringArrayHashMap = std.StringArrayHashMap;
 
 const expect = @import("std").testing.expect;
 const expectError = @import("std").testing.expectError;
@@ -61,63 +61,61 @@ const WriteCommand = union(enum) {
 };
 
 const Value = union(enum) {
-  boolean: bool,
-  string: []const u8,
-  regex: []const u8,
-  integer: i64,
-  float: f64,
+    boolean: bool,
+    string: []const u8,
+    regex: []const u8,
+    integer: i64,
+    float: f64,
 };
 
-fn Resolver(
-  comptime Ctx: typename,
-  comptime State: typename,
-  comptime resolveFn: fn(state: State, ctx: Ctx) Value
-) type {
-  return struct {
-    pub fn resolve(state: State, ctx: Ctx) {
-      resolveFn(state, ctx);
-    }
-  };
-};
+fn Resolver(comptime Ctx: typename, comptime State: typename, comptime resolveFn: fn (state: State, ctx: Ctx) Value) type {
+    return struct {
+        pub fn resolve(state: State, ctx: Ctx) Value {
+            resolveFn(state, ctx);
+        }
+    };
+}
 
-const nodeTypes = HashMap([]const u8, u16).init();
+//const nodeTypes = StringArrayHashMap(u16).init(mem.c_allocator);
 
 // TODO: use treesitter here
-struct Node {
-  type: u16,
-  namedChildren: HashMap([]const u8, *Node)
+const Node = struct {
+    type_: u16,
+    namedChildren: StringArrayHashMap(*Node),
 };
 
-struct LangResolver {
-  fn resolveFn(self: @This(), node: Node) Value {
-
-  }
-  pub const Resolver = Resolver(@This(), NodeType, resolveFn);
+const LangResolver = struct {
+    fn resolveFn(self: @This(), node: Node) Value {}
+    pub const Resolver = Resolver(@This(), NodeType, resolveFn);
 };
 
-struct EvalCtx {
-  indentLevel: u32;
-  aligners: HashMap([]const u8, u32),
-  // could layer resolvers, e.g. getting linesep vars from osEnv
-  varResolver: LangVarResolver(Cpp),
+const EvalCtx = struct {
+    indentLevel: u32,
+    aligners: StringArrayHashMap(u32),
+    // could layer resolvers, e.g. getting linesep vars from osEnv
+    varResolver: LangVarResolver(Cpp),
 
-  fn eval(self: Self, ctx: Cpp.Node) {
-    self.varResolver.resolve(ctx);
-  }
+    fn eval(self: Self, ctx: Cpp.Node) Value {
+        self.varResolver.resolve(ctx);
+    }
 
-  fn test_(self: Self, ctx: Cpp.Node) {
-    self.eval(ctx) == Val.true;
-  }
-
+    // TODO: future zig will have @"test" syntax for raw identifiers
+    fn test_(self: Self, ctx: Cpp.Node) Value {
+        self.eval(ctx) == Value{ .bool = true };
+    }
 };
 
-pub fn write(evalCtx: EvalCtx, cmd: WriteCommand, writer: Writer) {
+pub fn write(evalCtx: EvalCtx, cmd: WriteCommand, writer: Writer) void {
     switch (cmd) {
-            WriteCommand.raw => |val| writer.write(val),
-            WriteCommand.referenceExpr => |val| writer.write(evalCtx.eval(val)),
-            WriteCommand.wrapPoint => writer.write(evalCtx.tryWrap()),
-            WriteCommand.conditional => |val| write(evalCtx, evalCtx.eval(evalCtxrtest_(val.test_)) ? val.then : val.else_, writer),
-            WriteCommand.indentMark => |val| evalCtx.indent(val),
-            WriteCommand.sequence => |cmds| for (cmds) |cmd| { write(ctx, cmd, writer) },
-        
+        .raw => |val| writer.write(val),
+        .referenceExpr => |val| writer.write(evalCtx.eval(val)),
+        .wrapPoint => writer.write(evalCtx.tryWrap()),
+        .conditional => |val| {
+            write(evalCtx, if (evalCtx.eval(evalCtxrtest_(val.test_))) val.then else val.else_, writer);
+        },
+        .indentMark => |val| evalCtx.indent(val),
+        .sequence => |cmds| for (cmds) |cmd| {
+            write(ctx, cmd, writer);
+        },
+    }
 }

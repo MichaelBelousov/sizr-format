@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const mem = std.mem;
+const meta = std.meta;
 const ascii = std.ascii;
 
 const expect = @import("std").testing.expect;
@@ -129,8 +130,9 @@ const LexError = error{
 };
 
 // TODO: rename size to bytesRead
+// TODO: move size into the token struct itself
 pub fn next_token(inSrc: []const u8) !struct { tok: Token, size: usize } {
-    // NOTE: there is a new tuple return syntax in zig 0.10.0 I believe, should switch to that
+    // NOTE: there is a new tuple return syntax in zig 0.10.0 I believe, should look into switching to that
     const ReturnType = @typeInfo(@typeInfo(@TypeOf(next_token)).Fn.return_type.?).ErrorUnion.payload;
     // first eat all white space
     const firstNonSpace = util.indexOfNotAny(u8, inSrc, &[_]u8{ ' ', '\t', '\n', '\r' }) orelse return ReturnType{ .tok = Token.eof, .size = 0 };
@@ -173,7 +175,7 @@ pub fn next_token(inSrc: []const u8) !struct { tok: Token, size: usize } {
     }
     if (isIdentStart(src[0])) {
         const ident = readIdent(src);
-        if (mem.eql(u8, ident, "node")) return ReturnType{ .tok = Token{ .kw_node = {} }, .size = ident.len };
+        if (meta.eql(ident, "node")) return ReturnType{ .tok = Token{ .kw_node = {} }, .size = ident.len };
         return LexError.Unknown;
     }
     if (ascii.isDigit(src[0])) {
