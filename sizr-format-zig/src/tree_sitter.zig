@@ -67,8 +67,47 @@ const TsTree = struct {
     _c: *c_api.TSTree,
 };
 
+// these are just typedefs to native types
+const TsFieldId = c_api.TSFieldId;
+const TsSymbol = c_api.TSSymbol;
+
+const TsSymbolType = enum(c_api.TSSymbolType) {
+    regular = c_api.TSSymbolType.TSSymbolTypeRegular,
+    anonymous = c_api.TSSymbolType.TSSymbolTypeAnonymous,
+    auxiliary = c_api.TSSymbolType.TSSymbolTypeAuxiliary,
+};
+
 const TsLanguage = struct {
     _c: *c_api.TSLanguage,
+
+    const Self = @This();
+
+    pub fn symbol_count(self: Self) u32 {
+        return c_api.ts_language_symbol_count(self._c);
+    }
+
+    pub fn symbol_name(self: Self, symbol: TsSymbol) [:0]const u8 {
+        return c_api.ts_language_symbol_name(self._c, symbol);
+    }
+    pub fn symbol_for_name(self: Self, string: []const u8, is_named: bool) TsSymbol {
+        return c_api.ts_language_symbol_for_name(self._c, string, string.len, is_named);
+    }
+    pub fn field_count(self: Self) u32 {
+        return c_api.ts_language_field_count(self._c);
+    }
+    pub fn field_name_for_id(self: Self, field_id: TsFieldId) []const u8 {
+        // FIXME: implicitly converts from [:0] const u8
+        return c_api.ts_language_field_name_for_id(self._c, field_id);
+    }
+    pub fn field_id_for_name(self: Self, name: []const u8) TsFieldId {
+        return c_api.ts_language_field_id_for_name(self._c, name, name.len);
+    }
+    pub fn symbol_type(self: Self, symbol: TsSymbol) TsSymbolType {
+        return c_api.ts_language_symbol_type(self._c, symbol);
+    }
+    pub fn version(self: Self) u32 {
+        return c_api.ts_language_version(self._c);
+    }
 };
 
 /// generate a type from the tree-sitter header
@@ -109,8 +148,6 @@ fn wrapTsType(comptime name: []const u8, comptime TsType: type) type {
         }
     });
 }
-
-const TsLanguage = wrapTsType("ts_language", c_api.TSLanguage);
 
 test "wrapTsType" {
     _ = wrapTsType;
