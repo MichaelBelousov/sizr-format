@@ -67,36 +67,67 @@ const TsTree = struct {
     _c: *c_api.TSTree,
 };
 
-const TsLanguage = struct {
-    _c: *c_api.TSLanguage,
-};
+//const TsLanguage = struct {
+    //_c: *c_api.TSLanguage,
+//};
 
+/// generate a type from the tree-sitter header
 fn wrapTsType(comptime name: []const u8, comptime TsType: type) type {
-    const fields = comptime fields: {
+    const decls_count = comptime decls: {
         var i = @as(i32, 0);
-        var result = [std.meta.fields(c_api).len:null]?std.builtin.TypeInfo.StructField;
-        for (std.meta.fields(c_api)) |field| {
-            if (std.mem.startsWith(field.name, name)) {
-                result[i] = std.builtin.TypeInfo.StructField{
-                    .name = field.name[name.len + 1..field.name.len],
-                    .field_type = field.field_type,
-                    .default_value = field.default_value,
-                    .is_comptime = field.is_comptime,
-                    .alignment = field.alignment,
+        for (std.meta.declarations(c_api)) |decl| {
+            if (std.mem.startsWith(decl.name, name)) {
+                i += 1;
+            }
+        }
+        break :decls i;
+    };
+
+    const decls = comptime decls: {
+        var i = @as(i32, 0);
+        var result = [decls_count]std.builtin.TypeInfo.StructField;
+        for (std.meta.declarations(c_api)) |decl| {
+            if (std.mem.startsWith(decl.name, name)) {
+                result[i] = std.builtin.TypeInfo.Declaration{
+                    .name = decl.name[decl.len + 1..decl.name.len],
+                    .data = if (decl.data == .Fn) decl.data else decl.data
                 };
                 i += 1;
             }
         }
-        break :fields result;
+        break :decls result;
     };
+
     return @Type(.{
         .Struct = .{
             .layout = .Auto,
-            .fields = fields,
-            .decls = &[_]std.builtin.TypeInfo.Declaration{},
+            .fields = [_]std.builtin.TypeInfo.StructField{
+                .{ .name = "_c", .field_type = *TsType, .default_value = undefined, .is_comptime = false, .alignment = 8 }
+            },
+            .decls = decls,
             .is_tuple = false
         }
     });
 }
 
-test "TsLanguage" {}
+const TsLanguage = wrapTsType("ts_language", c_api.TSLanguage);
+
+test "TsLanguage" {
+    std.meta.eql(
+        std.meta.declarations(@Type(TsLanguage)),
+        [_]std.builtin.TypeInfo.Declaration{
+            .{ .name = "symbol_name", .data = c_api.ts_language_symbol_name },
+            .{ .name = "symbol_for_name", .data = c_api.ts_language_symbol_for_name },
+            .{ .name = "field_count", .data = c_api.ts_language_field_count },
+            .{ .name = "field_name_for_id", .data = c_api.ts_language_field_name_for_id },
+            .{ .name = "field_id_for_name", .data = c_api.ts_language_field_id_for_name },
+            .{ .name = "symbol_type", .data = c_api.ts_language_symbol_type },
+            .{ .name = "version", .data = c_api.ts_language_version },
+        }
+    );
+    const lang = TsLanguage.new();
+    _ = lang;
+    defer {
+        lang.free();
+    }
+}
