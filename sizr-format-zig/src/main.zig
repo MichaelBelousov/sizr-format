@@ -21,8 +21,10 @@ test "parse" {
     defer parser.free();
     if (!parser.set_language(ts.cpp()))
         @panic("couldn't set cpp lang");
-    var tree = parser.parse_string(null, src);
-    std.debug.print("result: '{}'\n", .{tree});
+    const tree = parser.parse_string(null, src);
+    const root = ts._c.ts_tree_root_node(tree._c);
+    const syntax_tree = ts._c.ts_node_string(root);
+    std.debug.print("syntax_tree: '{s}'\n", .{syntax_tree});
 }
 
 pub fn main() !void {
