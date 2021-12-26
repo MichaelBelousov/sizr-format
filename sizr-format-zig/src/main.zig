@@ -1,11 +1,14 @@
 const std = @import("std");
-const parser = @import("./parser.zig");
+const sizr_parser = @import("./parser.zig");
 const code = @import("./code.zig");
-
-pub fn main() !void {
-}
+const ts = @import("./tree_sitter.zig");
 
 test "" {
     _ = code;
-    _ = tree_sitter;
+    _ = ts;
+}
+
+pub fn main() !void {
+    const parser = ts.Parser.new();
+    _ = parser;
 }

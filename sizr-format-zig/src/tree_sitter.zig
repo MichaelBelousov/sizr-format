@@ -9,13 +9,13 @@ const c_api = @cImport({
 
 pub const _c = c_api;
 
-pub const TsInputEncoding = enum(c_api.TSInputEncoding) {
+pub const InputEncoding = enum(c_api.TSInputEncoding) {
     utf8 = c_api.TSInputEncoding.TSInputEncodingUTF8,
     utf16 = c_api.TSInputEncoding.TSInputEncodingUTF16,
 };
 
 // TODO: remove Ts prefix from all types since user can namespace it themselves
-pub const TsParser = struct {
+pub const Parser = struct {
     _c: *c_api.TSParser,
 
     const Self = @This();
@@ -32,19 +32,19 @@ pub const TsParser = struct {
         c_api.ts_parser_delete(self._c);
     }
 
-    pub fn set_language(self: Self, language: TsLanguage) void {
+    pub fn set_language(self: Self, language: Language) void {
         return c_api.ts_parser_set_language(self._c, language._c);
     }
 
     // TODO: steal the documentation from the C header
     // would be nice if this could be done with reflection
-    pub fn parse_string(self: Self, old_tree: ?TsTree, src_string: []const u8) TsTree {
+    pub fn parse_string(self: Self, old_tree: ?Tree, src_string: []const u8) Tree {
         // FIXME: I actually have no idea what the input encoding is when unspecified
-        return self.parse_string_encoding(old_tree, src_string, TsInputEncoding.utf8);
+        return self.parse_string_encoding(old_tree, src_string, InputEncoding.utf8);
     }
 
-    pub fn parse_string_encoding(self: Self, old_tree: ?TsTree, src_string: []const u8, encoding: TsInputEncoding) TsTree {
-        return TsTree{
+    pub fn parse_string_encoding(self: Self, old_tree: ?Tree, src_string: []const u8, encoding: InputEncoding) Tree {
+        return Tree{
             ._c = c_api.ts_parser_parse_string_encoding(
                 self._c,
                 if (old_tree) |old_tree_val| old_tree_val._c else null,
@@ -56,32 +56,32 @@ pub const TsParser = struct {
     }
 };
 
-test "TsParser" {
-    var parser = TsParser.new();
+test "Parser" {
+    var parser = Parser.new();
     defer {
         parser.free();
     }
 }
 
-pub const TsNode = struct {
+pub const Node = struct {
     _c: *c_api.TSNode,
 };
 
-pub const TsTree = struct {
+pub const Tree = struct {
     _c: *c_api.TSTree,
 };
 
 // these are just typedefs to native types
-pub const TsFieldId = c_api.TSFieldId;
-pub const TsSymbol = c_api.TSSymbol;
+pub const FieldId = c_api.TSFieldId;
+pub const Symbol = c_api.TSSymbol;
 
-pub const TsSymbolType = enum(c_api.TSSymbolType) {
+pub const SymbolType = enum(c_api.TSSymbolType) {
     regular = c_api.TSSymbolType.TSSymbolTypeRegular,
     anonymous = c_api.TSSymbolType.TSSymbolTypeAnonymous,
     auxiliary = c_api.TSSymbolType.TSSymbolTypeAuxiliary,
 };
 
-pub const TsLanguage = struct {
+pub const Language = struct {
     _c: *c_api.TSLanguage,
 
     const Self = @This();
@@ -90,23 +90,23 @@ pub const TsLanguage = struct {
         return c_api.ts_language_symbol_count(self._c);
     }
 
-    pub fn symbol_name(self: Self, symbol: TsSymbol) [:0]const u8 {
+    pub fn symbol_name(self: Self, symbol: Symbol) [:0]const u8 {
         return c_api.ts_language_symbol_name(self._c, symbol);
     }
-    pub fn symbol_for_name(self: Self, string: []const u8, is_named: bool) TsSymbol {
+    pub fn symbol_for_name(self: Self, string: []const u8, is_named: bool) Symbol {
         return c_api.ts_language_symbol_for_name(self._c, string, string.len, is_named);
     }
     pub fn field_count(self: Self) u32 {
         return c_api.ts_language_field_count(self._c);
     }
-    pub fn field_name_for_id(self: Self, field_id: TsFieldId) []const u8 {
+    pub fn field_name_for_id(self: Self, field_id: FieldId) []const u8 {
         // FIXME: implicitly converts from [:0] const u8
         return c_api.ts_language_field_name_for_id(self._c, field_id);
     }
-    pub fn field_id_for_name(self: Self, name: []const u8) TsFieldId {
+    pub fn field_id_for_name(self: Self, name: []const u8) FieldId {
         return c_api.ts_language_field_id_for_name(self._c, name, name.len);
     }
-    pub fn symbol_type(self: Self, symbol: TsSymbol) TsSymbolType {
+    pub fn symbol_type(self: Self, symbol: Symbol) SymbolType {
         return c_api.ts_language_symbol_type(self._c, symbol);
     }
     pub fn version(self: Self) u32 {
@@ -115,7 +115,7 @@ pub const TsLanguage = struct {
 };
 
 /// generate a type from the tree-sitter header
-fn wrapTsType(comptime name: []const u8, comptime TsType: type) type {
+fn wrapType(comptime name: []const u8, comptime Type: type) type {
     const decls_count = comptime decls: {
         var i = @as(i32, 0);
         for (std.meta.declarations(c_api)) |decl| {
@@ -145,7 +145,7 @@ fn wrapTsType(comptime name: []const u8, comptime TsType: type) type {
         .Struct = .{
             .layout = .Auto,
             .fields = [_]std.builtin.TypeInfo.StructField{
-                .{ .name = "_c", .field_type = *TsType, .default_value = undefined, .is_comptime = false, .alignment = 8 }
+                .{ .name = "_c", .field_type = *Type, .default_value = undefined, .is_comptime = false, .alignment = 8 }
             },
             .decls = decls,
             .is_tuple = false
@@ -153,12 +153,12 @@ fn wrapTsType(comptime name: []const u8, comptime TsType: type) type {
     });
 }
 
-test "wrapTsType" {
-    _ = wrapTsType;
-//     // unused because wrapTsType's iteration of all fields in c_api drags in unsupported stuff like glibc long double functions
-//     const TsLanguage = wrapTsType("ts_language", c_api.TSLanguage);
+test "wrapType" {
+    _ = wrapType;
+//     // unused because wrapType's iteration of all fields in c_api drags in unsupported stuff like glibc long double functions
+//     const Language = wrapType("ts_language", c_api.TSLanguage);
 //     std.meta.eql(
-//         std.meta.declarations(@Type(TsLanguage)),
+//         std.meta.declarations(@Type(Language)),
 //         [_]std.builtin.TypeInfo.Declaration{
 //             .{ .name = "symbol_name", .data = c_api.ts_language_symbol_name },
 //             .{ .name = "symbol_for_name", .data = c_api.ts_language_symbol_for_name },
@@ -169,7 +169,7 @@ test "wrapTsType" {
 //             .{ .name = "version", .data = c_api.ts_language_version },
 //         }
 //     );
-//     const lang = TsLanguage.new();
+//     const lang = Language.new();
 //     _ = lang;
 //     defer {
 //         lang.free();
