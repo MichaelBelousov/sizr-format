@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const c_api = @cImport({
     @cInclude("tree_sitter/api.h");
 });
@@ -7,13 +9,14 @@ const TsInputEncoding = enum(c_api.TSInputEncoding) {
     utf16 = c_api.TSInputEncoding.TSInputEncodingUTF16,
 };
 
-// TODO: doing this by hand for now but some kind of guided clang plugin could probably generate bindings better
+// TODO: doing this by hand for now but some kind of clang plugin could probably generate bindings better
+// alternatively, tree-sitter queries themselves or even sizr-format could potentially generate this
 const TsParser = struct {
     _c: *c_api.TSParser,
 
     const Self = @This();
 
-    fn init() Self {
+    pub fn init() Self {
         const maybe_c_parser = c_api.ts_parser_new();
         if (maybe_c_parser) |c_parser| {
             return Self{ ._c = c_parser };
@@ -67,5 +70,33 @@ const TsTree = struct {
 const TsLanguage = struct {
     _c: *c_api.TSLanguage,
 };
+
+fn wrapTsType(comptime name: []const u8, comptime TsType: type) type {
+    const fields = comptime fields: {
+        var i = @as(i32, 0);
+        var result = [std.meta.fields(c_api).len:null]?std.builtin.TypeInfo.StructField;
+        for (std.meta.fields(c_api)) |field| {
+            if (std.mem.startsWith(field.name, name)) {
+                result[i] = std.builtin.TypeInfo.StructField{
+                    .name = field.name[name.len + 1..field.name.len],
+                    .field_type = field.field_type,
+                    .default_value = field.default_value,
+                    .is_comptime = field.is_comptime,
+                    .alignment = field.alignment,
+                };
+                i += 1;
+            }
+        }
+        break :fields result;
+    };
+    return @Type(.{
+        .Struct = .{
+            .layout = .Auto,
+            .fields = fields,
+            .decls = &[_]std.builtin.TypeInfo.Declaration{},
+            .is_tuple = false
+        }
+    });
+}
 
 test "TsLanguage" {}
