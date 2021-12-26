@@ -57,9 +57,9 @@ const WriteCommand = union(enum) {
     },
     wrapPoint,
     conditional: struct {
-        test_: FilterExpr,
+        @"test": FilterExpr,
         then: ?*WriteCommand,
-        else_: ?*WriteCommand,
+        @"else": ?*WriteCommand,
     },
     indentMark: IndentMark,
     sequence: std.ArrayList(WriteCommand),
@@ -86,7 +86,7 @@ const nodeTypes = StringArrayHashMap(u16).init(mem.c_allocator);
 
 // TODO: use treesitter here
 const Node = struct {
-    type_: u16,
+    @"type": u16,
     namedChildren: StringArrayHashMap(*Node),
 };
 
@@ -121,7 +121,7 @@ const EvalCtx = struct {
     }
 
     // TODO: future zig will have @"test" syntax for raw identifiers
-    fn test_(self: Self, ctx: Node) Value {
+    fn @"test"(self: Self, ctx: Node) Value {
         self.eval(ctx) == Value{ .bool = true };
     }
 };
@@ -132,7 +132,7 @@ pub fn write(evalCtx: EvalCtx, cmd: WriteCommand, writer: Writer) void {
         .referenceExpr => |val| writer.write(evalCtx.eval(val)),
         .wrapPoint => writer.write(evalCtx.tryWrap()),
         .conditional => |val| {
-            write(evalCtx, if (evalCtx.eval(evalCtx.test_(val.test_))) val.then else val.else_, writer);
+            write(evalCtx, if (evalCtx.eval(evalCtx.@"test"(val.@"test"))) val.then else val.@"else", writer);
         },
         .indentMark => |val| evalCtx.indent(val),
         .sequence => |cmds| for (cmds) |c| {
