@@ -10,8 +10,8 @@ const c_api = @cImport({
 pub const _c = c_api;
 
 pub const InputEncoding = enum(c_api.TSInputEncoding) {
-    utf8 = c_api.TSInputEncoding.TSInputEncodingUTF8,
-    utf16 = c_api.TSInputEncoding.TSInputEncodingUTF16,
+    utf8 = c_api.TSInputEncodingUTF8,
+    utf16 = c_api.TSInputEncodingUTF16,
 };
 
 // TODO: remove Ts prefix from all types since user can namespace it themselves
@@ -21,10 +21,7 @@ pub const Parser = struct {
     const Self = @This();
 
     pub fn new() Self {
-        const maybe_c_parser = c_api.ts_parser_new();
-        if (maybe_c_parser) |c_parser| {
-            return Self{ ._c = c_parser };
-        } else unreachable;
+        return Self{ ._c = c_api.ts_parser_new().? };
     }
 
     // TODO: check zig idioms
@@ -32,7 +29,7 @@ pub const Parser = struct {
         c_api.ts_parser_delete(self._c);
     }
 
-    pub fn set_language(self: Self, language: Language) void {
+    pub fn set_language(self: Self, language: Language) bool {
         return c_api.ts_parser_set_language(self._c, language._c);
     }
 
@@ -48,10 +45,10 @@ pub const Parser = struct {
             ._c = c_api.ts_parser_parse_string_encoding(
                 self._c,
                 if (old_tree) |old_tree_val| old_tree_val._c else null,
-                src_string,
-                src_string.len,
+                src_string.ptr,
+                @truncate(u32, src_string.len),
                 @enumToInt(encoding)
-            )
+            ).?
         };
     }
 };
@@ -94,7 +91,7 @@ pub const Language = struct {
         return c_api.ts_language_symbol_name(self._c, symbol);
     }
     pub fn symbol_for_name(self: Self, string: []const u8, is_named: bool) Symbol {
-        return c_api.ts_language_symbol_for_name(self._c, string, string.len, is_named);
+        return c_api.ts_language_symbol_for_name(self._c, string.ptr, @truncate(u32, string.len), is_named);
     }
     pub fn field_count(self: Self) u32 {
         return c_api.ts_language_field_count(self._c);
@@ -104,7 +101,7 @@ pub const Language = struct {
         return c_api.ts_language_field_name_for_id(self._c, field_id);
     }
     pub fn field_id_for_name(self: Self, name: []const u8) FieldId {
-        return c_api.ts_language_field_id_for_name(self._c, name, name.len);
+        return c_api.ts_language_field_id_for_name(self._c, name.ptr, @truncate(u32, name.len));
     }
     pub fn symbol_type(self: Self, symbol: Symbol) SymbolType {
         return c_api.ts_language_symbol_type(self._c, symbol);
@@ -174,4 +171,12 @@ test "wrapType" {
 //     defer {
 //         lang.free();
 //     }
+}
+
+// c++ support
+extern fn tree_sitter_cpp() callconv(.C) *c_api.TSLanguage;
+
+// maybe make this a field and statically initialize it?
+pub fn cpp() Language {
+    return Language{._c = tree_sitter_cpp() };
 }

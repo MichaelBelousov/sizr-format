@@ -22,13 +22,20 @@ pub fn build(b: *std.build.Builder) void {
     exe.step.dependOn(tree_sitter_step);
 
     exe.setTarget(target);
-    exe.setBuildMode(mode);
-    // I'm using some C libraries (e.g. tree_sitter), so share the heap
-    // (in reality, tree_sitter might avoid a libc dependency)
-    exe.linkLibC();
-    exe.addIncludeDir("thirdparty/tree-sitter/lib/include");
-    exe.addLibPath("thirdparty/tree-sitter");
-    exe.linkSystemLibrary("tree-sitter");
+
+    var tests = b.addTest("src/main.zig");
+
+    for ([_]*std.build.LibExeObjStep{exe, tests}) |artifact| {
+        artifact.setBuildMode(mode);
+        artifact.linkLibC();
+        artifact.linkSystemLibrary("c++");
+        artifact.addIncludeDir("thirdparty/tree-sitter/lib/include");
+        artifact.addLibPath("thirdparty/tree-sitter");
+        artifact.linkSystemLibrary("tree-sitter");
+        artifact.addCSourceFile("thirdparty/tree-sitter-cpp/src/parser.c", &.{"-std=c99"});
+        artifact.addCSourceFile("thirdparty/tree-sitter-cpp/src/scanner.cc", &.{"-std=c++14"});
+    }
+
     exe.install();
 
     const run_cmd = exe.run();
@@ -39,13 +46,6 @@ pub fn build(b: *std.build.Builder) void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
-
-    var tests = b.addTest("src/main.zig");
-    tests.setBuildMode(mode);
-    tests.linkLibC();
-    tests.addIncludeDir("thirdparty/tree-sitter/lib/include");
-    tests.addLibPath("thirdparty/tree-sitter");
-    tests.linkSystemLibrary("tree-sitter");
 
     const test_step = b.step("test", "run tests");
     test_step.dependOn(&tests.step);
