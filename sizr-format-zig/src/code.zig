@@ -10,6 +10,7 @@ const expect = @import("std").testing.expect;
 const expectError = @import("std").testing.expectError;
 
 const util = @import("./util.zig");
+const ts = @import("./tree_sitter.zig").c;
 
 const Literal = union(enum) {
     boolean: bool,

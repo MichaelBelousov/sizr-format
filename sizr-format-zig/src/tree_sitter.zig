@@ -1,17 +1,21 @@
+//! TODO: doing this by hand for now but some kind of clang plugin could probably generate bindings better
+//! alternatively, tree-sitter queries themselves or even sizr-format could potentially generate this
+
 const std = @import("std");
 
 const c_api = @cImport({
     @cInclude("tree_sitter/api.h");
 });
 
-const TsInputEncoding = enum(c_api.TSInputEncoding) {
+pub const _c = c_api;
+
+pub const TsInputEncoding = enum(c_api.TSInputEncoding) {
     utf8 = c_api.TSInputEncoding.TSInputEncodingUTF8,
     utf16 = c_api.TSInputEncoding.TSInputEncodingUTF16,
 };
 
-// TODO: doing this by hand for now but some kind of clang plugin could probably generate bindings better
-// alternatively, tree-sitter queries themselves or even sizr-format could potentially generate this
-const TsParser = struct {
+// TODO: remove Ts prefix from all types since user can namespace it themselves
+pub const TsParser = struct {
     _c: *c_api.TSParser,
 
     const Self = @This();
@@ -59,25 +63,25 @@ test "TsParser" {
     }
 }
 
-const TsNode = struct {
+pub const TsNode = struct {
     _c: *c_api.TSNode,
 };
 
-const TsTree = struct {
+pub const TsTree = struct {
     _c: *c_api.TSTree,
 };
 
 // these are just typedefs to native types
-const TsFieldId = c_api.TSFieldId;
-const TsSymbol = c_api.TSSymbol;
+pub const TsFieldId = c_api.TSFieldId;
+pub const TsSymbol = c_api.TSSymbol;
 
-const TsSymbolType = enum(c_api.TSSymbolType) {
+pub const TsSymbolType = enum(c_api.TSSymbolType) {
     regular = c_api.TSSymbolType.TSSymbolTypeRegular,
     anonymous = c_api.TSSymbolType.TSSymbolTypeAnonymous,
     auxiliary = c_api.TSSymbolType.TSSymbolTypeAuxiliary,
 };
 
-const TsLanguage = struct {
+pub const TsLanguage = struct {
     _c: *c_api.TSLanguage,
 
     const Self = @This();
