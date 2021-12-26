@@ -10,7 +10,7 @@ const expect = @import("std").testing.expect;
 const expectError = @import("std").testing.expectError;
 
 const util = @import("./util.zig");
-const ts = @import("./tree_sitter.zig").c;
+const ts = @import("./tree_sitter.zig");
 
 const Literal = union(enum) {
     boolean: bool,
@@ -72,40 +72,46 @@ const Value = union(enum) {
     regex: []const u8,
     integer: i64,
     float: f64,
+    node: ts.Node,
 };
 
 // TODO: use idiomatic zig polymorphism
-fn Resolver(comptime Ctx: type, comptime resolveFn: fn (ctx: Ctx) Value) type {
+fn Resolver(
+    comptime Ctx: type,
+) type {
     return struct {
-        pub fn resolve(ctx: Ctx) Value {
-            resolveFn(ctx);
+        const Self = @This();
+        resolveFn: fn (self: Self, ctx: Ctx, @"expr": []const u8) Value,
+        pub fn resolve(self: Self, ctx: Ctx, @"expr": []const u8) Value {
+            self.resolveFn(ctx, @"expr");
         }
     };
 }
 
-const nodeTypes = StringArrayHashMap(u16).init(mem.c_allocator);
-
-// TODO: use treesitter here
-const Node = struct {
-    @"type": u16,
-    namedChildren: StringArrayHashMap(*Node),
-};
+// should be able to get this from tree-sitter's language objects
+const nodeTypes = StringArrayHashMap(u16).init(std.heap.c_allocator);
 
 const LangResolver = struct {
     const Self = @This();
 
-    resolver: Resolver,
+    resolver: Resolver(ts.Node),
 
-    fn resolveFn(resolver: Resolver, node: Node) Value {
-        const self = @fieldParentPtr(Self, "resolver", resolver);
+    fn resolveFn(resolver: Resolver(ts.Node), node: ts.Node, @"expr": []const u8) Value {
+        const self = @fieldParentPtr(Self, "resolver", &resolver);
         _ = self;
-        _ = node;
+        return if (std.meta.eql(@"expr", "type")) blk: {
+            const cstr = ts._c.ts_node_type(node._c.*);
+            const len = std.mem.len(cstr);
+            break :blk Value{ .string = cstr[0..len] };
+        } else if (std.fmt.parseInt(u32, @"expr", 10)) |parsed| (if (parsed >= 0)
+            Value{ .node = ts.Node{ ._c = &ts._c.ts_node_child(node._c.*, parsed) } }
+        else
+            unreachable // it is expected that the lexer of the expression will reject negative indices
+        ) else |_| Value{ .node = ts.Node{ ._c = &ts._c.ts_node_child_by_field_name(node._c.*, @"expr".ptr, @truncate(u32, @"expr".len)) } };
     }
 
-    pub fn init() Resolver {
-        return Self{
-            .resolver = Resolver(Node, resolveFn),
-        };
+    pub fn init() Self {
+        return Self{ .resolver = Resolver(ts.Node){ .resolveFn = Self.resolveFn } };
     }
 };
 
@@ -117,15 +123,27 @@ const EvalCtx = struct {
 
     const Self = @This();
 
-    fn eval(self: Self, ctx: Node) Value {
+    pub fn eval(self: Self, ctx: ts.Node) Value {
         self.varResolver.resolve(ctx);
     }
 
-    // TODO: future zig will have @"test" syntax for raw identifiers
-    fn @"test"(self: Self, ctx: Node) Value {
+    pub fn @"test"(self: Self, ctx: ts.Node) Value {
         self.eval(ctx) == Value{ .bool = true };
     }
+
+    pub fn init() Self {
+        return Self{
+            .indentLevel = 0,
+            .aligners = StringArrayHashMap(u32).init(std.heap.c_allocator),
+            .varResolver = LangResolver.init(),
+        };
+    }
 };
+
+test "EvalCtx" {
+    const ctx = EvalCtx.init();
+    _ = ctx;
+}
 
 pub fn write(evalCtx: EvalCtx, cmd: WriteCommand, writer: Writer) void {
     switch (cmd) {
