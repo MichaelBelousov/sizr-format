@@ -10,6 +10,7 @@ const expect = @import("std").testing.expect;
 const expectError = @import("std").testing.expectError;
 
 const util = @import("./util.zig");
+const test_util = @import("./test_util.zig");
 const ts = @import("./tree_sitter.zig");
 
 const Literal = union(enum) {
@@ -53,7 +54,6 @@ const WriteCommand = union(enum) {
     raw: []const u8,
     referenceExpr: struct {
         name: []const u8,
-        name: []const u8,
         filters: std.ArrayList(FilterExpr), // comma-separated
     },
     wrapPoint,
@@ -81,9 +81,9 @@ fn Resolver(
 ) type {
     return struct {
         const Self = @This();
-        resolveFn: fn (self: Self, ctx: Ctx, @"expr": []const u8) Value,
-        pub fn resolve(self: Self, ctx: Ctx, @"expr": []const u8) Value {
-            self.resolveFn(ctx, @"expr");
+        resolveFn: fn (self: Self, ctx: Ctx, expr: Expr) ?Value,
+        pub fn resolve(self: Self, ctx: Ctx, expr: Expr) ?Value {
+            self.resolveFn(ctx, expr);
         }
     };
 }
@@ -91,23 +91,30 @@ fn Resolver(
 // should be able to get this from tree-sitter's language objects
 const nodeTypes = StringArrayHashMap(u16).init(std.heap.c_allocator);
 
+const Expr = []const u8;
+
 const LangResolver = struct {
     const Self = @This();
 
     resolver: Resolver(ts.Node),
 
-    fn resolveFn(resolver: Resolver(ts.Node), node: ts.Node, @"expr": []const u8) Value {
+    fn resolveFn(resolver: Resolver(ts.Node), node: ts.Node, expr: Expr) ?Value {
         const self = @fieldParentPtr(Self, "resolver", &resolver);
         _ = self;
-        return if (std.meta.eql(@"expr", "type")) blk: {
+        return if (std.meta.eql(expr, "type")) blk: {
             const cstr = ts._c.ts_node_type(node._c.*);
             const len = std.mem.len(cstr);
             break :blk Value{ .string = cstr[0..len] };
-        } else if (std.fmt.parseInt(u32, @"expr", 10)) |parsed| (if (parsed >= 0)
+        } else if (std.fmt.parseInt(u32, expr, 10)) |parsed| (if (parsed >= 0)
             Value{ .node = ts.Node{ ._c = &ts._c.ts_node_child(node._c.*, parsed) } }
         else
             unreachable // it is expected that the lexer of the expression will reject negative indices
-        ) else |_| Value{ .node = ts.Node{ ._c = &ts._c.ts_node_child_by_field_name(node._c.*, @"expr".ptr, @truncate(u32, @"expr".len)) } };
+        ) else |_| _: {
+            const maybe_field = ts._c.ts_node_child_by_field_name(node._c.*, expr.ptr, @truncate(u32, expr.len));
+            break :_ if (maybe_field) |field|
+                Value{ .node = ts.Node{ ._c = &field } }
+            else null;
+        };
     }
 
     pub fn init() Self {
@@ -116,23 +123,28 @@ const LangResolver = struct {
 };
 
 const EvalCtx = struct {
+    nodeCursor: ts._c.TSTreeCursor,
     indentLevel: u32,
     aligners: StringArrayHashMap(u32),
-    // could layer resolvers, e.g. getting linesep vars from osEnv
+    // could layer resolvers, e.g. getting linesep vars from an outer osEnv
     varResolver: LangResolver,
 
     const Self = @This();
 
-    pub fn eval(self: Self, ctx: ts.Node) Value {
-        self.varResolver.resolve(ctx);
+    pub fn eval(self: Self, expr: Expr) Value {
+        //const node = self.nodeCursor
+        const node = ts.Node{ ._c = ts._c.tree_cursor_current_node(&self.nodeCursor) };
+        self.varResolver.resolver.resolve(node, expr);
     }
 
     pub fn @"test"(self: Self, ctx: ts.Node) Value {
         self.eval(ctx) == Value{ .bool = true };
     }
 
-    pub fn init() Self {
+    pub fn init(rootNode: ts.Node) Self {
+        const cursor = ts._c.tree_cursor_new(rootNode);
         return Self{
+            .nodeCursor = cursor,
             .indentLevel = 0,
             .aligners = StringArrayHashMap(u32).init(std.heap.c_allocator),
             .varResolver = LangResolver.init(),
@@ -141,14 +153,19 @@ const EvalCtx = struct {
 };
 
 test "EvalCtx" {
-    const ctx = EvalCtx.init();
+    const ctx = EvalCtx.init(test_util.simpleTestNode());
     _ = ctx;
 }
 
-pub fn write(evalCtx: EvalCtx, cmd: WriteCommand, writer: Writer) void {
+pub fn write(
+    evalCtx: EvalCtx,
+    cmd: WriteCommand,
+    /// expected to be an std.io.Writer
+    writer: anytype
+) void {
     switch (cmd) {
         .raw => |val| writer.write(val),
-        .referenceExpr => |val| writer.write(evalCtx.eval(val)),
+        .referenceExpr => |val| writer.write(evalCtx.eval(val.name)),
         .wrapPoint => writer.write(evalCtx.tryWrap()),
         .conditional => |val| {
             write(evalCtx, if (evalCtx.eval(evalCtx.@"test"(val.@"test"))) val.then else val.@"else", writer);
@@ -158,4 +175,15 @@ pub fn write(evalCtx: EvalCtx, cmd: WriteCommand, writer: Writer) void {
             write(evalCtx, c, writer);
         },
     }
+}
+
+test "write" {
+    const ctx = EvalCtx.init();
+    var buf: [1024]u8 = undefined;
+    write(
+        ctx,
+        WriteCommand{.raw = "test"},
+        std.io.fixedBufferStream(&buf).writer()
+    );
+    try expect(std.mem.eql(u8, buf[0..5], "test\x00"));
 }
