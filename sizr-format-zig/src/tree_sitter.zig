@@ -2,6 +2,11 @@ const c_api = @cImport({
     @cInclude("tree_sitter/api.h");
 });
 
+const TsInputEncoding = enum(c_api.TSInputEncoding) {
+    utf8 = c_api.TSInputEncoding.TSInputEncodingUTF8,
+    utf16 = c_api.TSInputEncoding.TSInputEncodingUTF16,
+};
+
 // TODO: doing this by hand for now but some kind of guided clang plugin could probably generate bindings better
 const TsParser = struct {
     _c: *c_api.TSParser,
@@ -27,7 +32,20 @@ const TsParser = struct {
     // TODO: steal the documentation from the C header
     // would be nice if this could be done with reflection
     pub fn parse_string(self: Self, old_tree: ?TsTree, src_string: []const u8) TsTree {
-        return TsTree{ ._c = c_api.ts_parser_parse_string(self._c, if (old_tree) |old_tree_val| old_tree_val._c else null, src_string, src_string.len) };
+        // FIXME: I actually have no idea what the input encoding is when unspecified
+        return self.parse_string_encoding(old_tree, src_string, TsInputEncoding.utf8);
+    }
+
+    pub fn parse_string_encoding(self: Self, old_tree: ?TsTree, src_string: []const u8, encoding: TsInputEncoding) TsTree {
+        return TsTree{
+            ._c = c_api.ts_parser_parse_string_encoding(
+                self._c,
+                if (old_tree) |old_tree_val| old_tree_val._c else null,
+                src_string,
+                src_string.len,
+                @enumToInt(encoding)
+            )
+        };
     }
 };
 
