@@ -259,10 +259,8 @@ pub fn write(
 test "write" {
     const ctx = EvalCtx.init(test_util.simpleTestSource);
     var buf: [1024]u8 = undefined;
-    try write(
-        ctx,
-        WriteCommand{.raw = "test"},
-        std.io.fixedBufferStream(&buf).writer()
-    );
+    const bufWriter = std.io.fixedBufferStream(&buf).writer();
+    write(ctx, WriteCommand{.raw = "test"}, bufWriter) catch unreachable;
+    bufWriter.writeByte(0) catch unreachable;
     try expect(std.mem.eql(u8, buf[0..5], "test\x00"));
 }
