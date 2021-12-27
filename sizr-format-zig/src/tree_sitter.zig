@@ -61,7 +61,7 @@ test "Parser" {
 }
 
 pub const Node = struct {
-    _c: *c_api.TSNode,
+    _c: c_api.TSNode,
 };
 
 pub const Tree = struct {
