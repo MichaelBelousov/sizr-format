@@ -62,6 +62,16 @@ test "Parser" {
 
 pub const Node = struct {
     _c: c_api.TSNode,
+
+    // TODO: maybe wrap all ts.Node usage in optionals and hide the concept of the invalid raw c struct?
+    pub fn @"null"(self: @This()) bool {
+        return self._c.id == null;
+    }
+
+    pub fn child_by_field_name(self: @This(), field_name: []const u8) Node {
+        if (self.@"null"()) return self; // HACK
+        return Node {._c = c_api.ts_node_child_by_field_name(self._c, field_name.ptr, @truncate(u32, field_name.len)) };
+    }
 };
 
 pub const Tree = struct {

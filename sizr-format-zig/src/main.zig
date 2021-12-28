@@ -26,7 +26,7 @@ test "parse" {
     const root = ts._c.ts_tree_root_node(tree._c);
     const syntax_tree = ts._c.ts_node_string(root);
     defer std.c.free(syntax_tree);
-    std.debug.print("syntax_tree: '{s}'\n", .{syntax_tree});
+    //std.debug.print("syntax_tree: '{s}'\n", .{syntax_tree});
 }
 
 pub fn main() !void {

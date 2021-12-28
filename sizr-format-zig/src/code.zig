@@ -80,18 +80,31 @@ const Value = union(enum) {
         src: []const u8,
     },
 
-    pub fn serialize(self: @This(), alloc: std.mem.Allocator) []const u8 {
+    /// an optionally allocated blob that should be freed, but might that might be a noop
+    const SerializedBlob = struct {
+        alloc: ?std.mem.Allocator, // could make this a class constant to save on space
+        //needs_free: bool,
+        buf: []const u8,
+        pub fn free(self: @This()) void {
+            if (self.alloc) |alloc| {
+                alloc.free(self.buf);
+            }
+        }
+    };
+
+    pub fn serialize(self: @This(), alloc: std.mem.Allocator) SerializedBlob {
         return switch (self) {
-            .boolean => |val| if (val) "true" else "false",
-            .string => |val| std.fmt.allocPrint(alloc, "\"{s}\"", .{val}) catch unreachable, // FIXME: ignoring oom for now
-            .regex => |val| std.fmt.allocPrint(alloc, "/{s}/", .{val}) catch unreachable,
-            .integer => |val| std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable,
-            .float => |val| std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable,
-            .node => |val| _: {
+            .boolean => |val| SerializedBlob{.buf = if (val) "true" else "false", .alloc = null },
+            .string => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "\"{s}\"", .{val}) catch unreachable, .alloc = alloc }, // ignoring oom for now
+            .regex => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "/{s}/", .{val}) catch unreachable, .alloc = alloc },
+            .integer => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .alloc = alloc },
+            .float => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .alloc = alloc },
+            .node => |val| SerializedBlob{.buf = _: {
+                if (val.node.@"null"()) break: _ "<NULL_NODE>";
                 const start = ts._c.ts_node_start_byte(val.node._c);
                 const end = ts._c.ts_node_end_byte(val.node._c);
-                break :_ val.src[start..end];
-            },
+                break :_  val.src[start..end];
+            }, .alloc = null },
         };
     }
 };
@@ -133,7 +146,7 @@ const LangResolver = struct {
             Value{ .node = .{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, parsed) }, .src = self.source } }
         else
             unreachable // it is expected that the lexer of the expression will reject negative indices
-        ) else |_| Value{ .node = .{ .node = ts.Node{ ._c = ts._c.ts_node_child_by_field_name(node._c, expr.ptr, @truncate(u32, expr.len)) }, .src = self.source } };
+        ) else |_| Value{ .node = .{ .node = node.child_by_field_name(expr), .src = self.source } };
     }
 
     pub fn init(source: []const u8) Self {
@@ -167,7 +180,7 @@ const EvalCtx = struct {
             .regex => |val| !std.mem.eql(u8, "", val),
             .float => |val| val != 0.0,
             .integer => |val| val != 0,
-            .node => true, // NOTE: these can in fact probably be invalid, need to check that here
+            .node => |val| val.node.@"null"(),
         } else false;
     }
 
@@ -228,8 +241,8 @@ pub fn write(
             const maybe_eval_result = evalCtx.eval(val.name);
             if (maybe_eval_result) |eval_result| {
                 const serialized = eval_result.serialize(std.heap.c_allocator);
-                defer std.heap.c_allocator.free(serialized);
-                _ = try writer.write(serialized);
+                defer serialized.free();
+                _ = try writer.write(serialized.buf);
             }
         },
         .wrapPoint => {
@@ -257,29 +270,30 @@ test "write" {
     var local = struct {
         ctx: EvalCtx,
         buf: [1024]u8,
-        fn writeAndCmp(self: *@This(), wcmd: WriteCommand, output: []const u8) !void {
+        fn writeEqlString(self: *@This(), wcmd: WriteCommand, output: []const u8) bool {
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
             write(self.ctx, wcmd, bufWriter) catch unreachable;
             bufWriter.writeByte(0) catch unreachable;
-            try expect(std.mem.eql(u8, self.buf[0..std.mem.len(self.buf)], output));
+            const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
+            return std.mem.eql(u8, self.buf[0..len], output);
         }
     }{
         .ctx = EvalCtx.init(test_util.simpleTestSource),
         .buf = undefined,
     };
 
-    try local.writeAndCmp(
+    try expect(local.writeEqlString(
         WriteCommand{ .raw = "test" },
         "test\x00"
-    );
-    try local.writeAndCmp(
+    ));
+    try expect(local.writeEqlString(
         WriteCommand{ .referenceExpr = .{ .name = "test", .filters = &.{}  }},
         "blah\x00"
-    );
-    try local.writeAndCmp(
+    ));
+    try expect(local.writeEqlString(
         WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
         "test( )\x00"
-    );
+    ));
     // still need to be tested:
     // - referenceExpr
     // - wrapPoint,
