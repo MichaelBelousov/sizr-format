@@ -50,24 +50,29 @@ const Expr = union(enum) {
     group: *Expr,
     name: []const u8,
 
-    pub fn parse(alloc: std.mem.Allocator, source: []const u8) Expr {
+    pub fn parse(alloc: std.mem.Allocator, source: []const u8) !*Expr {
         // super bare-bones impl only supporting member-of operator for now
         var remaining = source;
-        var expr: ?*Expr = null;
+        var expr: *Expr = try alloc.create(Expr);
+        var loop_first_iter = true;
         while (std.mem.indexOf(u8, remaining, ".")) |index| {
-            const first_expr = expr == null;
-            expr = alloc.create(Expr);
-            if (first_expr) {
+            if (loop_first_iter) {
                 expr.* = Expr{.name = remaining[0..index]};
+                loop_first_iter = false;
             } else {
+                const name_expr = try alloc.create(Expr);
+                name_expr.* = Expr{.name = remaining[0..index]};
+                const prev_expr = expr;
+                expr = try alloc.create(Expr);
                 expr.* = Expr{.binop = .{
                     .op = .dot,
-                    .left = expr,
-                    .right = Expr{.name = remaining[0..index]}
+                    .left = prev_expr,
+                    .right = name_expr
                 }};
             }
             remaining = remaining[index+1..];
         }
+        return expr;
     }
 
     /// recursively free the expression tree
@@ -76,7 +81,7 @@ const Expr = union(enum) {
         switch (self) {
             .binop => |val| { alloc.destroy(val.left); alloc.destroy(val.right); },
             .unaryop => |val| alloc.destroy(val.expr),
-            .group => |val| alloc.destroy("al),
+            .group => |val| alloc.destroy(val),
             else => {}
         }
     }
@@ -169,23 +174,35 @@ const LangResolver = struct {
         std.debug.print("{s}\n", .{debug_str.ptr});
         defer debug_str.free();
 
-        return if (std.meta.eql(expr, "type")) blk: {
-            const cstr = ts._c.ts_node_type(node._c);
-            const len = std.mem.len(cstr);
-            break :blk Value{ .string = cstr[0..len] };
-        } else if (std.fmt.parseInt(u32, expr, 10)) |index| (if (index >= 0)
-            _: {
-            const maybe_field_name = node.field_name_for_child(index);
-            if (maybe_field_name) |field_name| {
-                std.debug.print("field {} is named '{s}'\n", .{index, field_name});
-            } else {
-                std.debug.print("field {} had null name\n", .{index});
-            }
-            break :_ Value{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, index) } };
-            }
-        else
-            unreachable // it is expected that the parser of the expression will reject negative indices
-        ) else |_| Value{ .node = node.child_by_field_name(expr) };
+        return switch(expr) {
+            .name => |name|
+                if (std.meta.eql(name, "type")) blk: {
+                    const cstr = ts._c.ts_node_type(node._c);
+                    const len = std.mem.len(cstr);
+                    break :blk Value{ .string = cstr[0..len] };
+                } else if (std.fmt.parseInt(u32, name, 10)) |index| (
+                    // the parser will reject negative indices
+                    if (index < 0) unreachable else _: {
+                        const maybe_field_name = node.field_name_for_child(index);
+                        if (maybe_field_name) |field_name| {
+                            std.debug.print("field {} is named '{s}'\n", .{index, field_name});
+                        } else {
+                            std.debug.print("field {} had null name\n", .{index});
+                        }
+                        break :_ Value{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, index) } };
+                    }
+                ) else |_| Value{ .node = node.child_by_field_name(name) },
+            .binop => |op| switch (op.op) {
+                .dot => {
+                    const left = resolveFn(self.resolver, node, op.left.*);
+                    if (left == null or left.? != .node) @panic("only nodes are supported on the left side of a `.` expr right now");
+                    if (op.right.* != .name) unreachable; // "right hand side of a `.` expr must be a name"
+                    return resolveFn(self.resolver, left.?.node, op.right.*);
+                },
+                else => @panic("only dot is implemented!")
+            },
+            else => null
+        };
     }
 
     pub fn init(source: []const u8) Self {
@@ -334,10 +351,10 @@ test "write" {
         WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
         "void test(){}\x00"
     ));
-    const expr = Expr.parse(std.heap.c_allocator, "0.0");
+    const expr = try Expr.parse(std.heap.c_allocator, "0.0");
     defer expr.free(std.heap.c_allocator);
     try expect(local.writeEqlString(
-        WriteCommand{ .referenceExpr = .{ .name = expr, .filters = &.{}  }},
+        WriteCommand{ .referenceExpr = .{ .name = expr.*, .filters = &.{}  }},
         "void test(){}\x00"
     ));
     try expect(local.writeEqlString(
