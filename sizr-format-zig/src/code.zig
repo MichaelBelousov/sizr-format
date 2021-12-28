@@ -31,23 +31,55 @@ const IndentMark = union(enum) {
 const BinOp = enum {
     add,
     sub,
+    dot,
 };
 
-const FilterExpr = union(enum) {
+const Expr = union(enum) {
     rest,
     binop: struct {
         op: BinOp,
-        left: *FilterExpr,
-        right: *FilterExpr,
+        left: *Expr,
+        right: *Expr,
     },
     unaryop: struct {
         op: BinOp,
-        expr: *FilterExpr,
+        expr: *Expr,
     },
     noderef: []const u8,
     literal: Literal,
-    group: *FilterExpr,
+    group: *Expr,
     name: []const u8,
+
+    pub fn parse(alloc: std.mem.Allocator, source: []const u8) Expr {
+        // super bare-bones impl only supporting member-of operator for now
+        var remaining = source;
+        var expr: ?*Expr = null;
+        while (std.mem.indexOf(u8, remaining, ".")) |index| {
+            const first_expr = expr == null;
+            expr = alloc.create(Expr);
+            if (first_expr) {
+                expr.* = Expr{.name = remaining[0..index]};
+            } else {
+                expr.* = Expr{.binop = .{
+                    .op = .dot,
+                    .left = expr,
+                    .right = Expr{.name = remaining[0..index]}
+                }};
+            }
+            remaining = remaining[index+1..];
+        }
+    }
+
+    /// recursively free the expression tree
+    /// alloc must be the same allocator that was used when creating this Expr
+    pub fn free(self: @This(), alloc: std.mem.Allocator) void {
+        switch (self) {
+            .binop => |val| { alloc.destroy(val.left); alloc.destroy(val.right); },
+            .unaryop => |val| alloc.destroy(val.expr),
+            .group => |val| alloc.destroy("al),
+            else => {}
+        }
+    }
 };
 
 const WriteCommand = union(enum) {
@@ -67,7 +99,7 @@ const WriteCommand = union(enum) {
     sequence: []const WriteCommand,
 };
 
-/// TODO: replace with FilterExpr (or otherwise merge them, maybe the "Value" name is better)
+/// TODO: replace with Expr (or otherwise merge them, maybe the "Value" name is better)
 const Value = union(enum) {
     boolean: bool,
     string: []const u8,
@@ -96,7 +128,7 @@ const Value = union(enum) {
             .integer => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .alloc = alloc },
             .float => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .alloc = alloc },
             .node => |val| SerializedBlob{.buf = _: {
-                if (val.@"null"()) break: _ "<NULL_NODE>";
+                if (val.@"null"()) break: _ "<NULL_NODE>"; // FIXME: might be better to spit out an empty string
                 const start = ts._c.ts_node_start_byte(val._c);
                 const end = ts._c.ts_node_end_byte(val._c);
                 break :_  evalCtx.source[start..end];
@@ -120,8 +152,6 @@ fn Resolver(
 
 // should be able to get this from tree-sitter's language objects
 const nodeTypes = StringArrayHashMap(u16).init(std.heap.c_allocator);
-
-const Expr = []const u8;
 
 const LangResolver = struct {
     const Self = @This();
@@ -301,7 +331,13 @@ test "write" {
     //     "void test(){}\x00"
     // ));
     try expect(local.writeEqlString(
-        WriteCommand{ .referenceExpr = .{ .name = "0", .filters = &.{}  }},
+        WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
+        "void test(){}\x00"
+    ));
+    const expr = Expr.parse(std.heap.c_allocator, "0.0");
+    defer expr.free(std.heap.c_allocator);
+    try expect(local.writeEqlString(
+        WriteCommand{ .referenceExpr = .{ .name = expr, .filters = &.{}  }},
         "void test(){}\x00"
     ));
     try expect(local.writeEqlString(
