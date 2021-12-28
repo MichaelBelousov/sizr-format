@@ -55,7 +55,7 @@ const WriteCommand = union(enum) {
     referenceExpr: struct {
         name: []const u8,
         // FIXME: this should actually be a more specific type than List(Value), since only certain value types are allowed
-        filters: std.ArrayList(Value), // comma-separated
+        filters: []const Value, // comma-separated
     },
     wrapPoint,
     conditional: struct {
@@ -64,7 +64,7 @@ const WriteCommand = union(enum) {
         @"else": ?*WriteCommand,
     },
     indentMark: IndentMark,
-    sequence: std.ArrayList(WriteCommand),
+    sequence: []const WriteCommand,
 };
 
 /// TODO: replace with FilterExpr
@@ -91,7 +91,7 @@ const Value = union(enum) {
                 const start = ts._c.ts_node_start_byte(val.node._c);
                 const end = ts._c.ts_node_end_byte(val.node._c);
                 break :_ val.src[start..end];
-            }
+            },
         };
     }
 };
@@ -130,23 +130,14 @@ const LangResolver = struct {
             const len = std.mem.len(cstr);
             break :blk Value{ .string = cstr[0..len] };
         } else if (std.fmt.parseInt(u32, expr, 10)) |parsed| (if (parsed >= 0)
-            Value{ .node = .{
-                .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, parsed) },
-                .src = self.source
-            } }
+            Value{ .node = .{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, parsed) }, .src = self.source } }
         else
             unreachable // it is expected that the lexer of the expression will reject negative indices
-        ) else |_|
-            Value{ .node = .{
-                .node = ts.Node{ ._c = ts._c.ts_node_child_by_field_name(node._c, expr.ptr, @truncate(u32, expr.len)) },
-                .src = self.source
-            } }
-        ;
+        ) else |_| Value{ .node = .{ .node = ts.Node{ ._c = ts._c.ts_node_child_by_field_name(node._c, expr.ptr, @truncate(u32, expr.len)) }, .src = self.source } };
     }
 
     pub fn init(source: []const u8) Self {
-        return Self{ .resolver = Resolver(ts.Node){ .resolveFn = Self.resolveFn },
-        .source = source };
+        return Self{ .resolver = Resolver(ts.Node){ .resolveFn = Self.resolveFn }, .source = source };
     }
 };
 
@@ -227,19 +218,23 @@ pub fn write(
     evalCtx: EvalCtx,
     cmd: WriteCommand,
     /// expected to be an std.io.Writer
-    writer: anytype
+    writer: anytype,
 ) @TypeOf(writer).Error!void {
     switch (cmd) {
-        .raw => |val| { _ = try writer.write(val); },
+        .raw => |val| {
+            _ = try writer.write(val);
+        },
         .referenceExpr => |val| {
             const maybe_eval_result = evalCtx.eval(val.name);
-            if (maybe_eval_result ) |eval_result| {
+            if (maybe_eval_result) |eval_result| {
                 const serialized = eval_result.serialize(std.heap.c_allocator);
                 defer std.heap.c_allocator.free(serialized);
                 _ = try writer.write(serialized);
             }
         },
-        .wrapPoint => { _ = try writer.write(evalCtx.tryWrap()); },
+        .wrapPoint => {
+            _ = try writer.write(evalCtx.tryWrap());
+        },
         .conditional => |val| {
             if (evalCtx.@"test"(val.@"test") and val.then != null) {
                 _ = try write(evalCtx, val.then.?.*, writer);
@@ -247,9 +242,11 @@ pub fn write(
                 _ = try write(evalCtx, val.@"else".?.*, writer);
             }
         },
-        .indentMark => |val| { _ = evalCtx.indent(val); },
+        .indentMark => |val| {
+            _ = evalCtx.indent(val);
+        },
         .sequence => |cmds| {
-            for (cmds.items) |sub_cmd| {
+            for (cmds) |sub_cmd| {
                 _ = try write(evalCtx, sub_cmd, writer);
             }
         },
@@ -257,10 +254,35 @@ pub fn write(
 }
 
 test "write" {
-    const ctx = EvalCtx.init(test_util.simpleTestSource);
-    var buf: [1024]u8 = undefined;
-    const bufWriter = std.io.fixedBufferStream(&buf).writer();
-    write(ctx, WriteCommand{.raw = "test"}, bufWriter) catch unreachable;
-    bufWriter.writeByte(0) catch unreachable;
-    try expect(std.mem.eql(u8, buf[0..5], "test\x00"));
+    var local = struct {
+        ctx: EvalCtx,
+        buf: [1024]u8,
+        fn writeAndCmp(self: *@This(), wcmd: WriteCommand, output: []const u8) !void {
+            const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
+            write(self.ctx, wcmd, bufWriter) catch unreachable;
+            bufWriter.writeByte(0) catch unreachable;
+            try expect(std.mem.eql(u8, self.buf[0..std.mem.len(self.buf)], output));
+        }
+    }{
+        .ctx = EvalCtx.init(test_util.simpleTestSource),
+        .buf = undefined,
+    };
+
+    try local.writeAndCmp(
+        WriteCommand{ .raw = "test" },
+        "test\x00"
+    );
+    try local.writeAndCmp(
+        WriteCommand{ .referenceExpr = .{ .name = "test", .filters = &.{}  }},
+        "blah\x00"
+    );
+    try local.writeAndCmp(
+        WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
+        "test( )\x00"
+    );
+    // still need to be tested:
+    // - referenceExpr
+    // - wrapPoint,
+    // - conditional
+    // - indentMark: IndentMark,
 }
