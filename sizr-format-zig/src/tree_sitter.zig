@@ -72,6 +72,21 @@ pub const Node = struct {
         if (self.@"null"()) return self; // HACK
         return Node {._c = c_api.ts_node_child_by_field_name(self._c, field_name.ptr, @truncate(u32, field_name.len)) };
     }
+
+    pub fn field_name_for_child(self: @This(), index: u32) [*c]const u8 {
+        return c_api.ts_node_field_name_for_child(self._c, index);
+    }
+
+    pub const FreeableCStr = struct {
+        ptr: [*c]u8,
+        pub fn free(self: @This()) void {
+            defer std.c.free(self.ptr);
+        }
+    };
+
+    pub fn string(self: @This()) FreeableCStr {
+        return FreeableCStr{ .ptr = c_api.ts_node_string(self._c) };
+    }
 };
 
 pub const Tree = struct {

@@ -53,13 +53,13 @@ const FilterExpr = union(enum) {
 const WriteCommand = union(enum) {
     raw: []const u8,
     referenceExpr: struct {
-        name: []const u8,
+        name: Expr,
         // FIXME: this should actually be a more specific type than List(Value), since only certain value types are allowed
         filters: []const Value, // comma-separated
     },
     wrapPoint,
     conditional: struct {
-        @"test": Expr, // should be Value
+        @"test": Expr,
         then: ?*WriteCommand,
         @"else": ?*WriteCommand,
     },
@@ -67,18 +67,14 @@ const WriteCommand = union(enum) {
     sequence: []const WriteCommand,
 };
 
-/// TODO: replace with FilterExpr
+/// TODO: replace with FilterExpr (or otherwise merge them, maybe the "Value" name is better)
 const Value = union(enum) {
     boolean: bool,
     string: []const u8,
     regex: []const u8,
     integer: i64,
     float: f64,
-    node: struct {
-        node: ts.Node,
-        // acts as a partial evalCtx
-        src: []const u8,
-    },
+    node: ts.Node,
 
     /// an optionally allocated blob that should be freed, but might that might be a noop
     const SerializedBlob = struct {
@@ -92,7 +88,7 @@ const Value = union(enum) {
         }
     };
 
-    pub fn serialize(self: @This(), alloc: std.mem.Allocator) SerializedBlob {
+    pub fn serialize(self: @This(), alloc: std.mem.Allocator, evalCtx: EvalCtx) SerializedBlob {
         return switch (self) {
             .boolean => |val| SerializedBlob{.buf = if (val) "true" else "false", .alloc = null },
             .string => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "\"{s}\"", .{val}) catch unreachable, .alloc = alloc }, // ignoring oom for now
@@ -100,10 +96,10 @@ const Value = union(enum) {
             .integer => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .alloc = alloc },
             .float => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .alloc = alloc },
             .node => |val| SerializedBlob{.buf = _: {
-                if (val.node.@"null"()) break: _ "<NULL_NODE>";
-                const start = ts._c.ts_node_start_byte(val.node._c);
-                const end = ts._c.ts_node_end_byte(val.node._c);
-                break :_  val.src[start..end];
+                if (val.@"null"()) break: _ "<NULL_NODE>";
+                const start = ts._c.ts_node_start_byte(val._c);
+                const end = ts._c.ts_node_end_byte(val._c);
+                break :_  evalCtx.source[start..end];
             }, .alloc = null },
         };
     }
@@ -138,15 +134,28 @@ const LangResolver = struct {
     fn resolveFn(resolver: Resolver(ts.Node), node: ts.Node, expr: Expr) ?Value {
         const self = @fieldParentPtr(Self, "resolver", &resolver);
         _ = self;
+
+        const debug_str = node.string();
+        std.debug.print("{s}\n", .{debug_str.ptr});
+        defer debug_str.free();
+
         return if (std.meta.eql(expr, "type")) blk: {
             const cstr = ts._c.ts_node_type(node._c);
             const len = std.mem.len(cstr);
             break :blk Value{ .string = cstr[0..len] };
-        } else if (std.fmt.parseInt(u32, expr, 10)) |parsed| (if (parsed >= 0)
-            Value{ .node = .{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, parsed) }, .src = self.source } }
+        } else if (std.fmt.parseInt(u32, expr, 10)) |index| (if (index >= 0)
+            _: {
+            const maybe_field_name = node.field_name_for_child(index);
+            if (maybe_field_name) |field_name| {
+                std.debug.print("field {} is named '{s}'\n", .{index, field_name});
+            } else {
+                std.debug.print("field {} had null name\n", .{index});
+            }
+            break :_ Value{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, index) } };
+            }
         else
-            unreachable // it is expected that the lexer of the expression will reject negative indices
-        ) else |_| Value{ .node = .{ .node = node.child_by_field_name(expr), .src = self.source } };
+            unreachable // it is expected that the parser of the expression will reject negative indices
+        ) else |_| Value{ .node = node.child_by_field_name(expr) };
     }
 
     pub fn init(source: []const u8) Self {
@@ -180,7 +189,7 @@ const EvalCtx = struct {
             .regex => |val| !std.mem.eql(u8, "", val),
             .float => |val| val != 0.0,
             .integer => |val| val != 0,
-            .node => |val| val.node.@"null"(),
+            .node => |val| val.@"null"(),
         } else false;
     }
 
@@ -240,7 +249,7 @@ pub fn write(
         .referenceExpr => |val| {
             const maybe_eval_result = evalCtx.eval(val.name);
             if (maybe_eval_result) |eval_result| {
-                const serialized = eval_result.serialize(std.heap.c_allocator);
+                const serialized = eval_result.serialize(std.heap.c_allocator, evalCtx);
                 defer serialized.free();
                 _ = try writer.write(serialized.buf);
             }
@@ -275,6 +284,7 @@ test "write" {
             write(self.ctx, wcmd, bufWriter) catch unreachable;
             bufWriter.writeByte(0) catch unreachable;
             const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
+            std.debug.print("buf content: {s}\n", .{self.buf[0..len]});
             return std.mem.eql(u8, self.buf[0..len], output);
         }
     }{
@@ -282,13 +292,17 @@ test "write" {
         .buf = undefined,
     };
 
+    // try expect(local.writeEqlString(
+    //     WriteCommand{ .raw = "test" },
+    //     "test\x00"
+    // ));
+    // try expect(local.writeEqlString(
+    //     WriteCommand{ .referenceExpr = .{ .name = "0", .filters = &.{}  }},
+    //     "void test(){}\x00"
+    // ));
     try expect(local.writeEqlString(
-        WriteCommand{ .raw = "test" },
-        "test\x00"
-    ));
-    try expect(local.writeEqlString(
-        WriteCommand{ .referenceExpr = .{ .name = "test", .filters = &.{}  }},
-        "blah\x00"
+        WriteCommand{ .referenceExpr = .{ .name = "0", .filters = &.{}  }},
+        "void test(){}\x00"
     ));
     try expect(local.writeEqlString(
         WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
