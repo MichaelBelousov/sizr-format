@@ -2,6 +2,14 @@ const std = @import("std");
 const expect = @import("std").testing.expect;
 
 const ts = @import("./tree_sitter.zig");
+// const ts = struct {
+//     const Node = struct {
+//         context: [4]u32,
+//         id: *void,
+//         tree: *void,
+//     };
+// };
+
 
 const BinOp = enum {
     dot,
@@ -76,15 +84,15 @@ const Value = union(enum) {
         }
     };
 
-    pub fn serialize(self: @This(), alloc: std.mem.Allocator, evalCtx: EvalCtx) SerializedBlob {
+    pub fn serialize(self: @This(), evalCtx: EvalCtx) []const u8 {
         return switch (self) {
-            .string => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "\"{s}\"", .{val}) catch unreachable, .alloc = alloc }, // ignoring oom for now
-            .node => |val| SerializedBlob{.buf = _: {
+            .string => |val| val, // ignoring oom for now
+            .node => |val| _: {
                 if (val.@"null"()) break: _ "<NULL_NODE>"; // FIXME: might be better to spit out an empty string
                 const start = ts._c.ts_node_start_byte(val._c);
                 const end = ts._c.ts_node_end_byte(val._c);
                 break :_  evalCtx.source[start..end];
-            }, .alloc = null },
+            },
         };
     }
 };
@@ -218,9 +226,8 @@ pub fn write(
         .referenceExpr => |val| {
             const maybe_eval_result = evalCtx.eval(val.name);
             if (maybe_eval_result) |eval_result| {
-                const serialized = eval_result.serialize(std.heap.c_allocator, evalCtx);
-                defer serialized.free();
-                _ = try writer.write(serialized.buf);
+                const serialized = eval_result.serialize(evalCtx);
+                _ = try writer.write(serialized);
             }
         },
     }
