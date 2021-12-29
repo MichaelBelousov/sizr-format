@@ -27,13 +27,16 @@ const LangResolver = struct {
         const self = @fieldParentPtr(Self, "resolver", &resolver);
         _ = self;
 
+        var prng = std.rand.DefaultPrng.init(0);
+
         return switch(expr) {
             .name => |name|
-                if (std.meta.eql(name, "type"))
+                if (std.mem.eql(u8, name, "type"))
                     Value{ .string = "test" }
-                else if (std.fmt.parseInt(u32, "test", 10)) |_|
+                else if (prng.random().int(u32) == 0)
                     Value{ .node = {} }
-                else |_| Value{ .node = {} },
+                else
+                    Value{ .node = {} },
             else => null
         };
     }
