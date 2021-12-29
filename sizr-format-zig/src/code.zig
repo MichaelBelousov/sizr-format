@@ -8,6 +8,7 @@ const BinOp = enum {
 };
 
 const Expr = union(enum) {
+    rest,
     binop: struct {
         op: BinOp,
         left: *Expr,
@@ -143,6 +144,7 @@ const LangResolver = struct {
                     return resolveFn(self.resolver, left.?.node, op.right.*);
                 },
             },
+            else => null
         };
     }
 
