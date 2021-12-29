@@ -4,7 +4,6 @@ const mem = std.mem;
 const ascii = std.ascii;
 
 const Writer = std.io.Writer;
-const StringArrayHashMap = std.StringArrayHashMap;
 
 const expect = @import("std").testing.expect;
 const expectError = @import("std").testing.expectError;
@@ -88,56 +87,25 @@ const Expr = union(enum) {
 };
 
 const WriteCommand = union(enum) {
-    raw: []const u8,
     referenceExpr: struct {
         name: Expr,
         // FIXME: this should actually be a more specific type than List(Value), since only certain value types are allowed
         filters: []const Value, // comma-separated
     },
-    wrapPoint,
-    conditional: struct {
-        @"test": Expr,
-        then: ?*WriteCommand,
-        @"else": ?*WriteCommand,
-    },
-    indentMark: IndentMark,
-    sequence: []const WriteCommand,
 };
 
 /// TODO: replace with Expr (or otherwise merge them, maybe the "Value" name is better)
 const Value = union(enum) {
-    boolean: bool,
-    string: []const u8,
-    regex: []const u8,
-    integer: i64,
-    float: f64,
     node: ts.Node,
 
-    /// an optionally allocated blob that should be freed, but might that might be a noop
-    const SerializedBlob = struct {
-        alloc: ?std.mem.Allocator, // could make this a class constant to save on space
-        //needs_free: bool,
-        buf: []const u8,
-        pub fn free(self: @This()) void {
-            if (self.alloc) |alloc| {
-                alloc.free(self.buf);
-            }
-        }
-    };
-
-    pub fn serialize(self: @This(), alloc: std.mem.Allocator, evalCtx: EvalCtx) SerializedBlob {
+    pub fn serialize(self: @This(), evalCtx: EvalCtx) []const u8 {
         return switch (self) {
-            .boolean => |val| SerializedBlob{.buf = if (val) "true" else "false", .alloc = null },
-            .string => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "\"{s}\"", .{val}) catch unreachable, .alloc = alloc }, // ignoring oom for now
-            .regex => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "/{s}/", .{val}) catch unreachable, .alloc = alloc },
-            .integer => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .alloc = alloc },
-            .float => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .alloc = alloc },
-            .node => |val| SerializedBlob{.buf = _: {
+            .node => |val| _: {
                 if (val.@"null"()) break: _ "<NULL_NODE>"; // FIXME: might be better to spit out an empty string
                 const start = ts._c.ts_node_start_byte(val._c);
                 const end = ts._c.ts_node_end_byte(val._c);
                 break :_  evalCtx.source[start..end];
-            }, .alloc = null },
+            },
         };
     }
 };
@@ -154,9 +122,6 @@ fn Resolver(
         }
     };
 }
-
-// should be able to get this from tree-sitter's language objects
-const nodeTypes = StringArrayHashMap(u16).init(std.heap.c_allocator);
 
 const LangResolver = struct {
     const Self = @This();
@@ -176,11 +141,7 @@ const LangResolver = struct {
 
         return switch(expr) {
             .name => |name|
-                if (std.meta.eql(name, "type")) blk: {
-                    const cstr = ts._c.ts_node_type(node._c);
-                    const len = std.mem.len(cstr);
-                    break :blk Value{ .string = cstr[0..len] };
-                } else if (std.fmt.parseInt(u32, name, 10)) |index| (
+                    if (std.fmt.parseInt(u32, name, 10)) |index| (
                     // the parser will reject negative indices
                     if (index < 0) unreachable else _: {
                         const maybe_field_name = node.field_name_for_child(index);
@@ -216,7 +177,6 @@ const EvalCtx = struct {
     parser: ts.Parser,
     nodeCursor: ts._c.TSTreeCursor,
     indentLevel: u32,
-    aligners: StringArrayHashMap(u32),
     // could layer resolvers, e.g. getting linesep vars from an outer osEnv
     varResolver: LangResolver,
 
@@ -253,7 +213,6 @@ const EvalCtx = struct {
             .tree = tree,
             .nodeCursor = cursor,
             .indentLevel = 0,
-            .aligners = StringArrayHashMap(u32).init(std.heap.c_allocator),
             .varResolver = LangResolver.init(source),
         };
     }
@@ -290,33 +249,11 @@ pub fn write(
     writer: anytype,
 ) @TypeOf(writer).Error!void {
     switch (cmd) {
-        .raw => |val| {
-            _ = try writer.write(val);
-        },
         .referenceExpr => |val| {
             const maybe_eval_result = evalCtx.eval(val.name);
             if (maybe_eval_result) |eval_result| {
-                const serialized = eval_result.serialize(std.heap.c_allocator, evalCtx);
-                defer serialized.free();
-                _ = try writer.write(serialized.buf);
-            }
-        },
-        .wrapPoint => {
-            _ = try writer.write(evalCtx.tryWrap());
-        },
-        .conditional => |val| {
-            if (evalCtx.@"test"(val.@"test") and val.then != null) {
-                _ = try write(evalCtx, val.then.?.*, writer);
-            } else if (val.@"else" != null) {
-                _ = try write(evalCtx, val.@"else".?.*, writer);
-            }
-        },
-        .indentMark => |val| {
-            _ = evalCtx.indent(val);
-        },
-        .sequence => |cmds| {
-            for (cmds) |sub_cmd| {
-                _ = try write(evalCtx, sub_cmd, writer);
+                const serialized = eval_result.serialize(evalCtx);
+                _ = try writer.write(serialized);
             }
         },
     }
@@ -338,32 +275,10 @@ test "write" {
         .ctx = EvalCtx.init(test_util.simpleTestSource),
         .buf = undefined,
     };
-
-    // try expect(local.writeEqlString(
-    //     WriteCommand{ .raw = "test" },
-    //     "test\x00"
-    // ));
-    // try expect(local.writeEqlString(
-    //     WriteCommand{ .referenceExpr = .{ .name = "0", .filters = &.{}  }},
-    //     "void test(){}\x00"
-    // ));
-    try expect(local.writeEqlString(
-        WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
-        "void test(){}\x00"
-    ));
     const expr = try Expr.parse(std.heap.c_allocator, "0.0");
     defer expr.free(std.heap.c_allocator);
     try expect(local.writeEqlString(
         WriteCommand{ .referenceExpr = .{ .name = expr.*, .filters = &.{}  }},
         "void test(){}\x00"
     ));
-    try expect(local.writeEqlString(
-        WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
-        "test( )\x00"
-    ));
-    // still need to be tested:
-    // - referenceExpr
-    // - wrapPoint,
-    // - conditional
-    // - indentMark: IndentMark,
 }
