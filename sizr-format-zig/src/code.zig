@@ -4,6 +4,7 @@ const mem = std.mem;
 const ascii = std.ascii;
 
 const Writer = std.io.Writer;
+const StringArrayHashMap = std.StringArrayHashMap;
 
 const expect = @import("std").testing.expect;
 const expectError = @import("std").testing.expectError;
@@ -96,16 +97,30 @@ const WriteCommand = union(enum) {
 
 /// TODO: replace with Expr (or otherwise merge them, maybe the "Value" name is better)
 const Value = union(enum) {
+    string: []const u8,
     node: ts.Node,
 
-    pub fn serialize(self: @This(), evalCtx: EvalCtx) []const u8 {
+    /// an optionally allocated blob that should be freed, but might that might be a noop
+    const SerializedBlob = struct {
+        alloc: ?std.mem.Allocator, // could make this a class constant to save on space
+        //needs_free: bool,
+        buf: []const u8,
+        pub fn free(self: @This()) void {
+            if (self.alloc) |alloc| {
+                alloc.free(self.buf);
+            }
+        }
+    };
+
+    pub fn serialize(self: @This(), alloc: std.mem.Allocator, evalCtx: EvalCtx) SerializedBlob {
         return switch (self) {
-            .node => |val| _: {
+            .string => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "\"{s}\"", .{val}) catch unreachable, .alloc = alloc }, // ignoring oom for now
+            .node => |val| SerializedBlob{.buf = _: {
                 if (val.@"null"()) break: _ "<NULL_NODE>"; // FIXME: might be better to spit out an empty string
                 const start = ts._c.ts_node_start_byte(val._c);
                 const end = ts._c.ts_node_end_byte(val._c);
                 break :_  evalCtx.source[start..end];
-            },
+            }, .alloc = null },
         };
     }
 };
@@ -122,6 +137,9 @@ fn Resolver(
         }
     };
 }
+
+// should be able to get this from tree-sitter's language objects
+const nodeTypes = StringArrayHashMap(u16).init(std.heap.c_allocator);
 
 const LangResolver = struct {
     const Self = @This();
@@ -141,7 +159,11 @@ const LangResolver = struct {
 
         return switch(expr) {
             .name => |name|
-                    if (std.fmt.parseInt(u32, name, 10)) |index| (
+                if (std.meta.eql(name, "type")) blk: {
+                    const cstr = ts._c.ts_node_type(node._c);
+                    const len = std.mem.len(cstr);
+                    break :blk Value{ .string = cstr[0..len] };
+                } else if (std.fmt.parseInt(u32, name, 10)) |index| (
                     // the parser will reject negative indices
                     if (index < 0) unreachable else _: {
                         const maybe_field_name = node.field_name_for_child(index);
@@ -177,6 +199,7 @@ const EvalCtx = struct {
     parser: ts.Parser,
     nodeCursor: ts._c.TSTreeCursor,
     indentLevel: u32,
+    aligners: StringArrayHashMap(u32),
     // could layer resolvers, e.g. getting linesep vars from an outer osEnv
     varResolver: LangResolver,
 
@@ -213,6 +236,7 @@ const EvalCtx = struct {
             .tree = tree,
             .nodeCursor = cursor,
             .indentLevel = 0,
+            .aligners = StringArrayHashMap(u32).init(std.heap.c_allocator),
             .varResolver = LangResolver.init(source),
         };
     }
@@ -252,8 +276,9 @@ pub fn write(
         .referenceExpr => |val| {
             const maybe_eval_result = evalCtx.eval(val.name);
             if (maybe_eval_result) |eval_result| {
-                const serialized = eval_result.serialize(evalCtx);
-                _ = try writer.write(serialized);
+                const serialized = eval_result.serialize(std.heap.c_allocator, evalCtx);
+                defer serialized.free();
+                _ = try writer.write(serialized.buf);
             }
         },
     }
