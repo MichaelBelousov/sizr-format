@@ -1,14 +1,15 @@
 const std = @import("std");
 const expect = @import("std").testing.expect;
 
-const ts = @import("./tree_sitter.zig");
-// const ts = struct {
-//     const Node = struct {
-//         context: [4]u32,
-//         id: *void,
-//         tree: *void,
-//     };
-// };
+const ts = struct {
+    const Node = struct {
+        _c: struct {
+            context: [4]u32,
+            id: ?*void,
+            tree: ?*void,
+        },
+    };
+};
 
 
 const BinOp = enum {
@@ -85,14 +86,10 @@ const Value = union(enum) {
     };
 
     pub fn serialize(self: @This(), evalCtx: EvalCtx) []const u8 {
+        _ = evalCtx;
         return switch (self) {
             .string => |val| val, // ignoring oom for now
-            .node => |val| _: {
-                if (val.@"null"()) break: _ "<NULL_NODE>"; // FIXME: might be better to spit out an empty string
-                const start = ts._c.ts_node_start_byte(val._c);
-                const end = ts._c.ts_node_end_byte(val._c);
-                break :_  evalCtx.source[start..end];
-            },
+            .node => "NULL_NODE",
         };
     }
 };
@@ -110,6 +107,8 @@ fn Resolver(
     };
 }
 
+const null_node = ts.Node{ ._c = .{.context=.{0,0,0,0}, .id=null, .tree=null } };
+
 const LangResolver = struct {
     const Self = @This();
 
@@ -122,28 +121,15 @@ const LangResolver = struct {
         const self = @fieldParentPtr(Self, "resolver", &resolver);
         _ = self;
 
-        const debug_str = node.string();
-        std.debug.print("{s}\n", .{debug_str.ptr});
-        defer debug_str.free();
-
         return switch(expr) {
             .name => |name|
-                if (std.meta.eql(name, "type")) blk: {
-                    const cstr = ts._c.ts_node_type(node._c);
-                    const len = std.mem.len(cstr);
-                    break :blk Value{ .string = cstr[0..len] };
-                } else if (std.fmt.parseInt(u32, name, 10)) |index| (
+                if (std.meta.eql(name, "type"))
+                    Value{ .string = "test" }
+                else if (std.fmt.parseInt(u32, name, 10)) |index| (
                     // the parser will reject negative indices
-                    if (index < 0) unreachable else _: {
-                        const maybe_field_name = node.field_name_for_child(index);
-                        if (maybe_field_name) |field_name| {
-                            std.debug.print("field {} is named '{s}'\n", .{index, field_name});
-                        } else {
-                            std.debug.print("field {} had null name\n", .{index});
-                        }
-                        break :_ Value{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, index) } };
-                    }
-                ) else |_| Value{ .node = node.child_by_field_name(name) },
+                    if (index < 0) unreachable
+                    else Value{ .node = null_node }
+                ) else |_| Value{ .node = null_node },
             .binop => |op| switch (op.op) {
                 .dot => {
                     const left = resolveFn(self.resolver, node, op.left.*);
@@ -163,9 +149,6 @@ const LangResolver = struct {
 
 const EvalCtx = struct {
     source: []const u8,
-    tree: ts.Tree,
-    parser: ts.Parser,
-    nodeCursor: ts._c.TSTreeCursor,
     indentLevel: u32,
     // could layer resolvers, e.g. getting linesep vars from an outer osEnv
     varResolver: LangResolver,
@@ -173,8 +156,7 @@ const EvalCtx = struct {
     const Self = @This();
 
     pub fn eval(self: Self, expr: Expr) ?Value {
-        //const node = self.nodeCursor
-        const node = ts.Node{ ._c = ts._c.ts_tree_cursor_current_node(&self.nodeCursor) };
+        const node = null_node;
         return self.varResolver.resolver.resolve(node, expr);
     }
 
@@ -191,27 +173,11 @@ const EvalCtx = struct {
     }
 
     pub fn init(source: []const u8) Self {
-        const parser = ts.Parser.new();
-        if (!parser.set_language(ts.cpp()))
-            @panic("couldn't set cpp lang");
-        const tree = parser.parse_string(null, source);
-        const root = ts._c.ts_tree_root_node(tree._c);
-        const cursor = ts._c.ts_tree_cursor_new(root);
         return Self{
             .source = source,
-            .parser = parser,
-            .tree = tree,
-            .nodeCursor = cursor,
             .indentLevel = 0,
             .varResolver = LangResolver.init(source),
         };
-    }
-
-    // FIXME: learn exact idiomatic naming of dealloc
-    /// free memory associated with this
-    pub fn deinit(self: Self) void {
-        self.parser.free();
-        ts._c.ts_tree_delete(self.tree._c);
     }
 };
 
