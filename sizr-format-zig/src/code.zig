@@ -159,11 +159,7 @@ const LangResolver = struct {
 
         return switch(expr) {
             .name => |name|
-                if (std.meta.eql(name, "type")) blk: {
-                    const cstr = ts._c.ts_node_type(node._c);
-                    const len = std.mem.len(cstr);
-                    break :blk Value{ .string = cstr[0..len] };
-                } else if (std.fmt.parseInt(u32, name, 10)) |index| (
+                if (std.fmt.parseInt(u32, name, 10)) |index| (
                     // the parser will reject negative indices
                     if (index < 0) unreachable else _: {
                         const maybe_field_name = node.field_name_for_child(index);
