@@ -1,53 +1,18 @@
-/// ~~byte~~code for sizr-format
 const std = @import("std");
-const mem = std.mem;
-const ascii = std.ascii;
-
-const Writer = std.io.Writer;
-const StringArrayHashMap = std.StringArrayHashMap;
-
 const expect = @import("std").testing.expect;
-const expectError = @import("std").testing.expectError;
 
-const util = @import("./util.zig");
-const test_util = @import("./test_util.zig");
 const ts = @import("./tree_sitter.zig");
 
-const Literal = union(enum) {
-    boolean: bool,
-    string: []const u8,
-    regex: []const u8,
-    integer: i64,
-    float: f64,
-};
-
-const IndentMark = union(enum) {
-    indent: u16,
-    outdent: u16,
-    token_anchor: []const u8,
-    numeric_anchor: u16,
-};
-
 const BinOp = enum {
-    add,
-    sub,
     dot,
 };
 
 const Expr = union(enum) {
-    rest,
     binop: struct {
         op: BinOp,
         left: *Expr,
         right: *Expr,
     },
-    unaryop: struct {
-        op: BinOp,
-        expr: *Expr,
-    },
-    noderef: []const u8,
-    literal: Literal,
-    group: *Expr,
     name: []const u8,
 
     pub fn parse(alloc: std.mem.Allocator, source: []const u8) !*Expr {
@@ -80,8 +45,6 @@ const Expr = union(enum) {
     pub fn free(self: @This(), alloc: std.mem.Allocator) void {
         switch (self) {
             .binop => |val| { alloc.destroy(val.left); alloc.destroy(val.right); },
-            .unaryop => |val| alloc.destroy(val.expr),
-            .group => |val| alloc.destroy(val),
             else => {}
         }
     }
@@ -138,9 +101,6 @@ fn Resolver(
     };
 }
 
-// should be able to get this from tree-sitter's language objects
-const nodeTypes = StringArrayHashMap(u16).init(std.heap.c_allocator);
-
 const LangResolver = struct {
     const Self = @This();
 
@@ -159,7 +119,11 @@ const LangResolver = struct {
 
         return switch(expr) {
             .name => |name|
-                if (std.fmt.parseInt(u32, name, 10)) |index| (
+                if (std.meta.eql(name, "type")) blk: {
+                    const cstr = ts._c.ts_node_type(node._c);
+                    const len = std.mem.len(cstr);
+                    break :blk Value{ .string = cstr[0..len] };
+                } else if (std.fmt.parseInt(u32, name, 10)) |index| (
                     // the parser will reject negative indices
                     if (index < 0) unreachable else _: {
                         const maybe_field_name = node.field_name_for_child(index);
@@ -178,9 +142,7 @@ const LangResolver = struct {
                     if (op.right.* != .name) unreachable; // "right hand side of a `.` expr must be a name"
                     return resolveFn(self.resolver, left.?.node, op.right.*);
                 },
-                else => @panic("only dot is implemented!")
             },
-            else => null
         };
     }
 
@@ -195,7 +157,6 @@ const EvalCtx = struct {
     parser: ts.Parser,
     nodeCursor: ts._c.TSTreeCursor,
     indentLevel: u32,
-    aligners: StringArrayHashMap(u32),
     // could layer resolvers, e.g. getting linesep vars from an outer osEnv
     varResolver: LangResolver,
 
@@ -232,7 +193,6 @@ const EvalCtx = struct {
             .tree = tree,
             .nodeCursor = cursor,
             .indentLevel = 0,
-            .aligners = StringArrayHashMap(u32).init(std.heap.c_allocator),
             .varResolver = LangResolver.init(source),
         };
     }
@@ -243,23 +203,7 @@ const EvalCtx = struct {
         self.parser.free();
         ts._c.ts_tree_delete(self.tree._c);
     }
-
-    pub fn tryWrap(self: Self) []const u8 {
-        _ = self;
-        @panic("unimplemented");
-    }
-
-    pub fn indent(self: Self, indentVal: IndentMark) []const u8 {
-        _ = self;
-        _ = indentVal;
-        @panic("unimplemented");
-    }
 };
-
-test "EvalCtx" {
-    const ctx = EvalCtx.init(test_util.simpleTestSource);
-    _ = ctx;
-}
 
 pub fn write(
     // TODO: should probably be a writer that handles wrapping
@@ -293,7 +237,7 @@ test "write" {
             return std.mem.eql(u8, self.buf[0..len], output);
         }
     }{
-        .ctx = EvalCtx.init(test_util.simpleTestSource),
+        .ctx = EvalCtx.init("void test(){}"),
         .buf = undefined,
     };
     const expr = try Expr.parse(std.heap.c_allocator, "0.0");
