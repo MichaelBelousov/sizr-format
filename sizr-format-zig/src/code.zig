@@ -72,26 +72,6 @@ const WriteCommand = union(enum) {
 const Value = union(enum) {
     string: []const u8,
     node: ts.Node,
-
-    /// an optionally allocated blob that should be freed, but might that might be a noop
-    const SerializedBlob = struct {
-        alloc: ?std.mem.Allocator, // could make this a class constant to save on space
-        //needs_free: bool,
-        buf: []const u8,
-        pub fn free(self: @This()) void {
-            if (self.alloc) |alloc| {
-                alloc.free(self.buf);
-            }
-        }
-    };
-
-    pub fn serialize(self: @This(), evalCtx: EvalCtx) []const u8 {
-        _ = evalCtx;
-        return switch (self) {
-            .string => |val| val, // ignoring oom for now
-            .node => "NULL_NODE",
-        };
-    }
 };
 
 // TODO: use idiomatic zig polymorphism
@@ -147,78 +127,9 @@ const LangResolver = struct {
     }
 };
 
-const EvalCtx = struct {
-    source: []const u8,
-    indentLevel: u32,
-    // could layer resolvers, e.g. getting linesep vars from an outer osEnv
-    varResolver: LangResolver,
-
-    const Self = @This();
-
-    pub fn eval(self: Self, expr: Expr) ?Value {
-        const node = null_node;
-        return self.varResolver.resolver.resolve(node, expr);
-    }
-
-    pub fn @"test"(self: Self, expr: Expr) bool {
-        // TODO: need to also return true if it's a node or etc
-        return if (self.eval(expr)) |expr_val| switch (expr_val) {
-            .boolean => |val| val,
-            .string => |val| !std.mem.eql(u8, "", val),
-            .regex => |val| !std.mem.eql(u8, "", val),
-            .float => |val| val != 0.0,
-            .integer => |val| val != 0,
-            .node => |val| val.@"null"(),
-        } else false;
-    }
-
-    pub fn init(source: []const u8) Self {
-        return Self{
-            .source = source,
-            .indentLevel = 0,
-            .varResolver = LangResolver.init(source),
-        };
-    }
-};
-
-pub fn write(
-    // TODO: should probably be a writer that handles wrapping
-    evalCtx: EvalCtx,
-    cmd: WriteCommand,
-    /// expected to be an std.io.Writer
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    switch (cmd) {
-        .referenceExpr => |val| {
-            const maybe_eval_result = evalCtx.eval(val.name);
-            if (maybe_eval_result) |eval_result| {
-                const serialized = eval_result.serialize(evalCtx);
-                _ = try writer.write(serialized);
-            }
-        },
-    }
-}
-
 test "write" {
-    var local = struct {
-        ctx: EvalCtx,
-        buf: [1024]u8,
-        fn writeEqlString(self: *@This(), wcmd: WriteCommand, output: []const u8) bool {
-            const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
-            write(self.ctx, wcmd, bufWriter) catch unreachable;
-            bufWriter.writeByte(0) catch unreachable;
-            const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
-            std.debug.print("buf content: {s}\n", .{self.buf[0..len]});
-            return std.mem.eql(u8, self.buf[0..len], output);
-        }
-    }{
-        .ctx = EvalCtx.init("void test(){}"),
-        .buf = undefined,
-    };
+    const langr = LangResolver.init("void test(){}");
+    _ = langr;
     const expr = try Expr.parse(std.testing.allocator, "0.0");
     defer expr.free(std.testing.allocator);
-    try expect(local.writeEqlString(
-        WriteCommand{ .referenceExpr = .{ .name = expr.*, .filters = &.{}  }},
-        "void test(){}\x00"
-    ));
 }
