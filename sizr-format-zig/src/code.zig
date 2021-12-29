@@ -215,8 +215,8 @@ test "write" {
         .ctx = EvalCtx.init("void test(){}"),
         .buf = undefined,
     };
-    const expr = try Expr.parse(std.heap.c_allocator, "0.0");
-    defer expr.free(std.heap.c_allocator);
+    const expr = try Expr.parse(std.testing.allocator, "0.0");
+    defer expr.free(std.testing.allocator);
     try expect(local.writeEqlString(
         WriteCommand{ .referenceExpr = .{ .name = expr.*, .filters = &.{}  }},
         "void test(){}\x00"
