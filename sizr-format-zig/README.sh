@@ -2,7 +2,7 @@
 # I tried converting it to if/else-if and it didn't work
 
 ~/personal/zig/build/bin/zig test src/code.zig \
-  --strip -O ReleaseFast --verbose-llvm-ir -fsingle-threaded -fno-unwind-tables -fno-compiler-rt -mno-red-zone -fno-PIE -fno-sanitize-c -dynamic \
+  --strip -O ReleaseFast --verbose-llvm-ir -fsingle-threaded -fno-compiler-rt \
   2>&1 \
   # > out.llvm.ir
 

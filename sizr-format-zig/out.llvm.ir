@@ -61,7 +61,6 @@ target triple = "x86_64-unknown-linux-gnu"
 %"std.hash_map.HashMapUnmanaged(usize,std.heap.general_purpose_allocator.LargeAlloc,std.hash_map.AutoContext(usize),80)" = type { %std.hash_map.Metadata*, i32, i32 }
 %std.hash_map.Metadata = type <{ i8 }>
 %std.heap.FixedBufferAllocator = type { i64, %"[]u8" }
-%Expr = type { i32, i1 }
 %std.Thread.StaticResetEvent = type { %std.Thread.StaticResetEvent.DebugEvent }
 %std.os.linux.rlimit = type { i64, i64 }
 %"?std.fs.file.File" = type { %std.fs.file.File, i1 }
@@ -71,8 +70,7 @@ target triple = "x86_64-unknown-linux-gnu"
 %"?[:0]u8" = type { %"[]u8", i1 }
 %"[][]u8" = type { %"[]u8"*, i64 }
 %"?[]const u8" = type { %"[]u8", i1 }
-%"?Value" = type { %Value, i1 }
-%Value = type { i32, i1 }
+%"?u32" = type { i32, i1 }
 %std.os.linux.timespec = type { i64, i64 }
 %"std.io.writer.Writer(std.fs.file.File,std.os.WriteError,std.fs.file.File.write)" = type { %std.fs.file.File }
 %"std.debug.struct:297:40" = type { %"[]u8" }
@@ -254,9 +252,9 @@ target triple = "x86_64-unknown-linux-gnu"
 @native_endian = internal unnamed_addr constant i1 true, align 1
 @assert.17 = internal unnamed_addr constant void (i1)* @std.debug.assert, align 8
 @native_arch.18 = internal unnamed_addr constant i6 -30, align 1
-@53 = internal unnamed_addr constant %Expr zeroinitializer, align 4
-@54 = internal unnamed_addr constant [5 x i64] zeroinitializer, align 8
-@55 = internal unnamed_addr constant %std.Thread.StaticResetEvent zeroinitializer, align 1
+@53 = internal unnamed_addr constant [5 x i64] zeroinitializer, align 8
+@54 = internal unnamed_addr constant %std.Thread.StaticResetEvent zeroinitializer, align 1
+@55 = internal unnamed_addr constant { i32, i1, [3 x i8] } { i32 3, i1 true, [3 x i8] undef }, align 4
 @56 = internal unnamed_addr constant [18 x i8] c"deadlock detected\00", align 1
 @57 = internal unnamed_addr constant %"[]u8" { i8* getelementptr inbounds ([18 x i8], [18 x i8]* @56, i64 0, i64 0), i64 17 }, align 8
 @58 = internal unnamed_addr constant { %"?usize", %"?usize", i2, <{ i8, [6 x i8] }> } { %"?usize" { i64 undef, i1 false }, %"?usize" { i64 undef, i1 false }, i2 -2, <{ i8, [6 x i8] }> <{ i8 32, [6 x i8] undef }> }, align 8
@@ -842,8 +840,8 @@ Entry:
 define internal fastcc i16 @"test \22\22"() unnamed_addr #1 {
 Entry:
   %result = alloca i16, align 2
-  %0 = alloca %"?Value", align 4
-  call fastcc void @f(%"?Value"* sret(%"?Value") %0, %Expr* @53)
+  %0 = alloca %"?u32", align 4
+  call fastcc void @f(%"?u32"* sret(%"?u32") %0, i1 true, i32 0)
   store i16 0, i16* %result, align 2
   ret i16 0
 }
@@ -1412,7 +1410,7 @@ OptionalEndIf:                                    ; preds = %OptionalElse, %Opti
 
 Then:                                             ; preds = %OptionalEndIf
   %24 = bitcast %std.Thread.StaticResetEvent* %event to i8*
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %24, i8* align 1 bitcast (%std.Thread.StaticResetEvent* @55 to i8*), i64 1, i1 false)
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %24, i8* align 1 bitcast (%std.Thread.StaticResetEvent* @54 to i8*), i64 1, i1 false)
   call fastcc void @std.Thread.StaticResetEvent.wait(%std.Thread.StaticResetEvent* %event)
   unreachable
 
@@ -1450,130 +1448,93 @@ SwitchEnd:                                        ; preds = %UnwrapErrEnd7, %End
 }
 
 ; Function Attrs: nobuiltin nounwind
-define internal fastcc void @f(%"?Value"* nonnull sret(%"?Value") %0, %Expr* nonnull readonly align 4 %1) unnamed_addr #1 {
+define internal fastcc void @f(%"?u32"* nonnull sret(%"?u32") %0, i1 %1, i32 %2) unnamed_addr #1 {
 Entry:
   %val = alloca i32, align 4
-  %a = alloca i32, align 4
-  %2 = alloca %"?Value", align 4
-  %3 = alloca %"?Value", align 4
-  store i32 0, i32* %val, align 4
-  %4 = getelementptr inbounds %Expr, %Expr* %1, i32 0, i32 1
-  %5 = load i1, i1* %4, align 1
-  switch i1 %5, label %SwitchElse [
-    i1 false, label %SwitchProng
+  %3 = alloca %"?u32", align 4
+  %use = alloca i1, align 1
+  %param = alloca i32, align 4
+  store i1 %1, i1* %use, align 1
+  store i32 %2, i32* %param, align 4
+  store i32 9, i32* %val, align 4
+  %4 = load i1, i1* %use, align 1
+  switch i1 %4, label %SwitchElse [
+    i1 true, label %SwitchProng
   ]
 
 SwitchElse:                                       ; preds = %Entry
-  %6 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 1
-  store i1 true, i1* %6, align 1
-  %7 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  %8 = getelementptr inbounds %Value, %Value* %7, i32 0, i32 1
-  store i1 true, i1* %8, align 1
-  %9 = bitcast %Value* %7 to i8*
-  %10 = bitcast %Value* %7 to i8*
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 %10, i8* align 4 %9, i64 8, i1 false)
-  %11 = getelementptr inbounds %"?Value", %"?Value"* %2, i32 0, i32 0
-  %12 = bitcast %Value* %7 to i8*
-  %13 = bitcast %Value* %11 to i8*
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 %13, i8* align 4 %12, i64 8, i1 false)
-  %14 = getelementptr inbounds %"?Value", %"?Value"* %2, i32 0, i32 1
-  store i1 true, i1* %14, align 1
+  %5 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 1
+  store i1 true, i1* %5, align 1
+  %6 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 0
+  store i32 3, i32* %6, align 4
+  %7 = bitcast %"?u32"* %0 to i8*
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 %7, i8* align 4 bitcast ({ i32, i1, [3 x i8] }* @55 to i8*), i64 8, i1 false)
   br label %SwitchEnd
 
-; get value of |a| and then test a == 0
 SwitchProng:                                      ; preds = %Entry
-  %15 = getelementptr inbounds %Expr, %Expr* %1, i32 0, i32 0
-  %16 = load i32, i32* %15, align 4
-  store i32 %16, i32* %a, align 4
-  %17 = load i32, i32* %a, align 4
-  %18 = icmp eq i32 %17, 0
-  %19 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 1
-  store i1 true, i1* %19, align 1
-  %20 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  br i1 %18, label %Then, label %Else
+  %8 = load i32, i32* %param, align 4
+  %9 = icmp eq i32 %8, 8
+  %10 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 1
+  store i1 true, i1* %10, align 1
+  %11 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 0
+  br i1 %9, label %Then, label %Else
 
-; `else if (val == 0)` if a was not 0, test val and jump
 Else:                                             ; preds = %SwitchProng
-  %21 = load i32, i32* %val, align 4
-  %22 = icmp eq i32 %21, 0
-  br i1 %22, label %Then1, label %Else2
+  %12 = load i32, i32* %val, align 4
+  %13 = icmp eq i32 %12, 10
+  br i1 %13, label %Then1, label %Else2
 
-; `Value{ .c = 0 }` if a was 0, store the return value
 Then:                                             ; preds = %SwitchProng
-  %23 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 1
-  store i1 true, i1* %23, align 1
-  %24 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  %25 = getelementptr inbounds %Value, %Value* %24, i32 0, i32 1
-  store i1 false, i1* %25, align 1
-  %26 = getelementptr inbounds %Value, %Value* %24, i32 0, i32 0
-  store i32 0, i32* %26, align 4
-  %27 = bitcast %Value* %24 to i8*
-  %28 = bitcast %Value* %24 to i8*
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 %28, i8* align 4 %27, i64 8, i1 false)
+  %14 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 1
+  store i1 true, i1* %14, align 1
+  %15 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 0
+  store i32 0, i32* %15, align 4
+  %16 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 1
+  store i1 true, i1* %16, align 1
+  %17 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 0
+  store i32 0, i32* %17, align 4
   br label %EndIf3
 
-; switch/.a/else-if`Value{ .d = {}}` if val was 0, store the return value
 Then1:                                            ; preds = %Else
-  %29 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 1
-  store i1 true, i1* %29, align 1
-  %30 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  %31 = getelementptr inbounds %Value, %Value* %30, i32 0, i32 1
-  store i1 true, i1* %31, align 1
-  %32 = bitcast %Value* %30 to i8*
-  %33 = bitcast %Value* %30 to i8*
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 %33, i8* align 4 %32, i64 8, i1 false)
+  %18 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 1
+  store i1 true, i1* %18, align 1
+  %19 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 0
+  store i32 1, i32* %19, align 4
+  store i32 1, i32* %19, align 4
   br label %EndIf
 
-; switch/.a/else`Value{.d = {}}` if val was not 0, store the return value
 Else2:                                            ; preds = %Else
-  ;;; inserted (was %30)
-  %34 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  ;;; incremented all vars and changed references of %30 to %34
-  %35 = getelementptr inbounds %Value, %Value* %34, i32 0, i32 1
-  store i1 true, i1* %35, align 1
-  %36 = bitcast %Value* %34 to i8*
-  %37 = bitcast %Value* %34 to i8*
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 %37, i8* align 4 %36, i64 8, i1 false)
+  store i32 2, i32* %19, align 4
+  store i32 2, i32* %19, align 4
   br label %EndIf
 
-; end the nested else-if/else in the switch .a prong
 EndIf:                                            ; preds = %Else2, %Then1
-  ;original; %38 = phi %Value* [ %30, %Then1 ], [ %30, %Else2 ]
-  %38 = phi %Value* [ %30, %Then1 ], [ %34, %Else2 ]
-  %39 = bitcast %Value* %38 to i8*
-  %40 = bitcast %Value* %38 to i8*
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 %40, i8* align 4 %39, i64 8, i1 false)
+  %20 = phi i32 [ 1, %Then1 ], [ 2, %Else2 ]
+  store i32 %20, i32* %19, align 4
   br label %EndIf3
 
-; end the initial if/else-if in the switch .a prong
 EndIf3:                                           ; preds = %EndIf, %Then
-  %41 = phi %Value* [ %24, %Then ], [ %38, %EndIf ]
-  %42 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 1
-  store i1 true, i1* %42, align 1
-  %43 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  %44 = bitcast %Value* %41 to i8*
-  %45 = bitcast %Value* %43 to i8*
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 %45, i8* align 4 %44, i64 8, i1 false)
-  %46 = getelementptr inbounds %"?Value", %"?Value"* %3, i32 0, i32 0
-  %47 = bitcast %Value* %41 to i8*
-  %48 = bitcast %Value* %46 to i8*
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 %48, i8* align 4 %47, i64 8, i1 false)
-  %49 = getelementptr inbounds %"?Value", %"?Value"* %3, i32 0, i32 1
-  store i1 true, i1* %49, align 1
+  %21 = phi i32 [ 0, %Then ], [ %20, %EndIf ]
+  %22 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 1
+  store i1 true, i1* %22, align 1
+  %23 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 0
+  store i32 %21, i32* %23, align 4
+  %24 = getelementptr inbounds %"?u32", %"?u32"* %3, i32 0, i32 0
+  store i32 %21, i32* %24, align 4
+  %25 = getelementptr inbounds %"?u32", %"?u32"* %3, i32 0, i32 1
+  store i1 true, i1* %25, align 1
   br label %SwitchEnd
 
-; return after having set the result value by reference
 SwitchEnd:                                        ; preds = %EndIf3, %SwitchElse
   ret void
 }
-
 
 ; Function Attrs: nobuiltin nounwind
 define internal fastcc void @std.target.Set.empty_workaround(%std.target.Set* nonnull sret(%std.target.Set) %0) unnamed_addr #1 {
 Entry:
   %1 = getelementptr inbounds %std.target.Set, %std.target.Set* %0, i32 0, i32 0
   %2 = bitcast [5 x i64]* %1 to i8*
-  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 8 %2, i8* align 8 bitcast ([5 x i64]* @54 to i8*), i64 40, i1 false)
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 8 %2, i8* align 8 bitcast ([5 x i64]* @53 to i8*), i64 40, i1 false)
   ret void
 }
 
@@ -18520,7 +18481,7 @@ attributes #10 = { noinline }
 !1 = !{i32 2, !"Dwarf Version", i32 4}
 !2 = distinct !DICompileUnit(language: DW_LANG_C99, file: !3, producer: "zig 0.10.0", isOptimized: true, runtimeVersion: 0, emissionKind: NoDebug, enums: !4)
 !3 = !DIFile(filename: "test", directory: "src")
-!4 = !{!5, !12, !57, !79, !225, !284, !290, !296, !450, !455, !817, !842, !848, !854, !903, !918, !922, !928, !935, !939, !944, !948, !968, !974, !979, !983, !990}
+!4 = !{!5, !12, !57, !79, !225, !284, !290, !296, !450, !455, !817, !842, !848, !854, !903, !918, !922, !928, !935, !939, !959, !965, !970, !974, !981}
 !5 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.builtin.OutputMode", scope: !6, file: !6, line: 459, baseType: !7, size: 8, align: 8, elements: !8)
 !6 = !DIFile(filename: "builtin.zig", directory: "/home/mike/personal/zig/build/lib/zig/std")
 !7 = !DIBasicType(name: "u2", size: 8, encoding: DW_ATE_unsigned)
@@ -19455,265 +19416,250 @@ attributes #10 = { noinline }
 !936 = !{!937, !938}
 !937 = !DIEnumerator(name: "Big", value: 0)
 !938 = !DIEnumerator(name: "Little", value: 1)
-!939 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "@typeInfo(Value).Union.tag_type.?", scope: !940, file: !940, line: 6, baseType: !292, size: 8, align: 8, elements: !941)
-!940 = !DIFile(filename: "code.zig", directory: "/home/mike/personal/sizr/sizr-format-zig/src")
-!941 = !{!942, !943}
-!942 = !DIEnumerator(name: "c", value: 0)
-!943 = !DIEnumerator(name: "d", value: 1)
-!944 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "@typeInfo(Expr).Union.tag_type.?", scope: !940, file: !940, line: 1, baseType: !292, size: 8, align: 8, elements: !945)
-!945 = !{!946, !947}
-!946 = !DIEnumerator(name: "a", value: 0)
-!947 = !DIEnumerator(name: "b", value: 1)
-!948 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.os.linux.rlimit_resource", scope: !949, file: !949, line: 4209, baseType: !950, size: 32, align: 32, elements: !951)
-!949 = !DIFile(filename: "linux.zig", directory: "/home/mike/personal/zig/build/lib/zig/std/os")
-!950 = !DIBasicType(name: "c_int", size: 32, encoding: DW_ATE_signed)
-!951 = !{!952, !953, !954, !955, !956, !957, !958, !959, !960, !961, !962, !963, !964, !965, !966, !967}
-!952 = !DIEnumerator(name: "CPU", value: 0)
-!953 = !DIEnumerator(name: "FSIZE", value: 1)
-!954 = !DIEnumerator(name: "DATA", value: 2)
-!955 = !DIEnumerator(name: "STACK", value: 3)
-!956 = !DIEnumerator(name: "CORE", value: 4)
-!957 = !DIEnumerator(name: "RSS", value: 5)
-!958 = !DIEnumerator(name: "NPROC", value: 6)
-!959 = !DIEnumerator(name: "NOFILE", value: 7)
-!960 = !DIEnumerator(name: "MEMLOCK", value: 8)
-!961 = !DIEnumerator(name: "AS", value: 9)
-!962 = !DIEnumerator(name: "LOCKS", value: 10)
-!963 = !DIEnumerator(name: "SIGPENDING", value: 11)
-!964 = !DIEnumerator(name: "MSGQUEUE", value: 12)
-!965 = !DIEnumerator(name: "NICE", value: 13)
-!966 = !DIEnumerator(name: "RTPRIO", value: 14)
-!967 = !DIEnumerator(name: "RTTIME", value: 15)
-!968 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.fmt.Alignment", scope: !969, file: !969, line: 14, baseType: !7, size: 8, align: 8, elements: !970)
-!969 = !DIFile(filename: "fmt.zig", directory: "/home/mike/personal/zig/build/lib/zig/std")
-!970 = !{!971, !972, !973}
-!971 = !DIEnumerator(name: "Left", value: 0)
-!972 = !DIEnumerator(name: "Center", value: 1)
-!973 = !DIEnumerator(name: "Right", value: 2)
-!974 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.mem.Allocator.Exact", scope: !975, file: !975, line: 272, baseType: !292, size: 8, align: 8, elements: !976)
-!975 = !DIFile(filename: "Allocator.zig", directory: "/home/mike/personal/zig/build/lib/zig/std/mem")
-!976 = !{!977, !978}
-!977 = !DIEnumerator(name: "exact", value: 0)
-!978 = !DIEnumerator(name: "at_least", value: 1)
-!979 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.fmt.Case", scope: !969, file: !969, line: 735, baseType: !292, size: 8, align: 8, elements: !980)
-!980 = !{!981, !982}
-!981 = !DIEnumerator(name: "lower", value: 0)
-!982 = !DIEnumerator(name: "upper", value: 1)
-!983 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.elf.ET", scope: !984, file: !984, line: 309, baseType: !298, size: 16, align: 16, elements: !985)
-!984 = !DIFile(filename: "elf.zig", directory: "/home/mike/personal/zig/build/lib/zig/std")
-!985 = !{!986, !987, !988, !989, !956}
-!986 = !DIEnumerator(name: "NONE", value: 0)
-!987 = !DIEnumerator(name: "REL", value: 1)
-!988 = !DIEnumerator(name: "EXEC", value: 2)
-!989 = !DIEnumerator(name: "DYN", value: 3)
-!990 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.elf.EM", scope: !984, file: !984, line: 948, baseType: !298, size: 16, align: 16, elements: !991)
-!991 = !{!992, !993, !994, !995, !996, !997, !998, !999, !1000, !1001, !1002, !1003, !1004, !1005, !1006, !1007, !1008, !1009, !1010, !1011, !1012, !1013, !1014, !1015, !1016, !1017, !1018, !1019, !1020, !1021, !1022, !1023, !1024, !1025, !1026, !1027, !1028, !1029, !1030, !1031, !1032, !1033, !1034, !1035, !1036, !1037, !1038, !1039, !1040, !1041, !1042, !1043, !1044, !1045, !1046, !1047, !1048, !1049, !1050, !1051, !1052, !1053, !1054, !1055, !1056, !1057, !1058, !1059, !1060, !1061, !1062, !1063, !1064, !1065, !1066, !1067, !1068, !1069, !1070, !1071, !1072, !1073, !1074, !1075, !1076, !1077, !1078, !1079, !1080, !1081, !1082, !1083, !1084, !1085, !1086, !1087, !1088, !1089, !1090, !1091, !1092, !1093, !1094, !1095, !1096, !1097, !1098, !1099, !1100, !1101, !1102, !1103, !1104, !1105, !1106, !1107, !1108, !1109, !1110, !1111, !1112, !1113, !1114, !1115, !1116, !1117, !1118, !1119, !1120, !1121, !1122, !1123, !1124, !1125, !1126, !1127, !1128, !1129, !1130, !1131, !1132, !1133, !1134, !1135, !1136, !1137, !1138, !1139, !1140, !1141, !1142, !1143, !1144, !1145, !1146, !1147, !1148, !1149, !1150, !1151, !1152, !1153, !1154, !1155, !1156, !1157, !1158, !1159, !1160, !1161, !1162, !1163, !1164, !1165, !1166, !1167, !1168, !1169}
-!992 = !DIEnumerator(name: "_NONE", value: 0)
-!993 = !DIEnumerator(name: "_M32", value: 1)
-!994 = !DIEnumerator(name: "_SPARC", value: 2)
-!995 = !DIEnumerator(name: "_386", value: 3)
-!996 = !DIEnumerator(name: "_68K", value: 4)
-!997 = !DIEnumerator(name: "_88K", value: 5)
-!998 = !DIEnumerator(name: "_IAMCU", value: 6)
-!999 = !DIEnumerator(name: "_860", value: 7)
-!1000 = !DIEnumerator(name: "_MIPS", value: 8)
-!1001 = !DIEnumerator(name: "_S370", value: 9)
-!1002 = !DIEnumerator(name: "_MIPS_RS3_LE", value: 10)
-!1003 = !DIEnumerator(name: "_SPU_2", value: 13)
-!1004 = !DIEnumerator(name: "_PARISC", value: 15)
-!1005 = !DIEnumerator(name: "_VPP500", value: 17)
-!1006 = !DIEnumerator(name: "_SPARC32PLUS", value: 18)
-!1007 = !DIEnumerator(name: "_960", value: 19)
-!1008 = !DIEnumerator(name: "_PPC", value: 20)
-!1009 = !DIEnumerator(name: "_PPC64", value: 21)
-!1010 = !DIEnumerator(name: "_S390", value: 22)
-!1011 = !DIEnumerator(name: "_SPU", value: 23)
-!1012 = !DIEnumerator(name: "_V800", value: 36)
-!1013 = !DIEnumerator(name: "_FR20", value: 37)
-!1014 = !DIEnumerator(name: "_RH32", value: 38)
-!1015 = !DIEnumerator(name: "_RCE", value: 39)
-!1016 = !DIEnumerator(name: "_ARM", value: 40)
-!1017 = !DIEnumerator(name: "_ALPHA", value: 41)
-!1018 = !DIEnumerator(name: "_SH", value: 42)
-!1019 = !DIEnumerator(name: "_SPARCV9", value: 43)
-!1020 = !DIEnumerator(name: "_TRICORE", value: 44)
-!1021 = !DIEnumerator(name: "_ARC", value: 45)
-!1022 = !DIEnumerator(name: "_H8_300", value: 46)
-!1023 = !DIEnumerator(name: "_H8_300H", value: 47)
-!1024 = !DIEnumerator(name: "_H8S", value: 48)
-!1025 = !DIEnumerator(name: "_H8_500", value: 49)
-!1026 = !DIEnumerator(name: "_IA_64", value: 50)
-!1027 = !DIEnumerator(name: "_MIPS_X", value: 51)
-!1028 = !DIEnumerator(name: "_COLDFIRE", value: 52)
-!1029 = !DIEnumerator(name: "_68HC12", value: 53)
-!1030 = !DIEnumerator(name: "_MMA", value: 54)
-!1031 = !DIEnumerator(name: "_PCP", value: 55)
-!1032 = !DIEnumerator(name: "_NCPU", value: 56)
-!1033 = !DIEnumerator(name: "_NDR1", value: 57)
-!1034 = !DIEnumerator(name: "_STARCORE", value: 58)
-!1035 = !DIEnumerator(name: "_ME16", value: 59)
-!1036 = !DIEnumerator(name: "_ST100", value: 60)
-!1037 = !DIEnumerator(name: "_TINYJ", value: 61)
-!1038 = !DIEnumerator(name: "_X86_64", value: 62)
-!1039 = !DIEnumerator(name: "_PDSP", value: 63)
-!1040 = !DIEnumerator(name: "_PDP10", value: 64)
-!1041 = !DIEnumerator(name: "_PDP11", value: 65)
-!1042 = !DIEnumerator(name: "_FX66", value: 66)
-!1043 = !DIEnumerator(name: "_ST9PLUS", value: 67)
-!1044 = !DIEnumerator(name: "_ST7", value: 68)
-!1045 = !DIEnumerator(name: "_68HC16", value: 69)
-!1046 = !DIEnumerator(name: "_68HC11", value: 70)
-!1047 = !DIEnumerator(name: "_68HC08", value: 71)
-!1048 = !DIEnumerator(name: "_68HC05", value: 72)
-!1049 = !DIEnumerator(name: "_SVX", value: 73)
-!1050 = !DIEnumerator(name: "_ST19", value: 74)
-!1051 = !DIEnumerator(name: "_VAX", value: 75)
-!1052 = !DIEnumerator(name: "_CRIS", value: 76)
-!1053 = !DIEnumerator(name: "_JAVELIN", value: 77)
-!1054 = !DIEnumerator(name: "_FIREPATH", value: 78)
-!1055 = !DIEnumerator(name: "_ZSP", value: 79)
-!1056 = !DIEnumerator(name: "_MMIX", value: 80)
-!1057 = !DIEnumerator(name: "_HUANY", value: 81)
-!1058 = !DIEnumerator(name: "_PRISM", value: 82)
-!1059 = !DIEnumerator(name: "_AVR", value: 83)
-!1060 = !DIEnumerator(name: "_FR30", value: 84)
-!1061 = !DIEnumerator(name: "_D10V", value: 85)
-!1062 = !DIEnumerator(name: "_D30V", value: 86)
-!1063 = !DIEnumerator(name: "_V850", value: 87)
-!1064 = !DIEnumerator(name: "_M32R", value: 88)
-!1065 = !DIEnumerator(name: "_MN10300", value: 89)
-!1066 = !DIEnumerator(name: "_MN10200", value: 90)
-!1067 = !DIEnumerator(name: "_PJ", value: 91)
-!1068 = !DIEnumerator(name: "_OPENRISC", value: 92)
-!1069 = !DIEnumerator(name: "_ARC_COMPACT", value: 93)
-!1070 = !DIEnumerator(name: "_XTENSA", value: 94)
-!1071 = !DIEnumerator(name: "_VIDEOCORE", value: 95)
-!1072 = !DIEnumerator(name: "_TMM_GPP", value: 96)
-!1073 = !DIEnumerator(name: "_NS32K", value: 97)
-!1074 = !DIEnumerator(name: "_TPC", value: 98)
-!1075 = !DIEnumerator(name: "_SNP1K", value: 99)
-!1076 = !DIEnumerator(name: "_ST200", value: 100)
-!1077 = !DIEnumerator(name: "_IP2K", value: 101)
-!1078 = !DIEnumerator(name: "_MAX", value: 102)
-!1079 = !DIEnumerator(name: "_CR", value: 103)
-!1080 = !DIEnumerator(name: "_F2MC16", value: 104)
-!1081 = !DIEnumerator(name: "_MSP430", value: 105)
-!1082 = !DIEnumerator(name: "_BLACKFIN", value: 106)
-!1083 = !DIEnumerator(name: "_SE_C33", value: 107)
-!1084 = !DIEnumerator(name: "_SEP", value: 108)
-!1085 = !DIEnumerator(name: "_ARCA", value: 109)
-!1086 = !DIEnumerator(name: "_UNICORE", value: 110)
-!1087 = !DIEnumerator(name: "_EXCESS", value: 111)
-!1088 = !DIEnumerator(name: "_DXP", value: 112)
-!1089 = !DIEnumerator(name: "_ALTERA_NIOS2", value: 113)
-!1090 = !DIEnumerator(name: "_CRX", value: 114)
-!1091 = !DIEnumerator(name: "_XGATE", value: 115)
-!1092 = !DIEnumerator(name: "_C166", value: 116)
-!1093 = !DIEnumerator(name: "_M16C", value: 117)
-!1094 = !DIEnumerator(name: "_DSPIC30F", value: 118)
-!1095 = !DIEnumerator(name: "_CE", value: 119)
-!1096 = !DIEnumerator(name: "_M32C", value: 120)
-!1097 = !DIEnumerator(name: "_TSK3000", value: 131)
-!1098 = !DIEnumerator(name: "_RS08", value: 132)
-!1099 = !DIEnumerator(name: "_SHARC", value: 133)
-!1100 = !DIEnumerator(name: "_ECOG2", value: 134)
-!1101 = !DIEnumerator(name: "_SCORE7", value: 135)
-!1102 = !DIEnumerator(name: "_DSP24", value: 136)
-!1103 = !DIEnumerator(name: "_VIDEOCORE3", value: 137)
-!1104 = !DIEnumerator(name: "_LATTICEMICO32", value: 138)
-!1105 = !DIEnumerator(name: "_SE_C17", value: 139)
-!1106 = !DIEnumerator(name: "_TI_C6000", value: 140)
-!1107 = !DIEnumerator(name: "_TI_C2000", value: 141)
-!1108 = !DIEnumerator(name: "_TI_C5500", value: 142)
-!1109 = !DIEnumerator(name: "_MMDSP_PLUS", value: 160)
-!1110 = !DIEnumerator(name: "_CYPRESS_M8C", value: 161)
-!1111 = !DIEnumerator(name: "_R32C", value: 162)
-!1112 = !DIEnumerator(name: "_TRIMEDIA", value: 163)
-!1113 = !DIEnumerator(name: "_HEXAGON", value: 164)
-!1114 = !DIEnumerator(name: "_8051", value: 165)
-!1115 = !DIEnumerator(name: "_STXP7X", value: 166)
-!1116 = !DIEnumerator(name: "_NDS32", value: 167)
-!1117 = !DIEnumerator(name: "_ECOG1X", value: 168)
-!1118 = !DIEnumerator(name: "_MAXQ30", value: 169)
-!1119 = !DIEnumerator(name: "_XIMO16", value: 170)
-!1120 = !DIEnumerator(name: "_MANIK", value: 171)
-!1121 = !DIEnumerator(name: "_CRAYNV2", value: 172)
-!1122 = !DIEnumerator(name: "_RX", value: 173)
-!1123 = !DIEnumerator(name: "_METAG", value: 174)
-!1124 = !DIEnumerator(name: "_MCST_ELBRUS", value: 175)
-!1125 = !DIEnumerator(name: "_ECOG16", value: 176)
-!1126 = !DIEnumerator(name: "_CR16", value: 177)
-!1127 = !DIEnumerator(name: "_ETPU", value: 178)
-!1128 = !DIEnumerator(name: "_SLE9X", value: 179)
-!1129 = !DIEnumerator(name: "_L10M", value: 180)
-!1130 = !DIEnumerator(name: "_K10M", value: 181)
-!1131 = !DIEnumerator(name: "_AARCH64", value: 183)
-!1132 = !DIEnumerator(name: "_AVR32", value: 185)
-!1133 = !DIEnumerator(name: "_STM8", value: 186)
-!1134 = !DIEnumerator(name: "_TILE64", value: 187)
-!1135 = !DIEnumerator(name: "_TILEPRO", value: 188)
-!1136 = !DIEnumerator(name: "_CUDA", value: 190)
-!1137 = !DIEnumerator(name: "_TILEGX", value: 191)
-!1138 = !DIEnumerator(name: "_CLOUDSHIELD", value: 192)
-!1139 = !DIEnumerator(name: "_COREA_1ST", value: 193)
-!1140 = !DIEnumerator(name: "_COREA_2ND", value: 194)
-!1141 = !DIEnumerator(name: "_ARC_COMPACT2", value: 195)
-!1142 = !DIEnumerator(name: "_OPEN8", value: 196)
-!1143 = !DIEnumerator(name: "_RL78", value: 197)
-!1144 = !DIEnumerator(name: "_VIDEOCORE5", value: 198)
-!1145 = !DIEnumerator(name: "_78KOR", value: 199)
-!1146 = !DIEnumerator(name: "_56800EX", value: 200)
-!1147 = !DIEnumerator(name: "_BA1", value: 201)
-!1148 = !DIEnumerator(name: "_BA2", value: 202)
-!1149 = !DIEnumerator(name: "_XCORE", value: 203)
-!1150 = !DIEnumerator(name: "_MCHP_PIC", value: 204)
-!1151 = !DIEnumerator(name: "_INTEL205", value: 205)
-!1152 = !DIEnumerator(name: "_INTEL206", value: 206)
-!1153 = !DIEnumerator(name: "_INTEL207", value: 207)
-!1154 = !DIEnumerator(name: "_INTEL208", value: 208)
-!1155 = !DIEnumerator(name: "_INTEL209", value: 209)
-!1156 = !DIEnumerator(name: "_KM32", value: 210)
-!1157 = !DIEnumerator(name: "_KMX32", value: 211)
-!1158 = !DIEnumerator(name: "_KMX16", value: 212)
-!1159 = !DIEnumerator(name: "_KMX8", value: 213)
-!1160 = !DIEnumerator(name: "_KVARC", value: 214)
-!1161 = !DIEnumerator(name: "_CDP", value: 215)
-!1162 = !DIEnumerator(name: "_COGE", value: 216)
-!1163 = !DIEnumerator(name: "_COOL", value: 217)
-!1164 = !DIEnumerator(name: "_NORC", value: 218)
-!1165 = !DIEnumerator(name: "_CSR_KALIMBA", value: 219)
-!1166 = !DIEnumerator(name: "_AMDGPU", value: 224)
-!1167 = !DIEnumerator(name: "_RISCV", value: 243)
-!1168 = !DIEnumerator(name: "_LANAI", value: 244)
-!1169 = !DIEnumerator(name: "_BPF", value: 247)
-;;; broken LLVM module found: Instruction does not dominate all uses!
-  ;;; %30 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  ;;; %34 = getelementptr inbounds %Value, %Value* %30, i32 0, i32 1
-;;; Instruction does not dominate all uses!
-  ;;; %30 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  ;;; %35 = bitcast %Value* %30 to i8*
-;;; Instruction does not dominate all uses!
-  ;;; %30 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  ;;; %36 = bitcast %Value* %30 to i8*
-;;; Instruction does not dominate all uses!
-  ;;; %30 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  ;;; %37 = phi %Value* [ %30, %Then1 ], [ %30, %Else2 ]
-;;; Instruction does not dominate all uses!
-  ;;; %30 = getelementptr inbounds %"?Value", %"?Value"* %0, i32 0, i32 0
-  ;;; %39 = bitcast %Value* %30 to i8*
+!939 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.os.linux.rlimit_resource", scope: !940, file: !940, line: 4209, baseType: !941, size: 32, align: 32, elements: !942)
+!940 = !DIFile(filename: "linux.zig", directory: "/home/mike/personal/zig/build/lib/zig/std/os")
+!941 = !DIBasicType(name: "c_int", size: 32, encoding: DW_ATE_signed)
+!942 = !{!943, !944, !945, !946, !947, !948, !949, !950, !951, !952, !953, !954, !955, !956, !957, !958}
+!943 = !DIEnumerator(name: "CPU", value: 0)
+!944 = !DIEnumerator(name: "FSIZE", value: 1)
+!945 = !DIEnumerator(name: "DATA", value: 2)
+!946 = !DIEnumerator(name: "STACK", value: 3)
+!947 = !DIEnumerator(name: "CORE", value: 4)
+!948 = !DIEnumerator(name: "RSS", value: 5)
+!949 = !DIEnumerator(name: "NPROC", value: 6)
+!950 = !DIEnumerator(name: "NOFILE", value: 7)
+!951 = !DIEnumerator(name: "MEMLOCK", value: 8)
+!952 = !DIEnumerator(name: "AS", value: 9)
+!953 = !DIEnumerator(name: "LOCKS", value: 10)
+!954 = !DIEnumerator(name: "SIGPENDING", value: 11)
+!955 = !DIEnumerator(name: "MSGQUEUE", value: 12)
+!956 = !DIEnumerator(name: "NICE", value: 13)
+!957 = !DIEnumerator(name: "RTPRIO", value: 14)
+!958 = !DIEnumerator(name: "RTTIME", value: 15)
+!959 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.fmt.Alignment", scope: !960, file: !960, line: 14, baseType: !7, size: 8, align: 8, elements: !961)
+!960 = !DIFile(filename: "fmt.zig", directory: "/home/mike/personal/zig/build/lib/zig/std")
+!961 = !{!962, !963, !964}
+!962 = !DIEnumerator(name: "Left", value: 0)
+!963 = !DIEnumerator(name: "Center", value: 1)
+!964 = !DIEnumerator(name: "Right", value: 2)
+!965 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.mem.Allocator.Exact", scope: !966, file: !966, line: 272, baseType: !292, size: 8, align: 8, elements: !967)
+!966 = !DIFile(filename: "Allocator.zig", directory: "/home/mike/personal/zig/build/lib/zig/std/mem")
+!967 = !{!968, !969}
+!968 = !DIEnumerator(name: "exact", value: 0)
+!969 = !DIEnumerator(name: "at_least", value: 1)
+!970 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.fmt.Case", scope: !960, file: !960, line: 735, baseType: !292, size: 8, align: 8, elements: !971)
+!971 = !{!972, !973}
+!972 = !DIEnumerator(name: "lower", value: 0)
+!973 = !DIEnumerator(name: "upper", value: 1)
+!974 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.elf.ET", scope: !975, file: !975, line: 309, baseType: !298, size: 16, align: 16, elements: !976)
+!975 = !DIFile(filename: "elf.zig", directory: "/home/mike/personal/zig/build/lib/zig/std")
+!976 = !{!977, !978, !979, !980, !947}
+!977 = !DIEnumerator(name: "NONE", value: 0)
+!978 = !DIEnumerator(name: "REL", value: 1)
+!979 = !DIEnumerator(name: "EXEC", value: 2)
+!980 = !DIEnumerator(name: "DYN", value: 3)
+!981 = !DICompositeType(tag: DW_TAG_enumeration_type, name: "std.elf.EM", scope: !975, file: !975, line: 948, baseType: !298, size: 16, align: 16, elements: !982)
+!982 = !{!983, !984, !985, !986, !987, !988, !989, !990, !991, !992, !993, !994, !995, !996, !997, !998, !999, !1000, !1001, !1002, !1003, !1004, !1005, !1006, !1007, !1008, !1009, !1010, !1011, !1012, !1013, !1014, !1015, !1016, !1017, !1018, !1019, !1020, !1021, !1022, !1023, !1024, !1025, !1026, !1027, !1028, !1029, !1030, !1031, !1032, !1033, !1034, !1035, !1036, !1037, !1038, !1039, !1040, !1041, !1042, !1043, !1044, !1045, !1046, !1047, !1048, !1049, !1050, !1051, !1052, !1053, !1054, !1055, !1056, !1057, !1058, !1059, !1060, !1061, !1062, !1063, !1064, !1065, !1066, !1067, !1068, !1069, !1070, !1071, !1072, !1073, !1074, !1075, !1076, !1077, !1078, !1079, !1080, !1081, !1082, !1083, !1084, !1085, !1086, !1087, !1088, !1089, !1090, !1091, !1092, !1093, !1094, !1095, !1096, !1097, !1098, !1099, !1100, !1101, !1102, !1103, !1104, !1105, !1106, !1107, !1108, !1109, !1110, !1111, !1112, !1113, !1114, !1115, !1116, !1117, !1118, !1119, !1120, !1121, !1122, !1123, !1124, !1125, !1126, !1127, !1128, !1129, !1130, !1131, !1132, !1133, !1134, !1135, !1136, !1137, !1138, !1139, !1140, !1141, !1142, !1143, !1144, !1145, !1146, !1147, !1148, !1149, !1150, !1151, !1152, !1153, !1154, !1155, !1156, !1157, !1158, !1159, !1160}
+!983 = !DIEnumerator(name: "_NONE", value: 0)
+!984 = !DIEnumerator(name: "_M32", value: 1)
+!985 = !DIEnumerator(name: "_SPARC", value: 2)
+!986 = !DIEnumerator(name: "_386", value: 3)
+!987 = !DIEnumerator(name: "_68K", value: 4)
+!988 = !DIEnumerator(name: "_88K", value: 5)
+!989 = !DIEnumerator(name: "_IAMCU", value: 6)
+!990 = !DIEnumerator(name: "_860", value: 7)
+!991 = !DIEnumerator(name: "_MIPS", value: 8)
+!992 = !DIEnumerator(name: "_S370", value: 9)
+!993 = !DIEnumerator(name: "_MIPS_RS3_LE", value: 10)
+!994 = !DIEnumerator(name: "_SPU_2", value: 13)
+!995 = !DIEnumerator(name: "_PARISC", value: 15)
+!996 = !DIEnumerator(name: "_VPP500", value: 17)
+!997 = !DIEnumerator(name: "_SPARC32PLUS", value: 18)
+!998 = !DIEnumerator(name: "_960", value: 19)
+!999 = !DIEnumerator(name: "_PPC", value: 20)
+!1000 = !DIEnumerator(name: "_PPC64", value: 21)
+!1001 = !DIEnumerator(name: "_S390", value: 22)
+!1002 = !DIEnumerator(name: "_SPU", value: 23)
+!1003 = !DIEnumerator(name: "_V800", value: 36)
+!1004 = !DIEnumerator(name: "_FR20", value: 37)
+!1005 = !DIEnumerator(name: "_RH32", value: 38)
+!1006 = !DIEnumerator(name: "_RCE", value: 39)
+!1007 = !DIEnumerator(name: "_ARM", value: 40)
+!1008 = !DIEnumerator(name: "_ALPHA", value: 41)
+!1009 = !DIEnumerator(name: "_SH", value: 42)
+!1010 = !DIEnumerator(name: "_SPARCV9", value: 43)
+!1011 = !DIEnumerator(name: "_TRICORE", value: 44)
+!1012 = !DIEnumerator(name: "_ARC", value: 45)
+!1013 = !DIEnumerator(name: "_H8_300", value: 46)
+!1014 = !DIEnumerator(name: "_H8_300H", value: 47)
+!1015 = !DIEnumerator(name: "_H8S", value: 48)
+!1016 = !DIEnumerator(name: "_H8_500", value: 49)
+!1017 = !DIEnumerator(name: "_IA_64", value: 50)
+!1018 = !DIEnumerator(name: "_MIPS_X", value: 51)
+!1019 = !DIEnumerator(name: "_COLDFIRE", value: 52)
+!1020 = !DIEnumerator(name: "_68HC12", value: 53)
+!1021 = !DIEnumerator(name: "_MMA", value: 54)
+!1022 = !DIEnumerator(name: "_PCP", value: 55)
+!1023 = !DIEnumerator(name: "_NCPU", value: 56)
+!1024 = !DIEnumerator(name: "_NDR1", value: 57)
+!1025 = !DIEnumerator(name: "_STARCORE", value: 58)
+!1026 = !DIEnumerator(name: "_ME16", value: 59)
+!1027 = !DIEnumerator(name: "_ST100", value: 60)
+!1028 = !DIEnumerator(name: "_TINYJ", value: 61)
+!1029 = !DIEnumerator(name: "_X86_64", value: 62)
+!1030 = !DIEnumerator(name: "_PDSP", value: 63)
+!1031 = !DIEnumerator(name: "_PDP10", value: 64)
+!1032 = !DIEnumerator(name: "_PDP11", value: 65)
+!1033 = !DIEnumerator(name: "_FX66", value: 66)
+!1034 = !DIEnumerator(name: "_ST9PLUS", value: 67)
+!1035 = !DIEnumerator(name: "_ST7", value: 68)
+!1036 = !DIEnumerator(name: "_68HC16", value: 69)
+!1037 = !DIEnumerator(name: "_68HC11", value: 70)
+!1038 = !DIEnumerator(name: "_68HC08", value: 71)
+!1039 = !DIEnumerator(name: "_68HC05", value: 72)
+!1040 = !DIEnumerator(name: "_SVX", value: 73)
+!1041 = !DIEnumerator(name: "_ST19", value: 74)
+!1042 = !DIEnumerator(name: "_VAX", value: 75)
+!1043 = !DIEnumerator(name: "_CRIS", value: 76)
+!1044 = !DIEnumerator(name: "_JAVELIN", value: 77)
+!1045 = !DIEnumerator(name: "_FIREPATH", value: 78)
+!1046 = !DIEnumerator(name: "_ZSP", value: 79)
+!1047 = !DIEnumerator(name: "_MMIX", value: 80)
+!1048 = !DIEnumerator(name: "_HUANY", value: 81)
+!1049 = !DIEnumerator(name: "_PRISM", value: 82)
+!1050 = !DIEnumerator(name: "_AVR", value: 83)
+!1051 = !DIEnumerator(name: "_FR30", value: 84)
+!1052 = !DIEnumerator(name: "_D10V", value: 85)
+!1053 = !DIEnumerator(name: "_D30V", value: 86)
+!1054 = !DIEnumerator(name: "_V850", value: 87)
+!1055 = !DIEnumerator(name: "_M32R", value: 88)
+!1056 = !DIEnumerator(name: "_MN10300", value: 89)
+!1057 = !DIEnumerator(name: "_MN10200", value: 90)
+!1058 = !DIEnumerator(name: "_PJ", value: 91)
+!1059 = !DIEnumerator(name: "_OPENRISC", value: 92)
+!1060 = !DIEnumerator(name: "_ARC_COMPACT", value: 93)
+!1061 = !DIEnumerator(name: "_XTENSA", value: 94)
+!1062 = !DIEnumerator(name: "_VIDEOCORE", value: 95)
+!1063 = !DIEnumerator(name: "_TMM_GPP", value: 96)
+!1064 = !DIEnumerator(name: "_NS32K", value: 97)
+!1065 = !DIEnumerator(name: "_TPC", value: 98)
+!1066 = !DIEnumerator(name: "_SNP1K", value: 99)
+!1067 = !DIEnumerator(name: "_ST200", value: 100)
+!1068 = !DIEnumerator(name: "_IP2K", value: 101)
+!1069 = !DIEnumerator(name: "_MAX", value: 102)
+!1070 = !DIEnumerator(name: "_CR", value: 103)
+!1071 = !DIEnumerator(name: "_F2MC16", value: 104)
+!1072 = !DIEnumerator(name: "_MSP430", value: 105)
+!1073 = !DIEnumerator(name: "_BLACKFIN", value: 106)
+!1074 = !DIEnumerator(name: "_SE_C33", value: 107)
+!1075 = !DIEnumerator(name: "_SEP", value: 108)
+!1076 = !DIEnumerator(name: "_ARCA", value: 109)
+!1077 = !DIEnumerator(name: "_UNICORE", value: 110)
+!1078 = !DIEnumerator(name: "_EXCESS", value: 111)
+!1079 = !DIEnumerator(name: "_DXP", value: 112)
+!1080 = !DIEnumerator(name: "_ALTERA_NIOS2", value: 113)
+!1081 = !DIEnumerator(name: "_CRX", value: 114)
+!1082 = !DIEnumerator(name: "_XGATE", value: 115)
+!1083 = !DIEnumerator(name: "_C166", value: 116)
+!1084 = !DIEnumerator(name: "_M16C", value: 117)
+!1085 = !DIEnumerator(name: "_DSPIC30F", value: 118)
+!1086 = !DIEnumerator(name: "_CE", value: 119)
+!1087 = !DIEnumerator(name: "_M32C", value: 120)
+!1088 = !DIEnumerator(name: "_TSK3000", value: 131)
+!1089 = !DIEnumerator(name: "_RS08", value: 132)
+!1090 = !DIEnumerator(name: "_SHARC", value: 133)
+!1091 = !DIEnumerator(name: "_ECOG2", value: 134)
+!1092 = !DIEnumerator(name: "_SCORE7", value: 135)
+!1093 = !DIEnumerator(name: "_DSP24", value: 136)
+!1094 = !DIEnumerator(name: "_VIDEOCORE3", value: 137)
+!1095 = !DIEnumerator(name: "_LATTICEMICO32", value: 138)
+!1096 = !DIEnumerator(name: "_SE_C17", value: 139)
+!1097 = !DIEnumerator(name: "_TI_C6000", value: 140)
+!1098 = !DIEnumerator(name: "_TI_C2000", value: 141)
+!1099 = !DIEnumerator(name: "_TI_C5500", value: 142)
+!1100 = !DIEnumerator(name: "_MMDSP_PLUS", value: 160)
+!1101 = !DIEnumerator(name: "_CYPRESS_M8C", value: 161)
+!1102 = !DIEnumerator(name: "_R32C", value: 162)
+!1103 = !DIEnumerator(name: "_TRIMEDIA", value: 163)
+!1104 = !DIEnumerator(name: "_HEXAGON", value: 164)
+!1105 = !DIEnumerator(name: "_8051", value: 165)
+!1106 = !DIEnumerator(name: "_STXP7X", value: 166)
+!1107 = !DIEnumerator(name: "_NDS32", value: 167)
+!1108 = !DIEnumerator(name: "_ECOG1X", value: 168)
+!1109 = !DIEnumerator(name: "_MAXQ30", value: 169)
+!1110 = !DIEnumerator(name: "_XIMO16", value: 170)
+!1111 = !DIEnumerator(name: "_MANIK", value: 171)
+!1112 = !DIEnumerator(name: "_CRAYNV2", value: 172)
+!1113 = !DIEnumerator(name: "_RX", value: 173)
+!1114 = !DIEnumerator(name: "_METAG", value: 174)
+!1115 = !DIEnumerator(name: "_MCST_ELBRUS", value: 175)
+!1116 = !DIEnumerator(name: "_ECOG16", value: 176)
+!1117 = !DIEnumerator(name: "_CR16", value: 177)
+!1118 = !DIEnumerator(name: "_ETPU", value: 178)
+!1119 = !DIEnumerator(name: "_SLE9X", value: 179)
+!1120 = !DIEnumerator(name: "_L10M", value: 180)
+!1121 = !DIEnumerator(name: "_K10M", value: 181)
+!1122 = !DIEnumerator(name: "_AARCH64", value: 183)
+!1123 = !DIEnumerator(name: "_AVR32", value: 185)
+!1124 = !DIEnumerator(name: "_STM8", value: 186)
+!1125 = !DIEnumerator(name: "_TILE64", value: 187)
+!1126 = !DIEnumerator(name: "_TILEPRO", value: 188)
+!1127 = !DIEnumerator(name: "_CUDA", value: 190)
+!1128 = !DIEnumerator(name: "_TILEGX", value: 191)
+!1129 = !DIEnumerator(name: "_CLOUDSHIELD", value: 192)
+!1130 = !DIEnumerator(name: "_COREA_1ST", value: 193)
+!1131 = !DIEnumerator(name: "_COREA_2ND", value: 194)
+!1132 = !DIEnumerator(name: "_ARC_COMPACT2", value: 195)
+!1133 = !DIEnumerator(name: "_OPEN8", value: 196)
+!1134 = !DIEnumerator(name: "_RL78", value: 197)
+!1135 = !DIEnumerator(name: "_VIDEOCORE5", value: 198)
+!1136 = !DIEnumerator(name: "_78KOR", value: 199)
+!1137 = !DIEnumerator(name: "_56800EX", value: 200)
+!1138 = !DIEnumerator(name: "_BA1", value: 201)
+!1139 = !DIEnumerator(name: "_BA2", value: 202)
+!1140 = !DIEnumerator(name: "_XCORE", value: 203)
+!1141 = !DIEnumerator(name: "_MCHP_PIC", value: 204)
+!1142 = !DIEnumerator(name: "_INTEL205", value: 205)
+!1143 = !DIEnumerator(name: "_INTEL206", value: 206)
+!1144 = !DIEnumerator(name: "_INTEL207", value: 207)
+!1145 = !DIEnumerator(name: "_INTEL208", value: 208)
+!1146 = !DIEnumerator(name: "_INTEL209", value: 209)
+!1147 = !DIEnumerator(name: "_KM32", value: 210)
+!1148 = !DIEnumerator(name: "_KMX32", value: 211)
+!1149 = !DIEnumerator(name: "_KMX16", value: 212)
+!1150 = !DIEnumerator(name: "_KMX8", value: 213)
+!1151 = !DIEnumerator(name: "_KVARC", value: 214)
+!1152 = !DIEnumerator(name: "_CDP", value: 215)
+!1153 = !DIEnumerator(name: "_COGE", value: 216)
+!1154 = !DIEnumerator(name: "_COOL", value: 217)
+!1155 = !DIEnumerator(name: "_NORC", value: 218)
+!1156 = !DIEnumerator(name: "_CSR_KALIMBA", value: 219)
+!1157 = !DIEnumerator(name: "_AMDGPU", value: 224)
+!1158 = !DIEnumerator(name: "_RISCV", value: 243)
+!1159 = !DIEnumerator(name: "_LANAI", value: 244)
+!1160 = !DIEnumerator(name: "_BPF", value: 247)
+broken LLVM module found: Instruction does not dominate all uses!
+  %19 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 0
+  store i32 2, i32* %19, align 4
+Instruction does not dominate all uses!
+  %19 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 0
+  store i32 2, i32* %19, align 4
+Instruction does not dominate all uses!
+  %19 = getelementptr inbounds %"?u32", %"?u32"* %0, i32 0, i32 0
+  store i32 %20, i32* %19, align 4
 
-;;; This is a bug in the Zig compiler.thread 2543749 panic: 
-;;; ???:?:?: 0x55713dc2fad7 in ??? (???)
-;;; ???:?:?: 0x55713ebc7719 in ??? (???)
-;;; ???:?:?: 0x55713ebee9e9 in ??? (???)
-;;; ???:?:?: 0x55713ebf3b6f in ??? (???)
-;;; ???:?:?: 0x55713ebc3273 in ??? (???)
-;;; ???:?:?: 0x55713e032de4 in ??? (???)
-;;; ???:?:?: 0x55713dff368a in ??? (???)
-;;; ???:?:?: 0x55713ddc7205 in ??? (???)
-;;; ???:?:?: 0x55713ddba432 in ??? (???)
-;;; ???:?:?: 0x55713ddb5fd1 in ??? (???)
-;;; ???:?:?: 0x55713dd445ff in ??? (???)
-;;; ???:?:?: 0x55713dc5e486 in ??? (???)
-;;; ???:?:?: 0x55713dc2e316 in ??? (???)
-;;; ???:?:?: 0x55713dc2daa9 in ??? (???)
+This is a bug in the Zig compiler.thread 2643769 panic: 
+???:?:?: 0x557dcba0fad7 in ??? (???)
+???:?:?: 0x557dcc9a7719 in ??? (???)
+???:?:?: 0x557dcc9ce9e9 in ??? (???)
+???:?:?: 0x557dcc9d3b6f in ??? (???)
+???:?:?: 0x557dcc9a3273 in ??? (???)
+???:?:?: 0x557dcbe12de4 in ??? (???)
+???:?:?: 0x557dcbdd368a in ??? (???)
+???:?:?: 0x557dcbba7205 in ??? (???)
+???:?:?: 0x557dcbb9a432 in ??? (???)
+???:?:?: 0x557dcbb95fd1 in ??? (???)
+???:?:?: 0x557dcbb245ff in ??? (???)
+???:?:?: 0x557dcba3e486 in ??? (???)
+???:?:?: 0x557dcba0e316 in ??? (???)
+???:?:?: 0x557dcba0daa9 in ??? (???)
