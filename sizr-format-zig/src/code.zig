@@ -1,20 +1,21 @@
 // works if I make it return not optional
 fn f(use: bool, param: u32) ?u32 {
-    var val: u32 = 9;
-    //var 
+    var val: u32 = 0;
     return switch (use) {
-        true => (
-            if (param == 8)
-                @as(u32, 0)
-            else if (val == 10)
-                @as(u32, 1)
-            else
-                @as(u32, 2)
+        true => (               // SwitchProng
+            if (param == 1)
+                @as(u32, 2)     // Then
+            else                // Else
+                if (val == 3)
+                    @as(u32, 4) // Then1
+                else            // Else2
+                    @as(u32, 5)
         ),
-        else => @as(u32, 3)
+        else =>                 // SwitchElse
+            @as(u32, 6)
     };
 }
 
-test "" {
-    _ = f(true, 0);
+pub fn main() void {
+    _ = f(true, 7);
 }
