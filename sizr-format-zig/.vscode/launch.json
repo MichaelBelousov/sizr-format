@@ -4,6 +4,7 @@
   // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
   "version": "0.2.0",
   "configurations": [
+    /*
     {
       "type": "lldb-mi",
       "request": "launch",
@@ -22,15 +23,18 @@
       "env": [],
       "cwd": "${workspaceRoot}"
     },
+    */
     {
       "name": "(gdb) launch",
       "type": "gdb",
       "request": "launch",
       "target": "/home/mike/personal/zig/build/bin/zig",
-      "arguments": "test src/code.zig",
+      "arguments": "build-exe --strip -O ReleaseSmall src/code.zig",
       "cwd": "${workspaceRoot}",
       //"valuesFormatting": "parseText"
-      "valuesFormatting": "prettyPrinters"
+      //"valuesFormatting": "prettyPrinters",
+      "valuesFormatting": "parseText"
+      //"autorun": []
     }
   ]
 }

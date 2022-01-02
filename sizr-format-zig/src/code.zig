@@ -5,11 +5,10 @@ fn f(use: bool, param: u32) ?u32 {
         true => (               // SwitchProng
             if (param == 1)
                 @as(u32, 2)     // Then
-            else                // Else
-                if (val == 3)
+            else if (val == 3)  // Else
                     @as(u32, 4) // Then1
-                else            // Else2
-                    @as(u32, 5)
+                else
+                    @as(u32, 5) // Else2
         ),
         else =>                 // SwitchElse
             @as(u32, 6)

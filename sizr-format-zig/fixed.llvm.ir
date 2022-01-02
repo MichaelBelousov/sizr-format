@@ -4471,7 +4471,6 @@ EndIf3:                                           ; preds = %EndIf, %Then
   store i1 true, i1* %27, align 1
   br label %SwitchEnd
 
-
 SwitchEnd:                                        ; preds = %EndIf3, %SwitchElse
   ret void
 }
