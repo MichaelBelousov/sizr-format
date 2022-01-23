@@ -38,6 +38,23 @@
         "set print pretty",
         "set print union off"
       ]
+    },
+    {
+      "name": "(gdb) launch *control*",
+      "type": "gdb",
+      "request": "launch",
+      "target": "/home/mike/personal/zig/build/bin/zig",
+      "arguments": "build-exe --strip -O ReleaseSmall src/code2.zig --cache-dir zig-cache2",
+      "cwd": "${workspaceRoot}",
+      //"valuesFormatting": "parseText"
+      //"valuesFormatting": "prettyPrinters",
+      "valuesFormatting": "parseText",
+      "preLaunchTask": "remove-zig-cache",
+      "autorun": [
+        "pause",
+        "set print pretty",
+        "set print union off"
+      ]
     }
   ]
 }

@@ -1,0 +1,8 @@
+break /home/mike/personal/zig/src/stage1/ir.cpp:1493
+  condition $bpnum ira->suspend_source_instr->debug_id == 84 || ira->suspend_source_instr->debug_id == 93
+break /home/mike/personal/zig/src/stage1/ir.cpp:7391
+break /home/mike/personal/zig/src/stage1/ir.cpp:11975
+break /home/mike/personal/zig/src/stage1/ir.cpp:12122
+break /home/mike/personal/zig/src/stage1/ir.cpp:12430
+break /home/mike/personal/zig/src/stage1/ir.cpp:25261
+  condition $bpnum old_instruction->debug_id == 93

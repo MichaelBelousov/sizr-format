@@ -1,0 +1,19 @@
+break /home/mike/personal/zig/src/stage1/analyze.cpp:5172
+  condition $bpnum fn_table_entry->symbol_name->list->items[0] == 'f'
+break /home/mike/personal/zig/src/stage1/analyze.cpp:5210
+  condition $bpnum fn_table_entry->symbol_name->list->items[0] == 'f' && fn_table_entry->symbol_name->list->length == 2
+break /home/mike/personal/zig/src/stage1/codegen.cpp:8277
+break /home/mike/personal/zig/src/stage1/codegen.cpp:8399
+  condition $bpnum fn_i == 104
+break /home/mike/personal/zig/src/stage1/codegen.cpp:8688
+break /home/mike/personal/zig/src/stage1/codegen.cpp:8709
+break /home/mike/personal/zig/src/stage1/codegen.cpp:9787
+break /home/mike/personal/zig/src/stage1/codegen.cpp:9789
+break /home/mike/personal/zig/src/stage1/codegen.cpp:9893
+break /home/mike/personal/zig/src/arch/x86_64/CodeGen.zig:3480
+break /home/mike/personal/zig/src/arch/x86_64/CodeGen.zig:3539
+break /home/mike/personal/zig/src/stage1/ir.cpp:7391
+break /home/mike/personal/zig/src/stage1/ir.cpp:12430
+break /home/mike/personal/zig/src/stage1/ir.cpp:24537
+  condition $bpnum instruction->base.debug_id == 25 || instruction->base.debug_id == 34
+break /home/mike/personal/zig/src/type.zig:2153

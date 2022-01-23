@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type":"shell",
+			//"args": [""],
+			"command": [
+				"rm -rf ${workspaceFolder}/zig-cache2"
+			],
+			"label": "remove-zig-cache",
+			"detail": "remove the zig cache since it will prevent reruns from doing code gen"
+		}
+	]
+}
