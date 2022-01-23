@@ -3,5 +3,5 @@ zig-cache
 zig-out
 
 # debug temp
-code2
+code[1-9]
 zig-cache2
