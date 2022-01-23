@@ -33,8 +33,11 @@
       "cwd": "${workspaceRoot}",
       //"valuesFormatting": "parseText"
       //"valuesFormatting": "prettyPrinters",
-      "valuesFormatting": "parseText"
-      //"autorun": []
+      "valuesFormatting": "parseText",
+      "autorun": [
+        "set print pretty",
+        "set print union off"
+      ]
     }
   ]
 }
