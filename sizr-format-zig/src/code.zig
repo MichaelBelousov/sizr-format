@@ -174,12 +174,13 @@ const LangResolver = struct {
         std.debug.print("{s}\n", .{debug_str.ptr});
         defer debug_str.free();
 
+        // Workaround used here for a bug https://github.com/ziglang/zig/issues/10601
         return switch(expr) {
             .name => |name|
                 if (std.meta.eql(name, "type")) blk: {
                     const cstr = ts._c.ts_node_type(node._c);
                     const len = std.mem.len(cstr);
-                    break :blk Value{ .string = cstr[0..len] };
+                    break :blk @as(?Value, Value{ .string = cstr[0..len] });
                 } else if (std.fmt.parseInt(u32, name, 10)) |index| (
                     // the parser will reject negative indices
                     if (index < 0) unreachable else _: {
@@ -189,19 +190,19 @@ const LangResolver = struct {
                         } else {
                             std.debug.print("field {} had null name\n", .{index});
                         }
-                        break :_ Value{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, index) } };
+                        break :_ @as(?Value, Value{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, index) } });
                     }
-                ) else |_| Value{ .node = node.child_by_field_name(name) },
+                ) else |_| @as(?Value, Value{ .node = node.child_by_field_name(name) }),
             .binop => |op| switch (op.op) {
                 .dot => {
                     const left = resolveFn(self.resolver, node, op.left.*);
                     if (left == null or left.? != .node) @panic("only nodes are supported on the left side of a `.` expr right now");
                     if (op.right.* != .name) unreachable; // "right hand side of a `.` expr must be a name"
-                    return resolveFn(self.resolver, left.?.node, op.right.*);
+                    return @as(?Value, resolveFn(self.resolver, left.?.node, op.right.*));
                 },
                 else => @panic("only dot is implemented!")
             },
-            else => null
+            else => @as(?Value, null),
         };
     }
 
