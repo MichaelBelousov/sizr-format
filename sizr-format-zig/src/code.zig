@@ -54,12 +54,9 @@ const Expr = union(enum) {
         // super bare-bones impl only supporting member-of operator for now
         var remaining = source;
         var expr: *Expr = try alloc.create(Expr);
-        var loop_first_iter = true;
-        while (std.mem.indexOf(u8, remaining, ".")) |index| {
-            if (loop_first_iter) {
-                expr.* = Expr{.name = remaining[0..index]};
-                loop_first_iter = false;
-            } else {
+        if (std.mem.indexOf(u8, remaining, ".")) |firstIndex| {
+            expr.* = Expr{.name = remaining[0..firstIndex]};
+            while (std.mem.indexOf(u8, remaining, ".")) |index| {
                 const name_expr = try alloc.create(Expr);
                 name_expr.* = Expr{.name = remaining[0..index]};
                 const prev_expr = expr;
@@ -69,21 +66,31 @@ const Expr = union(enum) {
                     .left = prev_expr,
                     .right = name_expr
                 }};
+                remaining = remaining[index+1..];
             }
-            remaining = remaining[index+1..];
+        } else {
+            expr.* = Expr{.name = remaining};
         }
         return expr;
     }
 
-    /// recursively free the expression tree
+    /// recursively free the expression tree, and then the self pointer itself
     /// alloc must be the same allocator that was used when creating this Expr
-    pub fn free(self: @This(), alloc: std.mem.Allocator) void {
-        switch (self) {
-            .binop => |val| { alloc.destroy(val.left); alloc.destroy(val.right); },
-            .unaryop => |val| alloc.destroy(val.expr),
-            .group => |val| alloc.destroy(val),
+    pub fn free(self: *@This(), alloc: std.mem.Allocator) void {
+        switch (self.*) {
+            .binop => |val| {
+                val.left.free(alloc);
+                val.right.free(alloc);
+            },
+            .unaryop => |val| {
+                val.expr.free(alloc);
+            },
+            .group => |val| {
+                val.free(alloc);
+            },
             else => {}
         }
+        alloc.destroy(self);
     }
 };
 
@@ -340,20 +347,22 @@ test "write" {
         .buf = undefined,
     };
 
-    // try expect(local.writeEqlString(
-    //     WriteCommand{ .raw = "test" },
-    //     "test\x00"
-    // ));
-    // try expect(local.writeEqlString(
-    //     WriteCommand{ .referenceExpr = .{ .name = "0", .filters = &.{}  }},
-    //     "void test(){}\x00"
-    // ));
+    try expect(local.writeEqlString(
+        WriteCommand{ .raw = "test" },
+        "test\x00"
+    ));
     try expect(local.writeEqlString(
         WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
         "void test(){}\x00"
     ));
-    const expr = try Expr.parse(std.heap.c_allocator, "0.0");
-    defer expr.free(std.heap.c_allocator);
+    try expect(local.writeEqlString(
+        WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
+        "void test(){}\x00"
+    ));
+
+    const expr = try Expr.parse(std.testing.allocator, "0.0");
+    defer expr.free(std.testing.allocator);
+
     try expect(local.writeEqlString(
         WriteCommand{ .referenceExpr = .{ .name = expr.*, .filters = &.{}  }},
         "void test(){}\x00"
@@ -362,6 +371,7 @@ test "write" {
         WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
         "test( )\x00"
     ));
+
     // still need to be tested:
     // - referenceExpr
     // - wrapPoint,
