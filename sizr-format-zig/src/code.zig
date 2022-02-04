@@ -61,7 +61,8 @@ const Expr = union(enum) {
                 const prev_expr = cur_expr_val;
                 const name_expr_slot = try alloc.create(Expr);
                 name_expr_slot.* = name_expr;
-                cur_expr_val.* = Expr{.binop = .{
+                cur_expr = try alloc.create(Expr);
+                cur_expr.?.* = Expr{.binop = .{
                     .op = .dot,
                     .left = prev_expr,
                     .right = name_expr_slot,
@@ -89,10 +90,18 @@ const Expr = union(enum) {
     }
 
     pub fn print(self: @This()) void {
+        self._print(0);
+    }
+
+    fn _print(self: @This(), depth: u32) void {
         const p = std.debug.print;
+        if (depth > 10) {
+            p("MAX_ITERS", .{});
+            return;
+        }
         switch (self) {
-            .binop => |v| {p(".binop={{", .{}); v.left.print(); v.right.print(); p("}}", .{});},
-            .unaryop => |v| {p(".unaryop={{", .{}); v.expr.print(); p("}}", .{});},
+            .binop => |v| {p(".binop={{", .{}); v.left._print(depth+1); v.right._print(depth+1); p("}}", .{});},
+            .unaryop => |v| {p(".unaryop={{", .{}); v.expr._print(depth+1); p("}}", .{});},
             .name => |v| p(".name={s}", .{v}),
             else => @panic("not supported yet"),
         }
