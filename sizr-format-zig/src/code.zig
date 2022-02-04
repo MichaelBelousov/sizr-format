@@ -38,16 +38,16 @@ const Expr = union(enum) {
     rest,
     binop: struct {
         op: BinOp,
-        left: *Expr,
-        right: *Expr,
+        left: *const Expr,
+        right: *const Expr,
     },
     unaryop: struct {
         op: BinOp,
-        expr: *Expr,
+        expr: *const Expr,
     },
     noderef: []const u8,
     literal: Literal,
-    group: *Expr,
+    group: *const Expr,
     name: []const u8,
 
     pub fn parse(alloc: std.mem.Allocator, source: []const u8) !*Expr {
@@ -79,7 +79,7 @@ const Expr = union(enum) {
 
     /// recursively free the expression tree, and then the self pointer itself
     /// alloc must be the same allocator that was used when creating this Expr
-    pub fn free(self: *@This(), alloc: std.mem.Allocator) void {
+    pub fn free(self: *const @This(), alloc: std.mem.Allocator) void {
         switch (self.*) {
             .binop => |val| { val.left.free(alloc); val.right.free(alloc); },
             .unaryop => |val| val.expr.free(alloc),
@@ -123,8 +123,7 @@ const Expr = union(enum) {
 test "Expr.parse" {
     // TODO: figure out how to specify literals as mutable
     var @"0" = Expr{.name="0"};
-    var @"2" = Expr{.name="2"};
-    var expr = Expr{.binop = .{ .op = .dot, .left = &@"0", .right = &@"2"}};
+    var expr = Expr{.binop = .{ .op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="2"}}};
 
     const parsed1 = try Expr.parse(std.testing.allocator, "0");
     defer parsed1.free(std.testing.allocator);
@@ -390,7 +389,6 @@ test "write" {
         .ctx = EvalCtx.init(test_util.simpleTestSource),
         .buf = undefined,
     };
-    _ = local;
 
     try expect(local.writeEqlString(
         WriteCommand{ .raw = "test" },
@@ -416,15 +414,15 @@ test "write" {
     const expr2 = try Expr.parse(std.testing.allocator, "0.2"); // FIXME: second name doesn't seem to work
     defer expr2.free(std.testing.allocator);
 
-    // try expect(local.writeEqlString(
-    //     WriteCommand{ .referenceExpr = .{ .name = Expr{.binop = .{.op = .dot, .left = Expr{.name="0"}, .right = Expr{.name="1"}}}, .filters = &.{}  }},
-    //     "void\x00"
-    // ));
+    try expect(local.writeEqlString(
+        WriteCommand{ .referenceExpr = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="1"}}}, .filters = &.{}  }},
+        "void\x00"
+    ));
 
-    // try expect(local.writeEqlString(
-    //     WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
-    //     "test( )\x00"
-    // ));
+    try expect(local.writeEqlString(
+        WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
+        "test( )\x00"
+    ));
 
     // still need to be tested:
     // - referenceExpr
