@@ -392,31 +392,29 @@ test "write" {
     };
     _ = local;
 
-    // try expect(local.writeEqlString(
-    //     WriteCommand{ .raw = "test" },
-    //     "test\x00"
-    // ));
-    // try expect(local.writeEqlString(
-    //     WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
-    //     "void test(){}\x00"
-    // ));
-    // try expect(local.writeEqlString(
-    //     WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
-    //     "void test(){}\x00"
-    // ));
+    try expect(local.writeEqlString(
+        WriteCommand{ .raw = "test" },
+        "test\x00"
+    ));
+    try expect(local.writeEqlString(
+        WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
+        "void test(){}\x00"
+    ));
+    try expect(local.writeEqlString(
+        WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
+        "void test(){}\x00"
+    ));
 
-    // TODO: move parsing to separate test
-    // const expr = try Expr.parse(std.testing.allocator, "0.0");
-    // defer expr.free(std.testing.allocator);
+    const expr = try Expr.parse(std.testing.allocator, "0.0");
+    defer expr.free(std.testing.allocator);
 
-    // try expect(local.writeEqlString(
-    //     WriteCommand{ .referenceExpr = .{ .name = expr.*, .filters = &.{}  }},
-    //     "void\x00"
-    // ));
+    try expect(local.writeEqlString(
+        WriteCommand{ .referenceExpr = .{ .name = expr.*, .filters = &.{}  }},
+        "void\x00"
+    ));
 
-    // TODO: move parsing to separate test
-    // const expr2 = try Expr.parse(std.testing.allocator, "0.2"); // FIXME: second name doesn't seem to work
-    // defer expr2.free(std.testing.allocator);
+    const expr2 = try Expr.parse(std.testing.allocator, "0.2"); // FIXME: second name doesn't seem to work
+    defer expr2.free(std.testing.allocator);
 
     // try expect(local.writeEqlString(
     //     WriteCommand{ .referenceExpr = .{ .name = Expr{.binop = .{.op = .dot, .left = Expr{.name="0"}, .right = Expr{.name="1"}}}, .filters = &.{}  }},
