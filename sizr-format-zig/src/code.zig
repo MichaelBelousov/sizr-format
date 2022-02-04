@@ -90,21 +90,33 @@ const Expr = union(enum) {
     }
 
     pub fn print(self: @This()) void {
-        self._print(0);
-    }
-
-    fn _print(self: @This(), depth: u32) void {
-        const p = std.debug.print;
-        if (depth > 10) {
-            p("MAX_ITERS", .{});
-            return;
-        }
+        const local = struct {
+            fn p(s: @This(), comptime str: []const u8) void { _ = s; std.debug.print(str, .{}); }
+        }{};
         switch (self) {
-            .binop => |v| {p(".binop={{", .{}); v.left._print(depth+1); v.right._print(depth+1); p("}}", .{});},
-            .unaryop => |v| {p(".unaryop={{", .{}); v.expr._print(depth+1); p("}}", .{});},
-            .name => |v| p(".name={s}", .{v}),
+            .binop => |v| {local.p(".binop={{"); v.left.print(); v.right.print(); local.p("}}");},
+            .unaryop => |v| {local.p(".unaryop={{"); v.expr.print(); local.p("}}"); },
+            .name => |v| std.debug.print(".name={s}", .{v}),
             else => @panic("not supported yet"),
         }
+    }
+
+    pub fn eql(self: *const @This(), other: *const @This()) bool {
+        return switch (self.*) {
+            .binop => |l| (switch (other.*) {
+                .binop => |r| l.op == r.op and l.left.eql(r.left) and l.right.eql(r.right) ,
+                else => false,
+            }),
+            .unaryop => |l| switch (other.*) {
+                .unaryop => |r| l.op == r.op and l.expr.eql(r.expr),
+                else => false,
+            },
+            .name => |l| switch (other.*) {
+                .name => |r| std.mem.eql(u8, l, r),
+                else => false,
+            },
+            else => @panic("not supported yet"),
+        };
     }
 };
 
@@ -117,19 +129,12 @@ test "Expr.parse" {
     const parsed1 = try Expr.parse(std.testing.allocator, "0");
     defer parsed1.free(std.testing.allocator);
 
-    std.debug.print("parsed1:\n", .{}); parsed1.print();
-    std.debug.print("\n@0:\n", .{}); @"0".print();
-    std.debug.print("\n", .{});
-
     try expect(std.meta.eql(parsed1.*, @"0"));
 
     const parsed = try Expr.parse(std.testing.allocator, "0.2");
     defer parsed.free(std.testing.allocator);
 
-    std.debug.print("parsed:\n", .{}); parsed.print();
-    std.debug.print("\nexpr:\n", .{}); expr.print();
-    std.debug.print("\n", .{});
-    try expect(std.meta.eql(parsed, &expr));
+    try expect(parsed.eql(&expr));
 }
 
 const WriteCommand = union(enum) {
