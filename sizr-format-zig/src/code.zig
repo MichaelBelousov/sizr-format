@@ -164,29 +164,26 @@ const Value = union(enum) {
 
     /// an optionally allocated blob that should be freed, but might that might be a noop
     const SerializedBlob = struct {
-        alloc: ?std.mem.Allocator, // could make this a class constant to save on space
-        //needs_free: bool,
+        needs_free: bool,
         buf: []const u8,
-        pub fn free(self: @This()) void {
-            if (self.alloc) |alloc| {
-                alloc.free(self.buf);
-            }
+        pub fn free(self: @This(), alloc: std.mem.Allocator) void {
+            if (self.needs_free) alloc.free(self.buf);
         }
     };
 
-    pub fn serialize(self: @This(), alloc: std.mem.Allocator, evalCtx: EvalCtx) SerializedBlob {
+    pub fn serialize(self: @This(), alloc: std.mem.Allocator, evalCtx: anytype) SerializedBlob {
         return switch (self) {
-            .boolean => |val| SerializedBlob{.buf = if (val) "true" else "false", .alloc = null },
-            .string => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "\"{s}\"", .{val}) catch unreachable, .alloc = alloc }, // ignoring oom for now
-            .regex => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "/{s}/", .{val}) catch unreachable, .alloc = alloc },
-            .integer => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .alloc = alloc },
-            .float => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .alloc = alloc },
+            .boolean => |val| SerializedBlob{.buf = if (val) "true" else "false", .needs_free = false },
+            .string => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "\"{s}\"", .{val}) catch unreachable, .needs_free = true }, // ignoring oom for now
+            .regex => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "/{s}/", .{val}) catch unreachable, .needs_free = true },
+            .integer => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .needs_free = true },
+            .float => |val| SerializedBlob{.buf = std.fmt.allocPrint(alloc, "{}", .{val}) catch unreachable, .needs_free = true },
             .node => |val| SerializedBlob{.buf = _: {
                 if (val.@"null"()) break: _ "<NULL_NODE>"; // FIXME: might be better to spit out an empty string
                 const start = ts._c.ts_node_start_byte(val._c);
                 const end = ts._c.ts_node_end_byte(val._c);
                 break :_  evalCtx.source[start..end];
-            }, .alloc = null },
+            }, .needs_free = false },
         };
     }
 };
@@ -261,117 +258,135 @@ const LangResolver = struct {
     }
 };
 
-const EvalCtx = struct {
-    source: []const u8,
-    tree: ts.Tree,
-    parser: ts.Parser,
-    nodeCursor: ts._c.TSTreeCursor,
-    indentLevel: u32,
-    aligners: StringArrayHashMap(u32),
-    // could layer resolvers, e.g. getting linesep vars from an outer osEnv
-    varResolver: LangResolver,
+fn EvalCtx(comptime WriterType: type) type {
+    return struct {
+        source: []const u8,
+        tree: ts.Tree,
+        parser: ts.Parser,
+        nodeCursor: ts._c.TSTreeCursor,
+        indentLevel: u32,
+        aligners: StringArrayHashMap(u32),
+        // could layer resolvers, e.g. getting linesep vars from an outer osEnv
+        varResolver: LangResolver,
 
-    const Self = @This();
+        desiredLineSize: u32,
+        writer: WriterType,
+        lineBuffer: []u8,
 
-    pub fn eval(self: Self, expr: Expr) ?Value {
-        //const node = self.nodeCursor
-        const node = ts.Node{ ._c = ts._c.ts_tree_cursor_current_node(&self.nodeCursor) };
-        return self.varResolver.resolver.resolve(node, expr);
-    }
+        const Self = @This();
 
-    pub fn @"test"(self: Self, expr: Expr) bool {
-        // TODO: need to also return true if it's a node or etc
-        return if (self.eval(expr)) |expr_val| switch (expr_val) {
-            .boolean => |val| val,
-            .string => |val| !std.mem.eql(u8, "", val),
-            .regex => |val| !std.mem.eql(u8, "", val),
-            .float => |val| val != 0.0,
-            .integer => |val| val != 0,
-            .node => |val| val.@"null"(),
-        } else false;
-    }
+        pub fn eval(self: Self, expr: Expr) ?Value {
+            //const node = self.nodeCursor
+            const node = ts.Node{ ._c = ts._c.ts_tree_cursor_current_node(&self.nodeCursor) };
+            return self.varResolver.resolver.resolve(node, expr);
+        }
 
-    pub fn init(source: []const u8) Self {
-        const parser = ts.Parser.new();
-        if (!parser.set_language(ts.cpp()))
-            @panic("couldn't set cpp lang");
-        const tree = parser.parse_string(null, source);
-        const root = ts._c.ts_tree_root_node(tree._c);
-        const cursor = ts._c.ts_tree_cursor_new(root);
-        return Self{
-            .source = source,
-            .parser = parser,
-            .tree = tree,
-            .nodeCursor = cursor,
-            .indentLevel = 0,
-            .aligners = StringArrayHashMap(u32).init(std.heap.c_allocator),
-            .varResolver = LangResolver.init(source),
-        };
-    }
+        pub fn @"test"(self: Self, expr: Expr) bool {
+            // TODO: need to also return true if it's a node or etc
+            return if (self.eval(expr)) |expr_val| switch (expr_val) {
+                .boolean => |val| val,
+                .string => |val| !std.mem.eql(u8, "", val),
+                .regex => |val| !std.mem.eql(u8, "", val),
+                .float => |val| val != 0.0,
+                .integer => |val| val != 0,
+                .node => |val| val.@"null"(),
+            } else false;
+        }
 
-    // FIXME: learn exact idiomatic naming of dealloc
-    /// free memory associated with this
-    pub fn deinit(self: Self) void {
-        self.parser.free();
-        ts._c.ts_tree_delete(self.tree._c);
-    }
+        pub fn init(
+            source: []const u8,
+            writer: anytype, //std.io.Writer
+            alloc: std.mem.Allocator,
+            desiredLineSize: u32
+        ) !Self {
+            const parser = ts.Parser.new();
+            if (!parser.set_language(ts.cpp()))
+                @panic("couldn't set cpp lang");
+            const tree = parser.parse_string(null, source);
+            const root = ts._c.ts_tree_root_node(tree._c);
+            const cursor = ts._c.ts_tree_cursor_new(root);
+            return Self{
+                .source = source,
+                .parser = parser,
+                .tree = tree,
+                .nodeCursor = cursor,
+                .indentLevel = 0,
+                .aligners = StringArrayHashMap(u32).init(std.heap.c_allocator),
+                .varResolver = LangResolver.init(source),
+                .writer = writer,
+                .lineBuffer = try alloc.alloc(u8, desiredLineSize),
+                .desiredLineSize = desiredLineSize,
+            };
+        }
 
-    pub fn tryWrap(self: Self) []const u8 {
-        _ = self;
-        @panic("unimplemented");
-    }
+        /// `alloc` MUST be the same allocator that was passed when `init`ing this
+        pub fn free(self: *Self, alloc: std.mem.Allocator) void {
+            alloc.destroy(self.lineBuffer);
+        }
 
-    pub fn indent(self: Self, indentVal: IndentMark) []const u8 {
-        _ = self;
-        _ = indentVal;
-        @panic("unimplemented");
-    }
-};
+        // FIXME: learn exact idiomatic naming of dealloc
+        /// free memory associated with this
+        pub fn deinit(self: Self) void {
+            self.parser.free();
+            ts._c.ts_tree_delete(self.tree._c);
+        }
+
+        pub fn tryWrap(self: Self) []const u8 {
+            _ = self;
+            @panic("unimplemented");
+        }
+
+        pub fn indent(self: Self, indentVal: IndentMark) []const u8 {
+            _ = self;
+            _ = indentVal;
+            @panic("unimplemented");
+        }
+
+        // TODO: should probably be a writer that handles wrapping
+        pub fn write(
+            self: Self,
+            cmd: WriteCommand,
+        ) WriterType.Error!void {
+            switch (cmd) {
+                .raw => |val| {
+                    _ = try self.writer.write(val);
+                },
+                .ref => |val| {
+                    const maybe_eval_result = self.eval(val.name);
+                    if (maybe_eval_result) |eval_result| {
+                        const serialized = eval_result.serialize(std.heap.c_allocator, self);
+                        defer serialized.free(std.heap.c_allocator);
+                        _ = try self.writer.write(serialized.buf);
+                    }
+                },
+                .wrapPoint => {
+                    _ = try self.writer.write(self.tryWrap());
+                },
+                .conditional => |val| {
+                    if (self.@"test"(val.@"test") and val.then != null) {
+                        _ = try self.write(val.then.?.*);
+                    } else if (val.@"else" != null) {
+                        _ = try self.write(val.@"else".?.*);
+                    }
+                },
+                .indentMark => |val| {
+                    _ = self.indent(val);
+                },
+                .sequence => |cmds| {
+                    for (cmds) |sub_cmd| {
+                        _ = try self.write(sub_cmd);
+                    }
+                },
+            }
+        }
+    };
+}
 
 test "EvalCtx" {
-    const ctx = EvalCtx.init(test_util.simpleTestSource);
+    const ctx = try EvalCtx(@TypeOf(std.io.null_writer)).init(test_util.simpleTestSource, std.io.null_writer, std.testing.allocator, 80);
     _ = ctx;
 }
 
-pub fn write(
-    // TODO: should probably be a writer that handles wrapping
-    evalCtx: EvalCtx,
-    cmd: WriteCommand,
-    /// expected to be an std.io.Writer
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    switch (cmd) {
-        .raw => |val| {
-            _ = try writer.write(val);
-        },
-        .ref => |val| {
-            const maybe_eval_result = evalCtx.eval(val.name);
-            if (maybe_eval_result) |eval_result| {
-                const serialized = eval_result.serialize(std.heap.c_allocator, evalCtx);
-                defer serialized.free();
-                _ = try writer.write(serialized.buf);
-            }
-        },
-        .wrapPoint => {
-            _ = try writer.write(evalCtx.tryWrap());
-        },
-        .conditional => |val| {
-            if (evalCtx.@"test"(val.@"test") and val.then != null) {
-                _ = try write(evalCtx, val.then.?.*, writer);
-            } else if (val.@"else" != null) {
-                _ = try write(evalCtx, val.@"else".?.*, writer);
-            }
-        },
-        .indentMark => |val| {
-            _ = evalCtx.indent(val);
-        },
-        .sequence => |cmds| {
-            for (cmds) |sub_cmd| {
-                _ = try write(evalCtx, sub_cmd, writer);
-            }
-        },
-    }
-}
 
 test "write" {
     // TODO: move to test_util.zig
@@ -379,9 +394,9 @@ test "write" {
         buf: [1024]u8,
         fn writeEqlString(self: *@This(), src: []const u8, wcmd: WriteCommand, output: []const u8) bool {
             dbglog("\n");
-            const ctx = EvalCtx.init(src);
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
-            write(ctx, wcmd, bufWriter) catch unreachable;
+            const ctx = EvalCtx(@TypeOf(bufWriter)).init(src, bufWriter, std.testing.allocator, 80) catch unreachable;
+            ctx.write(wcmd) catch unreachable;
             bufWriter.writeByte(0) catch unreachable;
             const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
             dbglogv("buf content: '{s}'\n", .{self.buf[0..len]});
@@ -445,6 +460,7 @@ test "write" {
         // must use an explicit slice instead of tuple literal to avoid a compiler bug
         WriteCommand{ .sequence = &[_]WriteCommand{
             WriteCommand{.ref = .{.name=funcname.*}},
+            WriteCommand.wrapPoint,
             WriteCommand{.ref = .{.name=params.*}},
             WriteCommand{.ref = .{.name=body.*}}
         } },
