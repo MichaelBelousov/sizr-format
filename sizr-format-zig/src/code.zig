@@ -430,14 +430,17 @@ test "write" {
     const params = try Expr.parse(std.testing.allocator, "0.declarator.parameters");
     defer params.free(std.testing.allocator);
 
-    const body = try Expr.parse(std.testing.allocator, "0.declarator.body");
+    const body = try Expr.parse(std.testing.allocator, "0.body");
     defer body.free(std.testing.allocator);
 
     try expect(local.writeEqlString(
-        WriteCommand{ .sequence = &.{ WriteCommand{.referenceExpr = .{.name=funcname.*, .filters=&.{}}},
-                                      WriteCommand{.referenceExpr = .{.name=params.*, .filters=&.{}}},
-                                      WriteCommand{.referenceExpr = .{.name=body.*, .filters=&.{}}}
-                    }               },
+        // must use an explicit slice instead of tuple literal to avoid a compiler bug
+        WriteCommand{ .sequence = &[_]WriteCommand{
+                WriteCommand{.referenceExpr = .{.name=funcname.*, .filters=&.{}}},
+                WriteCommand{.referenceExpr = .{.name=params.*, .filters=&.{}}},
+                WriteCommand{.referenceExpr = .{.name=body.*, .filters=&.{}}}
+            }
+        },
         "test(){}\x00"
     ));
 
