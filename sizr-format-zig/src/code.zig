@@ -138,10 +138,10 @@ test "Expr.parse" {
 
 const WriteCommand = union(enum) {
     raw: []const u8,
-    referenceExpr: struct {
+    ref: struct {
         name: Expr,
         // FIXME: this should actually be a more specific type than List(Value), since only certain value types are allowed
-        filters: []const Value, // comma-separated
+        //filters: []const Value, // comma-separated
     },
     wrapPoint,
     conditional: struct {
@@ -343,7 +343,7 @@ pub fn write(
         .raw => |val| {
             _ = try writer.write(val);
         },
-        .referenceExpr => |val| {
+        .ref => |val| {
             const maybe_eval_result = evalCtx.eval(val.name);
             if (maybe_eval_result) |eval_result| {
                 const serialized = eval_result.serialize(std.heap.c_allocator, evalCtx);
@@ -396,12 +396,12 @@ test "write" {
     ));
     try expect(local.writeEqlString(
         "void test(){}",
-        WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
+        WriteCommand{ .ref = .{ .name = Expr{.name = "0"}  }},
         "void test(){}\x00"
     ));
     try expect(local.writeEqlString(
         "void test(){}",
-        WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
+        WriteCommand{ .ref = .{ .name = Expr{.name = "0"}  }},
         "void test(){}\x00"
     ));
 
@@ -410,7 +410,7 @@ test "write" {
 
     try expect(local.writeEqlString(
         "void test(){}",
-        WriteCommand{ .referenceExpr = .{ .name = expr.*, .filters = &.{}  }},
+        WriteCommand{ .ref = .{ .name = expr.*  }},
         "void\x00"
     ));
 
@@ -419,7 +419,7 @@ test "write" {
 
     try expect(local.writeEqlString(
         "void test(){}",
-        WriteCommand{ .referenceExpr = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="1"}}}, .filters = &.{}  }},
+        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="1"}}}  }},
         "test()\x00"
     ));
 
@@ -442,9 +442,9 @@ test "write" {
         "void test(){}",
         // must use an explicit slice instead of tuple literal to avoid a compiler bug
         WriteCommand{ .sequence = &[_]WriteCommand{
-                WriteCommand{.referenceExpr = .{.name=funcname.*, .filters=&.{}}},
-                WriteCommand{.referenceExpr = .{.name=params.*, .filters=&.{}}},
-                WriteCommand{.referenceExpr = .{.name=body.*, .filters=&.{}}}
+                WriteCommand{.ref = .{.name=funcname.*}},
+                WriteCommand{.ref = .{.name=params.*}},
+                WriteCommand{.ref = .{.name=body.*}}
             }
         },
         "test(){}\x00"
