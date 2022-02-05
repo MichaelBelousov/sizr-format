@@ -25,6 +25,8 @@ pub fn build(b: *std.build.Builder) void {
 
     var tests = b.addTest("src/main.zig");
 
+    // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
+    // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig
     for ([_]*std.build.LibExeObjStep{exe, tests}) |artifact| {
         artifact.setBuildMode(mode);
         artifact.linkLibC();

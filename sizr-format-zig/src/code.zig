@@ -411,7 +411,7 @@ test "write" {
         "void\x00"
     ));
 
-    const expr2 = try Expr.parse(std.testing.allocator, "0.2"); // FIXME: second name doesn't seem to work
+    const expr2 = try Expr.parse(std.testing.allocator, "0.2");
     defer expr2.free(std.testing.allocator);
 
     try expect(local.writeEqlString(
@@ -424,8 +424,24 @@ test "write" {
         "test( )\x00"
     ));
 
+    const funcname = try Expr.parse(std.testing.allocator, "0.declarator.declarator");
+    defer funcname.free(std.testing.allocator);
+
+    const params = try Expr.parse(std.testing.allocator, "0.declarator.parameters");
+    defer params.free(std.testing.allocator);
+
+    const body = try Expr.parse(std.testing.allocator, "0.declarator.body");
+    defer body.free(std.testing.allocator);
+
+    try expect(local.writeEqlString(
+        WriteCommand{ .sequence = &.{ WriteCommand{.referenceExpr = .{.name=funcname.*, .filters=&.{}}},
+                                      WriteCommand{.referenceExpr = .{.name=params.*, .filters=&.{}}},
+                                      WriteCommand{.referenceExpr = .{.name=body.*, .filters=&.{}}}
+                    }               },
+        "test(){}\x00"
+    ));
+
     // still need to be tested:
-    // - referenceExpr
     // - wrapPoint,
     // - conditional
     // - indentMark: IndentMark,
