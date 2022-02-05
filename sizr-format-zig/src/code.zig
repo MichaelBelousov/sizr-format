@@ -221,7 +221,7 @@ const LangResolver = struct {
 
         // TODO: why does this not take an allocator? I know it's an underlying C allocation but maybe a dummy arg is still a good idea
         const debug_str = node.string();
-        if (std.os.getenv("DEBUG") != null) std.debug.print("{s}\n", .{debug_str.ptr});
+        dbglogv("{s}\n", .{debug_str.ptr});
         defer debug_str.free();
 
         // Workaround used here for a bug https://github.com/ziglang/zig/issues/10601
@@ -235,12 +235,10 @@ const LangResolver = struct {
                     // the parser will reject negative indices
                     if (index < 0) unreachable else _: {
                         const maybe_field_name = node.field_name_for_child(index);
-                        if (std.os.getenv("DEBUG") != null) {
-                            if (maybe_field_name) |field_name| {
-                                std.debug.print("field {} is named '{s}'\n", .{index, field_name});
-                            } else {
-                                std.debug.print("field {} had null name\n", .{index});
-                            }
+                        if (maybe_field_name) |field_name| {
+                            dbglogv("field {} is named '{s}'\n", .{index, field_name});
+                        } else {
+                            dbglogv("field {} had null name\n", .{index});
                         }
                         break :_ @as(?Value, Value{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, index) } });
                     }
@@ -380,13 +378,13 @@ test "write" {
     var local = struct {
         buf: [1024]u8,
         fn writeEqlString(self: *@This(), src: []const u8, wcmd: WriteCommand, output: []const u8) bool {
-            if (std.os.getenv("DEBUG") != null) std.debug.print("\n", .{});
+            dbglog("\n");
             const ctx = EvalCtx.init(src);
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
             write(ctx, wcmd, bufWriter) catch unreachable;
             bufWriter.writeByte(0) catch unreachable;
             const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
-            if (std.os.getenv("DEBUG") != null) std.debug.print("buf content: '{s}'\n", .{self.buf[0..len]});
+            dbglogv("buf content: '{s}'\n", .{self.buf[0..len]});
             return std.mem.eql(u8, self.buf[0..len], output);
         }
     }{
@@ -457,4 +455,14 @@ test "write" {
     // - wrapPoint,
     // - conditional
     // - indentMark: IndentMark,
+}
+
+fn dbglog(comptime str: []const u8) void {
+    if (std.os.getenv("DEBUG") != null)
+        std.debug.print(str, .{});
+}
+
+fn dbglogv(comptime str: []const u8, args: anytype) void {
+    if (std.os.getenv("DEBUG") != null)
+        std.debug.print(str, args);
 }
