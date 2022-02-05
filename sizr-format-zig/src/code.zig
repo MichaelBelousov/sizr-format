@@ -416,7 +416,7 @@ test "write" {
 
     try expect(local.writeEqlString(
         WriteCommand{ .referenceExpr = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="1"}}}, .filters = &.{}  }},
-        "void\x00"
+        "test()\x00"
     ));
 
     try expect(local.writeEqlString(
