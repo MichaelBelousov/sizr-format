@@ -375,30 +375,32 @@ pub fn write(
 test "write" {
     // TODO: move to test_util.zig
     var local = struct {
-        ctx: EvalCtx,
         buf: [1024]u8,
-        fn writeEqlString(self: *@This(), wcmd: WriteCommand, output: []const u8) bool {
+        fn writeEqlString(self: *@This(), src: []const u8, wcmd: WriteCommand, output: []const u8) bool {
+            const ctx = EvalCtx.init(src);
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
-            write(self.ctx, wcmd, bufWriter) catch unreachable;
+            write(ctx, wcmd, bufWriter) catch unreachable;
             bufWriter.writeByte(0) catch unreachable;
             const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
             std.debug.print("buf content: {s}\n", .{self.buf[0..len]});
             return std.mem.eql(u8, self.buf[0..len], output);
         }
     }{
-        .ctx = EvalCtx.init(test_util.simpleTestSource),
         .buf = undefined,
     };
 
     try expect(local.writeEqlString(
+        "void test(){}",
         WriteCommand{ .raw = "test" },
         "test\x00"
     ));
     try expect(local.writeEqlString(
+        "void test(){}",
         WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
         "void test(){}\x00"
     ));
     try expect(local.writeEqlString(
+        "void test(){}",
         WriteCommand{ .referenceExpr = .{ .name = Expr{.name = "0"}, .filters = &.{}  }},
         "void test(){}\x00"
     ));
@@ -407,6 +409,7 @@ test "write" {
     defer expr.free(std.testing.allocator);
 
     try expect(local.writeEqlString(
+        "void test(){}",
         WriteCommand{ .referenceExpr = .{ .name = expr.*, .filters = &.{}  }},
         "void\x00"
     ));
@@ -415,11 +418,13 @@ test "write" {
     defer expr2.free(std.testing.allocator);
 
     try expect(local.writeEqlString(
+        "void test(){}",
         WriteCommand{ .referenceExpr = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="1"}}}, .filters = &.{}  }},
         "test()\x00"
     ));
 
     try expect(local.writeEqlString(
+        "void test(){}",
         WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
         "test( )\x00"
     ));
@@ -434,6 +439,7 @@ test "write" {
     defer body.free(std.testing.allocator);
 
     try expect(local.writeEqlString(
+        "void test(){}",
         // must use an explicit slice instead of tuple literal to avoid a compiler bug
         WriteCommand{ .sequence = &[_]WriteCommand{
                 WriteCommand{.referenceExpr = .{.name=funcname.*, .filters=&.{}}},
