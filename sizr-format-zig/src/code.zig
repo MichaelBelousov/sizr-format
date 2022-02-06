@@ -269,9 +269,11 @@ fn EvalCtx(comptime WriterType: type) type {
         // could layer resolvers, e.g. getting linesep vars from an outer osEnv
         varResolver: LangResolver,
 
-        desiredLineSize: u32,
+        desiredLineSize: usize,
         writer: WriterType,
+
         lineBuffer: []u8,
+        lineBufCursor: usize,
 
         const Self = @This();
 
@@ -316,6 +318,7 @@ fn EvalCtx(comptime WriterType: type) type {
                 .writer = writer,
                 .lineBuffer = try alloc.alloc(u8, desiredLineSize),
                 .desiredLineSize = desiredLineSize,
+                .lineBufCursor = 0,
             };
         }
 
@@ -342,31 +345,49 @@ fn EvalCtx(comptime WriterType: type) type {
             @panic("unimplemented");
         }
 
-        // TODO: should probably be a writer that handles wrapping
-        pub fn write(
-            self: Self,
+        fn _write(self: *Self, slice: []const u8) WriterType.Error!void {
+            if (slice.len > self.desiredLineSize) {
+                _ = try self.writer.write(self.lineBuffer[0..self.lineBufCursor]);
+                _ = try self.writer.write(slice);
+                self.lineBufCursor = 0;
+                return;
+            } else if (slice.len + self.lineBufCursor > self.desiredLineSize) {
+                _ = try self.writer.write(self.lineBuffer[0..self.lineBufCursor]);
+                self.lineBufCursor = 0;
+                std.mem.copy(u8, self.lineBuffer[self.lineBufCursor..], slice);
+                self.lineBufCursor += slice.len;
+            } else {
+                std.mem.copy(u8, self.lineBuffer[self.lineBufCursor..], slice);
+                self.lineBufCursor += slice.len;
+            }
+        }
+
+        // TODO: Self should probably be itself a (proxy) writer that handles wrapping
+        // could be basically the same as std.io.BufferedWriter
+        pub fn writeCmd(
+            self: *Self,
             cmd: WriteCommand,
         ) WriterType.Error!void {
             switch (cmd) {
                 .raw => |val| {
-                    _ = try self.writer.write(val);
+                    _ = try self._write(val);
                 },
                 .ref => |val| {
                     const maybe_eval_result = self.eval(val.name);
                     if (maybe_eval_result) |eval_result| {
                         const serialized = eval_result.serialize(std.heap.c_allocator, self);
                         defer serialized.free(std.heap.c_allocator);
-                        _ = try self.writer.write(serialized.buf);
+                        _ = try self._write(serialized.buf);
                     }
                 },
                 .wrapPoint => {
-                    _ = try self.writer.write(self.tryWrap());
+                    _ = try self._write(self.tryWrap());
                 },
                 .conditional => |val| {
                     if (self.@"test"(val.@"test") and val.then != null) {
-                        _ = try self.write(val.then.?.*);
+                        _ = try self.writeCmd(val.then.?.*);
                     } else if (val.@"else" != null) {
-                        _ = try self.write(val.@"else".?.*);
+                        _ = try self.writeCmd(val.@"else".?.*);
                     }
                 },
                 .indentMark => |val| {
@@ -374,10 +395,11 @@ fn EvalCtx(comptime WriterType: type) type {
                 },
                 .sequence => |cmds| {
                     for (cmds) |sub_cmd| {
-                        _ = try self.write(sub_cmd);
+                        _ = try self.writeCmd(sub_cmd);
                     }
                 },
             }
+            // TODO: need to flush line buf at the end
         }
     };
 }
@@ -395,8 +417,8 @@ test "write" {
         fn writeEqlString(self: *@This(), src: []const u8, wcmd: WriteCommand, output: []const u8) bool {
             dbglog("\n");
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
-            const ctx = EvalCtx(@TypeOf(bufWriter)).init(src, bufWriter, std.testing.allocator, 80) catch unreachable;
-            ctx.write(wcmd) catch unreachable;
+            var ctx = EvalCtx(@TypeOf(bufWriter)).init(src, bufWriter, std.testing.allocator, 80) catch unreachable;
+            ctx.writeCmd(wcmd) catch unreachable;
             bufWriter.writeByte(0) catch unreachable;
             const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
             dbglogv("buf content: '{s}'\n", .{self.buf[0..len]});
