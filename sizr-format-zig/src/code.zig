@@ -345,14 +345,23 @@ fn EvalCtx(comptime WriterType: type) type {
             @panic("unimplemented");
         }
 
+        fn flush(self: *Self) WriterType.Error!void {
+            _ = try self.writer.write(self.lineBuffer[0..self.lineBufCursor]);
+            _ = try self.writer.write("\n");
+            self.lineBufCursor = 0;
+        }
+
         fn _write(self: *Self, slice: []const u8) WriterType.Error!void {
             if (slice.len > self.desiredLineSize) {
                 _ = try self.writer.write(self.lineBuffer[0..self.lineBufCursor]);
+                _ = try self.writer.write("\n");
                 _ = try self.writer.write(slice);
+                _ = try self.writer.write("\n");
                 self.lineBufCursor = 0;
                 return;
             } else if (slice.len + self.lineBufCursor > self.desiredLineSize) {
                 _ = try self.writer.write(self.lineBuffer[0..self.lineBufCursor]);
+                _ = try self.writer.write("\n");
                 self.lineBufCursor = 0;
                 std.mem.copy(u8, self.lineBuffer[self.lineBufCursor..], slice);
                 self.lineBufCursor += slice.len;
@@ -399,7 +408,9 @@ fn EvalCtx(comptime WriterType: type) type {
                     }
                 },
             }
-            // TODO: need to flush line buf at the end
+            // TODO: need to flush line buf at the end only of the top-level WriteCommand...
+            try self.flush();
+            // (RIGHT NOW THIS IS BROKEN)
         }
     };
 }
@@ -433,17 +444,17 @@ test "write" {
     try expect(local.writeEqlString(
         "void test(){}",
         WriteCommand{ .raw = "test" },
-        "test\x00"
+        "test\n\x00"
     ));
     try expect(local.writeEqlString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.name = "0"}  }},
-        "void test(){}\x00"
+        "void test(){}\n\x00"
     ));
     try expect(local.writeEqlString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.name = "0"}  }},
-        "void test(){}\x00"
+        "void test(){}\n\x00"
     ));
 
     const expr = try Expr.parse(std.testing.allocator, "0.0");
@@ -452,7 +463,7 @@ test "write" {
     try expect(local.writeEqlString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = expr.*  }},
-        "void\x00"
+        "void\n\x00"
     ));
 
     const expr2 = try Expr.parse(std.testing.allocator, "0.2");
@@ -461,13 +472,13 @@ test "write" {
     try expect(local.writeEqlString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="1"}}}  }},
-        "test()\x00"
+        "test()\n\x00"
     ));
 
     try expect(local.writeEqlString(
         "void test(){}",
         WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
-        "test( )\x00"
+        "test( )\n\x00"
     ));
 
     const funcname = try Expr.parse(std.testing.allocator, "0.declarator.declarator");
@@ -488,7 +499,7 @@ test "write" {
             WriteCommand{.ref = .{.name=params.*}},
             WriteCommand{.ref = .{.name=body.*}}
         } },
-        "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong(){     }\x00"
+        "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong(){     }\n\x00"
     ));
 
     // still need to be tested:
