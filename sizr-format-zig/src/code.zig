@@ -324,7 +324,7 @@ fn EvalCtx(comptime WriterType: type) type {
 
         /// `alloc` MUST be the same allocator that was passed when `init`ing this
         pub fn free(self: *Self, alloc: std.mem.Allocator) void {
-            alloc.destroy(self.lineBuffer);
+            alloc.free(self.lineBuffer);
         }
 
         // FIXME: learn exact idiomatic naming of dealloc
@@ -405,7 +405,8 @@ fn EvalCtx(comptime WriterType: type) type {
 }
 
 test "EvalCtx" {
-    const ctx = try EvalCtx(@TypeOf(std.io.null_writer)).init(test_util.simpleTestSource, std.io.null_writer, std.testing.allocator, 80);
+    var ctx = try EvalCtx(@TypeOf(std.io.null_writer)).init(test_util.simpleTestSource, std.io.null_writer, std.testing.allocator, 80);
+    defer ctx.free(std.testing.allocator);
     _ = ctx;
 }
 
@@ -418,6 +419,7 @@ test "write" {
             dbglog("\n");
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
             var ctx = EvalCtx(@TypeOf(bufWriter)).init(src, bufWriter, std.testing.allocator, 80) catch unreachable;
+            defer ctx.free(std.testing.allocator);
             ctx.writeCmd(wcmd) catch unreachable;
             bufWriter.writeByte(0) catch unreachable;
             const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
