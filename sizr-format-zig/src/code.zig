@@ -208,9 +208,6 @@ fn Resolver(
     };
 }
 
-// should be able to get this from tree-sitter's language objects
-const nodeTypes = StringArrayHashMap(u16).init(std.heap.c_allocator);
-
 fn EvalCtx(comptime WriterType: type) type {
     return struct {
         const Self = @This();
@@ -273,6 +270,9 @@ fn EvalCtx(comptime WriterType: type) type {
         // could layer resolvers, e.g. getting linesep vars from an outer osEnv
         varResolver: LangResolver,
 
+        nodeFormats: StringArrayHashMap(WriteCommand),
+        rootNodeName: []const u8,
+
         desiredLineSize: usize,
         writer: WriterType,
 
@@ -298,29 +298,34 @@ fn EvalCtx(comptime WriterType: type) type {
         }
 
         pub fn init(
-            source: []const u8,
-            writer: anytype, //std.io.Writer
-            alloc: std.mem.Allocator,
-            desiredLineSize: u32
+            args: struct {
+                source: []const u8,
+                writer: WriterType, //std.io.Writer
+                allocator: std.mem.Allocator,
+                desiredLineSize: u32,
+                rootNodeName: []const u8
+            }
         ) !Self {
             const parser = ts.Parser.new();
             if (!parser.set_language(ts.cpp()))
                 @panic("couldn't set cpp lang");
-            const tree = parser.parse_string(null, source);
+            const tree = parser.parse_string(null, args.source);
             const root = ts._c.ts_tree_root_node(tree._c);
             const cursor = ts._c.ts_tree_cursor_new(root);
             var result = Self{
-                .source = source,
+                .source = args.source,
                 .parser = parser,
                 .tree = tree,
                 .nodeCursor = cursor,
                 .indentLevel = 0,
-                .aligners = StringArrayHashMap(u32).init(std.heap.c_allocator),
+                .aligners = StringArrayHashMap(u32).init(args.allocator),
                 .varResolver = LangResolver.init(),
-                .writer = writer,
-                .lineBuffer = try alloc.alloc(u8, desiredLineSize),
-                .desiredLineSize = desiredLineSize,
+                .writer = args.writer,
+                .lineBuffer = try args.allocator.alloc(u8, args.desiredLineSize),
+                .desiredLineSize = args.desiredLineSize,
                 .lineBufCursor = 0,
+                .nodeFormats = StringArrayHashMap(WriteCommand).init(args.allocator),
+                .rootNodeName = args.rootNodeName,
             };
             return result;
         }
@@ -335,6 +340,7 @@ fn EvalCtx(comptime WriterType: type) type {
         pub fn deinit(self: Self) void {
             self.parser.free();
             ts._c.ts_tree_delete(self.tree._c);
+            self.nodeFormats.clearAndFree();
         }
 
         pub fn tryWrap(self: Self) []const u8 {
@@ -395,6 +401,7 @@ fn EvalCtx(comptime WriterType: type) type {
                 .ref => |val| {
                     const maybe_eval_result = self.eval(val.name);
                     if (maybe_eval_result) |eval_result| {
+                        // FIXME: take an allocator instance argument so we can track leaks in tests
                         const serialized = eval_result.serialize(std.heap.c_allocator, self);
                         defer serialized.free(std.heap.c_allocator);
                         _ = try self._write(serialized.buf);
@@ -427,11 +434,32 @@ fn EvalCtx(comptime WriterType: type) type {
 }
 
 test "EvalCtx" {
-    var ctx = try EvalCtx(@TypeOf(std.io.null_writer)).init(test_util.simpleTestSource, std.io.null_writer, std.testing.allocator, 80);
+    var ctx = EvalCtx(@TypeOf(std.io.null_writer)).init(.{
+        .source = test_util.simpleTestSource,
+        .writer = std.io.null_writer,
+        .allocator = std.testing.allocator,
+        .desiredLineSize = 80,
+        .rootNodeName = ""
+    }) catch unreachable;
     defer ctx.free(std.testing.allocator);
     _ = ctx;
 }
 
+// why don't I just ship the zig compiler itself for plugins rather than make them dynamically loadable,
+// dynamically compile them? Brutish approach but might not be that bad...
+/// language specific data of how to format a language's AST
+const LanguageFormat = struct {
+    nodeFormats: StringArrayHashMap(WriteCommand),
+    rootNodeKey: []const u8,
+};
+
+// TODO: implement std.HashMap in a StaticHashMap type which doesn't require any allocations and doesn't allow insertions
+
+// TODO: probably needs to be inited elsewhere
+const cppLanguageFormat = LanguageFormat{
+    .nodeFormats = std.StringHashMap(WriteCommand).init(),
+    .rootNodeKey = "translation_unit"
+};
 
 test "write" {
     // TODO: move to test_util.zig
@@ -440,7 +468,13 @@ test "write" {
         fn expectWrittenString(self: *@This(), src: []const u8, wcmd: WriteCommand, expected: []const u8) !void {
             dbglog("\n");
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
-            var ctx = EvalCtx(@TypeOf(bufWriter)).init(src, bufWriter, std.testing.allocator, 80) catch unreachable;
+            var ctx = EvalCtx(@TypeOf(bufWriter)).init(.{
+                .source = src,
+                .writer = bufWriter,
+                .allocator = std.testing.allocator,
+                .desiredLineSize = 80,
+                .rootNodeName = "translation-unit"
+            }) catch unreachable;
             defer ctx.free(std.testing.allocator);
             ctx.writeCmd(wcmd) catch unreachable;
             bufWriter.writeByte(0) catch unreachable;
@@ -451,6 +485,9 @@ test "write" {
     }{
         .buf = undefined,
     };
+
+    //const nodeFormats = StringArrayHashMap(WriteCommand).init(std.testing.allocator);
+    //defer nodeFormats.clearAndFree();
 
     try local.expectWrittenString(
         "void test(){}",
