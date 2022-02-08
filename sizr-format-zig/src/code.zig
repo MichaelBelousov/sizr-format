@@ -188,7 +188,13 @@ const Value = union(enum) {
     }
 };
 
-// TODO: use idiomatic zig polymorphism
+// stolen from discord
+// fat pointer cast I think
+pub fn castTo(comptime T: type, ptr: *anyopaque) *T {
+    return @ptrCast(*T, @alignCast(@alignOf(T), ptr));
+}
+
+// TODO: use idiomatic zig polymorphism (I did actually... just not since allocgate)
 fn Resolver(
     comptime Ctx: type,
 ) type {
@@ -204,62 +210,59 @@ fn Resolver(
 // should be able to get this from tree-sitter's language objects
 const nodeTypes = StringArrayHashMap(u16).init(std.heap.c_allocator);
 
-const LangResolver = struct {
-    const Self = @This();
-
-    // temp
-    source: []const u8,
-
-    resolver: Resolver(ts.Node),
-
-    fn resolveFn(resolver: Resolver(ts.Node), node: ts.Node, expr: Expr) ?Value {
-        const self = @fieldParentPtr(Self, "resolver", &resolver);
-        _ = self;
-
-        // TODO: why does this not take an allocator? I know it's an underlying C allocation but maybe a dummy arg is still a good idea
-        const debug_str = node.string();
-        dbglogv("{s}\n", .{debug_str.ptr});
-        defer debug_str.free();
-
-        // Workaround used here for a bug https://github.com/ziglang/zig/issues/10601
-        return switch(expr) {
-            .name => |name|
-                if (std.meta.eql(name, "type")) blk: {
-                    const cstr = ts._c.ts_node_type(node._c);
-                    const len = std.mem.len(cstr);
-                    break :blk @as(?Value, Value{ .string = cstr[0..len] });
-                } else if (std.fmt.parseInt(u32, name, 10)) |index| (
-                    // the parser will reject negative indices
-                    if (index < 0) unreachable else _: {
-                        const maybe_field_name = node.field_name_for_child(index);
-                        if (maybe_field_name) |field_name| {
-                            dbglogv("field {} is named '{s}'\n", .{index, field_name});
-                        } else {
-                            dbglogv("field {} had null name\n", .{index});
-                        }
-                        break :_ @as(?Value, Value{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, index) } });
-                    }
-                ) else |_| @as(?Value, Value{ .node = node.child_by_field_name(name) }),
-            .binop => |op| switch (op.op) {
-                .dot => {
-                    const left = resolveFn(self.resolver, node, op.left.*);
-                    if (left == null or left.? != .node) @panic("only nodes are supported on the left side of a `.` expr right now");
-                    if (op.right.* != .name) unreachable; // "right hand side of a `.` expr must be a name"
-                    return @as(?Value, resolveFn(self.resolver, left.?.node, op.right.*));
-                },
-                else => @panic("only dot is implemented!")
-            },
-            else => @as(?Value, null),
-        };
-    }
-
-    pub fn init(source: []const u8) Self {
-        return Self{ .resolver = Resolver(ts.Node){ .resolveFn = Self.resolveFn }, .source = source };
-    }
-};
-
 fn EvalCtx(comptime WriterType: type) type {
     return struct {
+        const Self = @This();
+
+        const LangResolver = struct {
+            resolver: Resolver(ts.Node),
+
+            fn resolveFn(resolver: Resolver(ts.Node), node: ts.Node, expr: Expr) ?Value {
+                const self = @fieldParentPtr(@This(), "resolver", &resolver);
+                //const evalCtx = @fieldParentPtr(EvalCtx, "varResolver", &self);
+
+                // TODO: this not taking an allocator is inconsistent... I know it's an underlying libc allocation but maybe a dummy arg is still a good idea?
+                const debug_str = node.string();
+                dbglogv("{s}\n", .{debug_str.ptr});
+                defer debug_str.free();
+
+                // Workaround used here for a bug https://github.com/ziglang/zig/issues/10601
+                return switch(expr) {
+                    .name => |name|
+                        if (std.meta.eql(name, "type")) blk: {
+                            const cstr = ts._c.ts_node_type(node._c);
+                            const len = std.mem.len(cstr);
+                            break :blk @as(?Value, Value{ .string = cstr[0..len] });
+                        } else if (std.fmt.parseInt(u32, name, 10)) |index| (
+                            // the parser will reject negative indices
+                            if (index < 0) unreachable else _: {
+                                const maybe_field_name = node.field_name_for_child(index);
+                                if (maybe_field_name) |field_name| {
+                                    dbglogv("field {} is named '{s}'\n", .{index, field_name});
+                                } else {
+                                    dbglogv("field {} had null name\n", .{index});
+                                }
+                                break :_ @as(?Value, Value{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, index) } });
+                            }
+                        ) else |_| @as(?Value, Value{ .node = node.child_by_field_name(name) }),
+                    .binop => |op| switch (op.op) {
+                        .dot => {
+                            const left = resolveFn(self.resolver, node, op.left.*);
+                            if (left == null or left.? != .node) @panic("only nodes are supported on the left side of a `.` expr right now");
+                            if (op.right.* != .name) unreachable; // "right hand side of a `.` expr must be a name"
+                            return @as(?Value, resolveFn(self.resolver, left.?.node, op.right.*));
+                        },
+                        else => @panic("only dot is implemented!")
+                    },
+                    else => @as(?Value, null),
+                };
+            }
+
+            pub fn init() @This() {
+                return @This(){ .resolver = .{ .resolveFn = @This().resolveFn } };
+            }
+        };
+
         source: []const u8,
         tree: ts.Tree,
         parser: ts.Parser,
@@ -274,8 +277,6 @@ fn EvalCtx(comptime WriterType: type) type {
 
         lineBuffer: []u8,
         lineBufCursor: usize,
-
-        const Self = @This();
 
         pub fn eval(self: Self, expr: Expr) ?Value {
             //const node = self.nodeCursor
@@ -307,19 +308,20 @@ fn EvalCtx(comptime WriterType: type) type {
             const tree = parser.parse_string(null, source);
             const root = ts._c.ts_tree_root_node(tree._c);
             const cursor = ts._c.ts_tree_cursor_new(root);
-            return Self{
+            var result = Self{
                 .source = source,
                 .parser = parser,
                 .tree = tree,
                 .nodeCursor = cursor,
                 .indentLevel = 0,
                 .aligners = StringArrayHashMap(u32).init(std.heap.c_allocator),
-                .varResolver = LangResolver.init(source),
+                .varResolver = LangResolver.init(),
                 .writer = writer,
                 .lineBuffer = try alloc.alloc(u8, desiredLineSize),
                 .desiredLineSize = desiredLineSize,
                 .lineBufCursor = 0,
             };
+            return result;
         }
 
         /// `alloc` MUST be the same allocator that was passed when `init`ing this
@@ -369,6 +371,14 @@ fn EvalCtx(comptime WriterType: type) type {
                 std.mem.copy(u8, self.lineBuffer[self.lineBufCursor..], slice);
                 self.lineBufCursor += slice.len;
             }
+        }
+
+        /// get the write command registered for the root syntactic construct
+        /// and write the source in this EvalCtx
+        pub fn writeSrc(
+            self: *Self,
+        ) WriterType.Error!void {
+            _ = self;
         }
 
         // TODO: Self should probably be itself a (proxy) writer that handles wrapping
