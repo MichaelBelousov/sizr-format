@@ -7,6 +7,7 @@ const Writer = std.io.Writer;
 const StringArrayHashMap = std.StringArrayHashMap;
 
 const expect = @import("std").testing.expect;
+const expectEqualStrings = @import("std").testing.expectEqualStrings;
 const expectError = @import("std").testing.expectError;
 
 const util = @import("./util.zig");
@@ -436,7 +437,7 @@ test "write" {
     // TODO: move to test_util.zig
     var local = struct {
         buf: [1024]u8,
-        fn writeEqlString(self: *@This(), src: []const u8, wcmd: WriteCommand, output: []const u8) bool {
+        fn expectWrittenString(self: *@This(), src: []const u8, wcmd: WriteCommand, expected: []const u8) !void {
             dbglog("\n");
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
             var ctx = EvalCtx(@TypeOf(bufWriter)).init(src, bufWriter, std.testing.allocator, 80) catch unreachable;
@@ -445,51 +446,51 @@ test "write" {
             bufWriter.writeByte(0) catch unreachable;
             const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
             dbglogv("buf content: '{s}'\n", .{self.buf[0..len]});
-            return std.mem.eql(u8, self.buf[0..len], output);
+            return expectEqualStrings(expected, self.buf[0..len], );
         }
     }{
         .buf = undefined,
     };
 
-    try expect(local.writeEqlString(
+    try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .raw = "test" },
         "test\n\x00"
-    ));
-    try expect(local.writeEqlString(
+    );
+    try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.name = "0"}  }},
         "void test(){}\n\x00"
-    ));
-    try expect(local.writeEqlString(
+    );
+    try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.name = "0"}  }},
         "void test(){}\n\x00"
-    ));
+    );
 
     const expr = try Expr.parse(std.testing.allocator, "0.0");
     defer expr.free(std.testing.allocator);
 
-    try expect(local.writeEqlString(
+    try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = expr.*  }},
         "void\n\x00"
-    ));
+    );
 
     const expr2 = try Expr.parse(std.testing.allocator, "0.2");
     defer expr2.free(std.testing.allocator);
 
-    try expect(local.writeEqlString(
+    try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="1"}}}  }},
         "test()\n\x00"
-    ));
+    );
 
-    try expect(local.writeEqlString(
+    try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
         "test( )\n\x00"
-    ));
+    );
 
     const funcname = try Expr.parse(std.testing.allocator, "0.declarator.declarator");
     defer funcname.free(std.testing.allocator);
@@ -500,7 +501,7 @@ test "write" {
     const body = try Expr.parse(std.testing.allocator, "0.body");
     defer body.free(std.testing.allocator);
 
-    try expect(local.writeEqlString(
+    try local.expectWrittenString(
         "void someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong ()     {     }  ",
         // must use an explicit slice instead of tuple literal to avoid a compiler bug
         WriteCommand{ .sequence = &[_]WriteCommand{
@@ -510,7 +511,7 @@ test "write" {
             WriteCommand{.ref = .{.name=body.*}}
         } },
         "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong(){     }\n\x00"
-    ));
+    );
 
     // still need to be tested:
     // - wrapPoint,
