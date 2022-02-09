@@ -157,6 +157,7 @@ pub const WriteCommand = union(enum) {
     },
     indentMark: IndentMark,
     sequence: []const WriteCommand,
+    // maybe rename to "passthrough" or "opaque" or something?
     /// just print out all children in turn
     trivial
 };
@@ -300,7 +301,6 @@ fn EvalCtx(comptime WriterType: type) type {
             }
         }
 
-
         pub fn @"test"(self: Self, expr: Expr) bool {
             // TODO: need to also return true if it's a node or etc
             return if (self.eval(expr)) |expr_val| switch (expr_val) {
@@ -407,13 +407,9 @@ fn EvalCtx(comptime WriterType: type) type {
             cmd: WriteCommand,
         ) WriterType.Error!void {
             switch (cmd) {
-                .raw => |val| {
-                    _ = try self._write(val);
-                },
+                .raw => |val| try self._write(val),
                 .ref => |val| try self.evalAndWrite(val.name),
-                .wrapPoint => {
-                    _ = try self._write(self.tryWrap());
-                },
+                .wrapPoint => try self._write(self.tryWrap()),
                 .conditional => |val| {
                     if (self.@"test"(val.@"test") and val.then != null) {
                         _ = try self.writeCmd(val.then.?.*);
@@ -421,23 +417,13 @@ fn EvalCtx(comptime WriterType: type) type {
                         _ = try self.writeCmd(val.@"else".?.*);
                     }
                 },
-                .indentMark => |val| {
-                    _ = self.indent(val);
-                },
+                .indentMark => |val| _ = self.indent(val),
                 .sequence => |cmds| {
                     for (cmds) |sub_cmd| {
                         _ = try self.writeCmd(sub_cmd);
                     }
                 },
-                .trivial => {
-                    const maybe_eval_result = self.eval(.all);
-                    if (maybe_eval_result) |eval_result| {
-                        // FIXME: take an allocator instance argument so we can track leaks in tests
-                        const serialized = eval_result.serialize(std.heap.c_allocator, self);
-                        defer serialized.free(std.heap.c_allocator);
-                        _ = try self._write(serialized.buf);
-                    }
-                },
+                .trivial => try self.evalAndWrite(.all),
             }
             // TODO: need to flush line buf at the end only of the top-level WriteCommand...
             try self.flush();
