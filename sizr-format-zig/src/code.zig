@@ -1,4 +1,5 @@
-/// ~~byte~~code for sizr-format
+//! vm for sizr-format
+
 const std = @import("std");
 const mem = std.mem;
 const ascii = std.ascii;
@@ -13,8 +14,9 @@ const expectError = @import("std").testing.expectError;
 const util = @import("./util.zig");
 const test_util = @import("./test_util.zig");
 const ts = @import("./tree_sitter.zig");
+const cpp = @import("./cpp.zig");
 
-const Literal = union(enum) {
+pub const Literal = union(enum) {
     boolean: bool,
     string: []const u8,
     regex: []const u8,
@@ -22,20 +24,20 @@ const Literal = union(enum) {
     float: f64,
 };
 
-const IndentMark = union(enum) {
+pub const IndentMark = union(enum) {
     indent: u16,
     outdent: u16,
     token_anchor: []const u8,
     numeric_anchor: u16,
 };
 
-const BinOp = enum {
+pub const BinOp = enum {
     add,
     sub,
     dot,
 };
 
-const Expr = union(enum) {
+pub const Expr = union(enum) {
     rest,
     binop: struct {
         op: BinOp,
@@ -137,7 +139,7 @@ test "Expr.parse" {
     try expect(parsed.eql(&expr));
 }
 
-const WriteCommand = union(enum) {
+pub const WriteCommand = union(enum) {
     raw: []const u8,
     ref: struct {
         name: Expr,
@@ -154,7 +156,7 @@ const WriteCommand = union(enum) {
     sequence: []const WriteCommand,
 };
 
-/// TODO: replace with Expr (or otherwise merge them, maybe the "Value" name is better)
+/// TODO: dedup with Expr and Literal
 const Value = union(enum) {
     boolean: bool,
     string: []const u8,
@@ -269,10 +271,7 @@ fn EvalCtx(comptime WriterType: type) type {
         aligners: StringArrayHashMap(u32),
         // could layer resolvers, e.g. getting linesep vars from an outer osEnv
         varResolver: LangResolver,
-
-        nodeFormats: StringArrayHashMap(WriteCommand),
-        rootNodeName: []const u8,
-
+        languageFormat: LanguageFormat,
         desiredLineSize: usize,
         writer: WriterType,
 
@@ -303,7 +302,7 @@ fn EvalCtx(comptime WriterType: type) type {
                 writer: WriterType, //std.io.Writer
                 allocator: std.mem.Allocator,
                 desiredLineSize: u32,
-                rootNodeName: []const u8
+                languageFormat: LanguageFormat,
             }
         ) !Self {
             const parser = ts.Parser.new();
@@ -324,8 +323,7 @@ fn EvalCtx(comptime WriterType: type) type {
                 .lineBuffer = try args.allocator.alloc(u8, args.desiredLineSize),
                 .desiredLineSize = args.desiredLineSize,
                 .lineBufCursor = 0,
-                .nodeFormats = StringArrayHashMap(WriteCommand).init(args.allocator),
-                .rootNodeName = args.rootNodeName,
+                .languageFormat = args.languageFormat
             };
             return result;
         }
@@ -333,14 +331,8 @@ fn EvalCtx(comptime WriterType: type) type {
         /// `alloc` MUST be the same allocator that was passed when `init`ing this
         pub fn free(self: *Self, alloc: std.mem.Allocator) void {
             alloc.free(self.lineBuffer);
-        }
-
-        // FIXME: learn exact idiomatic naming of dealloc
-        /// free memory associated with this
-        pub fn deinit(self: Self) void {
             self.parser.free();
             ts._c.ts_tree_delete(self.tree._c);
-            self.nodeFormats.clearAndFree();
         }
 
         pub fn tryWrap(self: Self) []const u8 {
@@ -439,7 +431,7 @@ test "EvalCtx" {
         .writer = std.io.null_writer,
         .allocator = std.testing.allocator,
         .desiredLineSize = 80,
-        .rootNodeName = ""
+        .languageFormat = cpp.languageFormat
     }) catch unreachable;
     defer ctx.free(std.testing.allocator);
     _ = ctx;
@@ -448,17 +440,9 @@ test "EvalCtx" {
 // why don't I just ship the zig compiler itself for plugins rather than make them dynamically loadable,
 // dynamically compile them? Brutish approach but might not be that bad...
 /// language specific data of how to format a language's AST
-const LanguageFormat = struct {
-    nodeFormats: StringArrayHashMap(WriteCommand),
+pub const LanguageFormat = struct {
+    nodeFormats: fn([]const u8) WriteCommand,
     rootNodeKey: []const u8,
-};
-
-// TODO: implement std.HashMap in a StaticHashMap type which doesn't require any allocations and doesn't allow insertions
-
-// TODO: probably needs to be inited elsewhere
-const cppLanguageFormat = LanguageFormat{
-    .nodeFormats = std.StringHashMap(WriteCommand).init(),
-    .rootNodeKey = "translation_unit"
 };
 
 test "write" {
@@ -473,7 +457,7 @@ test "write" {
                 .writer = bufWriter,
                 .allocator = std.testing.allocator,
                 .desiredLineSize = 80,
-                .rootNodeName = "translation-unit"
+                .languageFormat = cpp.languageFormat
             }) catch unreachable;
             defer ctx.free(std.testing.allocator);
             ctx.writeCmd(wcmd) catch unreachable;
