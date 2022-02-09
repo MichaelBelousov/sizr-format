@@ -52,6 +52,7 @@ pub const Expr = union(enum) {
     literal: Literal,
     group: *const Expr,
     name: []const u8,
+    all,
 
     pub fn parse(alloc: std.mem.Allocator, source: []const u8) !*Expr {
         // super bare-bones impl only supporting member-of operator for now
@@ -100,6 +101,7 @@ pub const Expr = union(enum) {
             .binop => |v| {local.p(".binop={{"); v.left.print(); v.right.print(); local.p("}}");},
             .unaryop => |v| {local.p(".unaryop={{"); v.expr.print(); local.p("}}"); },
             .name => |v| std.debug.print(".name={s}", .{v}),
+            .all => local.p("all"),
             else => @panic("not supported yet"),
         }
     }
@@ -118,6 +120,7 @@ pub const Expr = union(enum) {
                 .name => |r| std.mem.eql(u8, l, r),
                 else => false,
             },
+            .all => (other.* == .all),
             else => @panic("not supported yet"),
         };
     }
@@ -154,6 +157,8 @@ pub const WriteCommand = union(enum) {
     },
     indentMark: IndentMark,
     sequence: []const WriteCommand,
+    /// just print out all children in turn
+    trivial
 };
 
 /// TODO: dedup with Expr and Literal
@@ -254,6 +259,7 @@ fn EvalCtx(comptime WriterType: type) type {
                         },
                         else => @panic("only dot is implemented!")
                     },
+                    .all => @as(?Value, Value{.node = node}),
                     else => @as(?Value, null),
                 };
             }
@@ -283,6 +289,17 @@ fn EvalCtx(comptime WriterType: type) type {
             const node = ts.Node{ ._c = ts._c.ts_tree_cursor_current_node(&self.nodeCursor) };
             return self.varResolver.resolver.resolve(node, expr);
         }
+
+        pub fn evalAndWrite(self: *Self, expr: Expr) !void {
+            const maybe_eval_result = self.eval(expr);
+            if (maybe_eval_result) |eval_result| {
+                // FIXME: take an allocator instance argument so we can track leaks in tests
+                const serialized = eval_result.serialize(std.heap.c_allocator, self);
+                defer serialized.free(std.heap.c_allocator);
+                _ = try self._write(serialized.buf);
+            }
+        }
+
 
         pub fn @"test"(self: Self, expr: Expr) bool {
             // TODO: need to also return true if it's a node or etc
@@ -329,6 +346,7 @@ fn EvalCtx(comptime WriterType: type) type {
         }
 
         /// `alloc` MUST be the same allocator that was passed when `init`ing this
+        /// TODO: probably should store the allocator ourselves since we need it for _write...
         pub fn free(self: *Self, alloc: std.mem.Allocator) void {
             alloc.free(self.lineBuffer);
             self.parser.free();
@@ -378,8 +396,10 @@ fn EvalCtx(comptime WriterType: type) type {
             self: *Self,
         ) WriterType.Error!void {
             _ = self;
+            return self.writeCmd(self.languageFormat.nodeFormats(self.languageFormat.rootNodeKey));
         }
 
+        // FIXME: need to separate this further from writeSrc
         // TODO: Self should probably be itself a (proxy) writer that handles wrapping
         // could be basically the same as std.io.BufferedWriter
         pub fn writeCmd(
@@ -390,15 +410,7 @@ fn EvalCtx(comptime WriterType: type) type {
                 .raw => |val| {
                     _ = try self._write(val);
                 },
-                .ref => |val| {
-                    const maybe_eval_result = self.eval(val.name);
-                    if (maybe_eval_result) |eval_result| {
-                        // FIXME: take an allocator instance argument so we can track leaks in tests
-                        const serialized = eval_result.serialize(std.heap.c_allocator, self);
-                        defer serialized.free(std.heap.c_allocator);
-                        _ = try self._write(serialized.buf);
-                    }
-                },
+                .ref => |val| try self.evalAndWrite(val.name),
                 .wrapPoint => {
                     _ = try self._write(self.tryWrap());
                 },
@@ -415,6 +427,15 @@ fn EvalCtx(comptime WriterType: type) type {
                 .sequence => |cmds| {
                     for (cmds) |sub_cmd| {
                         _ = try self.writeCmd(sub_cmd);
+                    }
+                },
+                .trivial => {
+                    const maybe_eval_result = self.eval(.all);
+                    if (maybe_eval_result) |eval_result| {
+                        // FIXME: take an allocator instance argument so we can track leaks in tests
+                        const serialized = eval_result.serialize(std.heap.c_allocator, self);
+                        defer serialized.free(std.heap.c_allocator);
+                        _ = try self._write(serialized.buf);
                     }
                 },
             }

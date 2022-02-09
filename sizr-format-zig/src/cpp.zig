@@ -8,22 +8,23 @@ fn nodeFormats(key: []const u8) code.WriteCommand {
     // FIXME: need to use tree-sitter support of non-string based AST
     // node type tags instead of expensive string checks
     return if (std.meta.eql(key, "translation-unit")) (
-        code.WriteCommand{.ref=.{.name=code.Expr{.name="0"}}}
+        code.WriteCommand{.trivial={}}
     ) else if (std.meta.eql(key, "function_definition")) (
-        code.WriteCommand{.ref=.{.name=code.Expr{.name="0"}}}
+        code.WriteCommand{.trivial={}}
     ) else if (std.meta.eql(key, "primitive_type")) (
-        code.WriteCommand{.ref=.{.name=code.Expr{.name="0"}}}
+        code.WriteCommand{.trivial={}}
     ) else if (std.meta.eql(key, "function_declarator")) (
-        code.WriteCommand{.ref=.{.name=code.Expr{.name="0"}}}
+        code.WriteCommand{.trivial={}}
     ) else if (std.meta.eql(key, "identifier")) (
-        code.WriteCommand{.ref=.{.name=code.Expr{.name="0"}}}
+        code.WriteCommand{.trivial={}}
     ) else if (std.meta.eql(key, "parameter_list")) (
-        code.WriteCommand{.ref=.{.name=code.Expr{.name="0"}}}
+        code.WriteCommand{.trivial={}}
     ) else if (std.meta.eql(key, "compound_statement")) (
         code.WriteCommand{.ref=.{.name=code.Expr{.name="0"}}}
     ) else (
-        // kind of a bad idea during dev but this should be unreachable 
-        @panic("The cpp node format map is incomplete, this is a bug.")
+        // just for dev, in the future this should be unreachable 
+        code.WriteCommand{.trivial={}}
+        //@panic("The cpp node format map is incomplete, this is a bug.")
     );
 }
 
