@@ -54,6 +54,25 @@ pub const Expr = union(enum) {
     name: []const u8,
     all,
 
+    /// create a dot expression from a chain of names
+    // FIXME: eww need a better form of compiletime allocation, no?
+    pub fn staticDot(comptime names: anytype) [@typeInfo(@TypeOf(names)).Array.len + 1]Expr {
+        const ReturnType = [@typeInfo(@TypeOf(names)).Array.len + 1]Expr;
+        var result: ReturnType = undefined;
+        const lastIndex = names.len;
+        for (names) |name, i| {
+            const isFirst = i == 0;
+            result[i+1] = Expr{.name = name};
+            result[0] = if (isFirst) result[i+1] else Expr{.binop = .{
+                .op = .dot,
+                .left = &result[lastIndex],
+                .right = &result[i],
+            }};
+        }
+        return result;
+    }
+
+    /// parse a string into an expression
     pub fn parse(alloc: std.mem.Allocator, source: []const u8) !*Expr {
         // super bare-bones impl only supporting member-of operator for now
         var remaining = source;
@@ -392,20 +411,15 @@ fn EvalCtx(comptime WriterType: type) type {
 
         /// get the write command registered for the root syntactic construct
         /// and write the source in this EvalCtx
-        pub fn writeSrc(
-            self: *Self,
-        ) WriterType.Error!void {
-            _ = self;
-            return self.writeCmd(self.languageFormat.nodeFormats(self.languageFormat.rootNodeKey));
+        pub fn writeSrc(self: *Self) WriterType.Error!void {
+            try self.writeCmd(self.languageFormat.nodeFormats(self.languageFormat.rootNodeKey));
+            try self.flush();
         }
 
         // FIXME: need to separate this further from writeSrc
         // TODO: Self should probably be itself a (proxy) writer that handles wrapping
         // could be basically the same as std.io.BufferedWriter
-        pub fn writeCmd(
-            self: *Self,
-            cmd: WriteCommand,
-        ) WriterType.Error!void {
+        pub fn writeCmd(self: *Self, cmd: WriteCommand) WriterType.Error!void {
             switch (cmd) {
                 .raw => |val| try self._write(val),
                 .ref => |val| try self.evalAndWrite(val.name),
@@ -426,8 +440,6 @@ fn EvalCtx(comptime WriterType: type) type {
                 .trivial => try self.evalAndWrite(.all),
             }
             // TODO: need to flush line buf at the end only of the top-level WriteCommand...
-            try self.flush();
-            // (RIGHT NOW THIS IS BROKEN)
         }
     };
 }
@@ -456,18 +468,23 @@ test "write" {
     // TODO: move to test_util.zig
     var local = struct {
         buf: [1024]u8,
-        fn expectWrittenString(self: *@This(), src: []const u8, wcmd: WriteCommand, expected: []const u8) !void {
+
+        fn expectWrittenString(self: *@This(), src: []const u8, comptime wcmd: WriteCommand, expected: []const u8) !void {
             dbglog("\n");
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
+            const TestFormatLanguage = struct { fn nodeFormats(_: []const u8) WriteCommand { return wcmd; } };
             var ctx = EvalCtx(@TypeOf(bufWriter)).init(.{
                 .source = src,
                 .writer = bufWriter,
                 .allocator = std.testing.allocator,
                 .desiredLineSize = 80,
-                .languageFormat = cpp.languageFormat
+                .languageFormat = LanguageFormat{
+                    .nodeFormats =  TestFormatLanguage.nodeFormats,
+                    .rootNodeKey = "",
+                }
             }) catch unreachable;
             defer ctx.free(std.testing.allocator);
-            ctx.writeCmd(wcmd) catch unreachable;
+            ctx.writeSrc() catch unreachable;
             bufWriter.writeByte(0) catch unreachable;
             const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
             dbglogv("buf content: '{s}'\n", .{self.buf[0..len]});
@@ -496,12 +513,9 @@ test "write" {
         "void test(){}\n\x00"
     );
 
-    const expr = try Expr.parse(std.testing.allocator, "0.0");
-    defer expr.free(std.testing.allocator);
-
     try local.expectWrittenString(
         "void test(){}",
-        WriteCommand{ .ref = .{ .name = expr.*  }},
+        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="0"}}}  }},
         "void\n\x00"
     );
 
@@ -520,23 +534,23 @@ test "write" {
         "test( )\n\x00"
     );
 
-    const funcname = try Expr.parse(std.testing.allocator, "0.declarator.declarator");
-    defer funcname.free(std.testing.allocator);
+    // const funcname = try Expr.parse(std.testing.allocator, "0.declarator.declarator");
+    const funcname = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="declarator"}}}, .right = &Expr{.name="declarator"}}};
+    comptime var params = Expr.staticDot([_][]const u8{"0", "declarator", "parameters"});
+    comptime var body = Expr.staticDot([_][]const u8{"0", "body"});
 
-    const params = try Expr.parse(std.testing.allocator, "0.declarator.parameters");
-    defer params.free(std.testing.allocator);
-
-    const body = try Expr.parse(std.testing.allocator, "0.body");
-    defer body.free(std.testing.allocator);
+    _ = params;
+    _ = body;
 
     try local.expectWrittenString(
         "void someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong ()     {     }  ",
         // must use an explicit slice instead of tuple literal to avoid a compiler bug
         WriteCommand{ .sequence = &[_]WriteCommand{
-            WriteCommand{.ref = .{.name=funcname.*}},
+            WriteCommand{.ref = .{.name=funcname}},
             WriteCommand.wrapPoint,
-            WriteCommand{.ref = .{.name=params.*}},
-            WriteCommand{.ref = .{.name=body.*}}
+            // FIXME: looks like dotStatic might invoke a compiler bug...
+            //WriteCommand{.ref = .{.name=params[0]}},
+            //WriteCommand{.ref = .{.name=body[0]}}
         } },
         "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong(){     }\n\x00"
     );
