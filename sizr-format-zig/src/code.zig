@@ -395,7 +395,7 @@ fn EvalCtx(comptime WriterType: type) type {
         /// get the write command registered for the root syntactic construct
         /// and write the source in this EvalCtx
         pub fn writeSrc(self: *Self) WriterType.Error!void {
-            try self.writeCmd(self.languageFormat.nodeFormats(self.languageFormat.rootNodeKey));
+            try self.writeCmd(self.languageFormat.nodeFormats(self.languageFormat.rootNodeType));
         }
 
         // FIXME: need to separate this further from writeSrc
@@ -439,6 +439,7 @@ test "EvalCtx" {
 
 const NodeKey = u16;
 const AliasKey = u16;
+const NodeType = u16;
 
 /// a path of node links, usually those represented by an alias
 const NodePath = []const u16;
@@ -447,9 +448,12 @@ const NodePath = []const u16;
 // dynamically compile them? Brutish approach but might not be that bad...
 /// language specific data of how to format a language's AST
 pub const LanguageFormat = struct {
-    aliasing: fn(NodeKey, AliasKey) *const NodePath,
+    aliasing: fn(NodeType, AliasKey) *const NodePath,
     nodeFormats: fn(NodeKey) WriteCommand,
-    rootNodeKey: []const u8,
+    nodeTypeFromName: fn([]const u8) NodeType,
+    nodeKeyFromName: fn([]const u8) NodeKey,
+    aliasKeyFromName: fn([]const u8) AliasKey,
+    rootNodeType: NodeType,
 };
 
 test "write" {
@@ -468,7 +472,7 @@ test "write" {
                 .desiredLineSize = 60,
                 .languageFormat = LanguageFormat{
                     .nodeFormats =  TestFormatLanguage.nodeFormats,
-                    .rootNodeKey = "",
+                    .rootNodeType = "",
                 }
             }) catch unreachable;
             defer ctx.free(std.testing.allocator);
