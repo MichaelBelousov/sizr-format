@@ -437,11 +437,18 @@ test "EvalCtx" {
     _ = ctx;
 }
 
+const NodeKey = u16;
+const AliasKey = u16;
+
+/// a path of node links, usually those represented by an alias
+const NodePath = []const u16;
+
 // why don't I just ship the zig compiler itself for plugins rather than make them dynamically loadable,
 // dynamically compile them? Brutish approach but might not be that bad...
 /// language specific data of how to format a language's AST
 pub const LanguageFormat = struct {
-    nodeFormats: fn([]const u8) WriteCommand,
+    aliasing: fn(NodeKey, AliasKey) *const NodePath,
+    nodeFormats: fn(NodeKey) WriteCommand,
     rootNodeKey: []const u8,
 };
 
