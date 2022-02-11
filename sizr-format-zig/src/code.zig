@@ -375,7 +375,10 @@ fn EvalCtx(comptime WriterType: type) type {
         }
 
         pub fn tryWrap(self: *Self) !void {
-            try self.flush();
+            if (self.lineBufCursor > self.desiredLineSize) {
+                _ = try self.writer.write("\n");
+                self.lineBufCursor = 0;
+            }
         }
 
         pub fn indent(self: Self, indentVal: IndentMark) []const u8 {
@@ -384,38 +387,15 @@ fn EvalCtx(comptime WriterType: type) type {
             @panic("unimplemented");
         }
 
-        fn flush(self: *Self) WriterType.Error!void {
-            _ = try self.writer.write(self.lineBuffer[0..self.lineBufCursor]);
-            _ = try self.writer.write("\n");
-            self.lineBufCursor = 0;
-        }
-
         fn _write(self: *Self, slice: []const u8) WriterType.Error!void {
-            // this is actually not correct, we should keep writing to the current line until a wrap point is met
-            if (slice.len > self.desiredLineSize) {
-                _ = try self.writer.write(self.lineBuffer[0..self.lineBufCursor]);
-                _ = try self.writer.write("\n");
-                _ = try self.writer.write(slice);
-                _ = try self.writer.write("\n");
-                self.lineBufCursor = 0;
-                return;
-            } else if (slice.len + self.lineBufCursor > self.desiredLineSize) {
-                _ = try self.writer.write(self.lineBuffer[0..self.lineBufCursor]);
-                _ = try self.writer.write("\n");
-                self.lineBufCursor = 0;
-                std.mem.copy(u8, self.lineBuffer[self.lineBufCursor..], slice);
-                self.lineBufCursor += slice.len;
-            } else {
-                std.mem.copy(u8, self.lineBuffer[self.lineBufCursor..], slice);
-                self.lineBufCursor += slice.len;
-            }
+            self.lineBufCursor += slice.len;
+            _ = try self.writer.write(slice);
         }
 
         /// get the write command registered for the root syntactic construct
         /// and write the source in this EvalCtx
         pub fn writeSrc(self: *Self) WriterType.Error!void {
             try self.writeCmd(self.languageFormat.nodeFormats(self.languageFormat.rootNodeKey));
-            try self.flush();
         }
 
         // FIXME: need to separate this further from writeSrc
@@ -441,7 +421,6 @@ fn EvalCtx(comptime WriterType: type) type {
                 },
                 .trivial => try self.evalAndWrite(.all),
             }
-            // TODO: need to flush line buf at the end only of the top-level WriteCommand...
         }
     };
 }
@@ -479,7 +458,7 @@ test "write" {
                 .source = src,
                 .writer = bufWriter,
                 .allocator = std.testing.allocator,
-                .desiredLineSize = 80,
+                .desiredLineSize = 60,
                 .languageFormat = LanguageFormat{
                     .nodeFormats =  TestFormatLanguage.nodeFormats,
                     .rootNodeKey = "",
@@ -496,29 +475,26 @@ test "write" {
         .buf = undefined,
     };
 
-    //const nodeFormats = StringArrayHashMap(WriteCommand).init(std.testing.allocator);
-    //defer nodeFormats.clearAndFree();
-
     try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .raw = "test" },
-        "test\n\x00"
+        "test\x00"
     );
     try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.name = "0"}  }},
-        "void test(){}\n\x00"
+        "void test(){}\x00"
     );
     try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.name = "0"}  }},
-        "void test(){}\n\x00"
+        "void test(){}\x00"
     );
 
     try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="0"}}}  }},
-        "void\n\x00"
+        "void\x00"
     );
 
     const expr2 = try Expr.parse(std.testing.allocator, "0.2");
@@ -527,13 +503,13 @@ test "write" {
     try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="1"}}}  }},
-        "test()\n\x00"
+        "test()\x00"
     );
 
     try local.expectWrittenString(
         "void test(){}",
         WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
-        "test( )\n\x00"
+        "test( )\x00"
     );
 
     const funcname = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="declarator"}}}, .right = &Expr{.name="declarator"}}};
@@ -550,7 +526,7 @@ test "write" {
             WriteCommand.wrapPoint,
             WriteCommand{.ref = .{.name=body}}
         } },
-        "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong\n()\n{     }\n\x00"
+        "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong\n(){     }\x00"
     );
 
     // still need to be tested:
