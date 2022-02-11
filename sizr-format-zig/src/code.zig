@@ -56,6 +56,8 @@ pub const Expr = union(enum) {
 
     /// create a dot expression from a chain of names
     // FIXME: eww need a better form of compiletime allocation, no?
+    // probably use some kind of comptime var iterator of type sizes to get
+    // to that end, I maybe can use a comptime var to calculate the necessary allocation size and build a slice to hold it?
     pub fn staticDot(comptime names: anytype) [@typeInfo(@TypeOf(names)).Array.len + 1]Expr {
         const ReturnType = [@typeInfo(@TypeOf(names)).Array.len + 1]Expr;
         var result: ReturnType = undefined;
@@ -372,9 +374,8 @@ fn EvalCtx(comptime WriterType: type) type {
             ts._c.ts_tree_delete(self.tree._c);
         }
 
-        pub fn tryWrap(self: Self) []const u8 {
-            _ = self;
-            @panic("unimplemented");
+        pub fn tryWrap(self: *Self) !void {
+            try self.flush();
         }
 
         pub fn indent(self: Self, indentVal: IndentMark) []const u8 {
@@ -390,6 +391,7 @@ fn EvalCtx(comptime WriterType: type) type {
         }
 
         fn _write(self: *Self, slice: []const u8) WriterType.Error!void {
+            // this is actually not correct, we should keep writing to the current line until a wrap point is met
             if (slice.len > self.desiredLineSize) {
                 _ = try self.writer.write(self.lineBuffer[0..self.lineBufCursor]);
                 _ = try self.writer.write("\n");
@@ -423,7 +425,7 @@ fn EvalCtx(comptime WriterType: type) type {
             switch (cmd) {
                 .raw => |val| try self._write(val),
                 .ref => |val| try self.evalAndWrite(val.name),
-                .wrapPoint => try self._write(self.tryWrap()),
+                .wrapPoint => try self.tryWrap(),
                 .conditional => |val| {
                     if (self.@"test"(val.@"test") and val.then != null) {
                         _ = try self.writeCmd(val.then.?.*);
@@ -534,13 +536,9 @@ test "write" {
         "test( )\n\x00"
     );
 
-    // const funcname = try Expr.parse(std.testing.allocator, "0.declarator.declarator");
     const funcname = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="declarator"}}}, .right = &Expr{.name="declarator"}}};
-    comptime var params = Expr.staticDot([_][]const u8{"0", "declarator", "parameters"});
-    comptime var body = Expr.staticDot([_][]const u8{"0", "body"});
-
-    _ = params;
-    _ = body;
+    const params = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="declarator"}}}, .right = &Expr{.name="parameters"}}};
+    const body = Expr{.binop = .{.op = .dot, .left = &Expr{.name = "0"}, .right = &Expr{.name="body"}}};
 
     try local.expectWrittenString(
         "void someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong ()     {     }  ",
@@ -548,11 +546,11 @@ test "write" {
         WriteCommand{ .sequence = &[_]WriteCommand{
             WriteCommand{.ref = .{.name=funcname}},
             WriteCommand.wrapPoint,
-            // FIXME: looks like dotStatic might invoke a compiler bug...
-            //WriteCommand{.ref = .{.name=params[0]}},
-            //WriteCommand{.ref = .{.name=body[0]}}
+            WriteCommand{.ref = .{.name=params}},
+            WriteCommand.wrapPoint,
+            WriteCommand{.ref = .{.name=body}}
         } },
-        "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong(){     }\n\x00"
+        "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong\n()\n{     }\n\x00"
     );
 
     // still need to be tested:
