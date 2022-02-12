@@ -3,8 +3,15 @@
 const std = @import("std");
 const code = @import("./code.zig");
 
+fn dbgunreachable(str: []const u8) noreturn {
+    if (std.os.getenv("DEBUG") != null) {
+        std.debug.print("value: '{s}'\n", .{str});
+    }
+    unreachable;
+}
+
 /// node types
-const NodeType = enum(code.NodeType) {
+pub const NodeType = enum(code.NodeType) {
     translationUnit,
     functionDefinition,
     primitiveType,
@@ -19,22 +26,22 @@ const NodeType = enum(code.NodeType) {
 fn nodeTypeFromName(name: []const u8) code.NodeType {
     // there should be a more effective way to generate this multi-way string comp:
     return @enumToInt(switch (name[0]) {
-        'c' => if (std.meta.eql(name, "compound_statement")) NodeType.compoundStatement else unreachable,
-        'f' => if (std.meta.eql(name, "function_definition")) NodeType.functionDefinition
-               else if (std.meta.eql(name, "function_declarator")) NodeType.functionDeclarator
-               else unreachable,
-        'i' => if (std.meta.eql(name, "identifier")) NodeType.identifier else unreachable,
-        'p' => if (std.meta.eql(name, "primitive_type")) NodeType.primitiveType
-               else if (std.meta.eql(name, "parameter_list")) NodeType.parameterList
-               else unreachable,
-        't' => if (std.meta.eql(name, "translation_unit")) NodeType.translationUnit else unreachable,
-        else => @panic("unreachable: the key map is incomplete"),
+        'c' => if (std.mem.eql(u8, name, "compound_statement")) NodeType.compoundStatement else dbgunreachable(name),
+        'f' => if (std.mem.eql(u8, name, "function_definition")) NodeType.functionDefinition
+               else if (std.mem.eql(u8, name, "function_declarator")) NodeType.functionDeclarator
+               else dbgunreachable(name),
+        'i' => if (std.mem.eql(u8, name, "identifier")) NodeType.identifier else dbgunreachable(name),
+        'p' => if (std.mem.eql(u8, name, "primitive_type")) NodeType.primitiveType
+               else if (std.mem.eql(u8, name, "parameter_list")) NodeType.parameterList
+               else dbgunreachable(name),
+        't' => if (std.mem.eql(u8, name, "translation_unit")) NodeType.translationUnit else dbgunreachable(name),
+        else => dbgunreachable(name),
     });
 }
 
 
 /// typed keys in nodes
-const NodeKey = enum(code.NodeKey) {
+pub const NodeKey = enum(code.NodeKey) {
     @"0" = 0,
     declarator,
     parameters,
@@ -46,14 +53,14 @@ const NodeKey = enum(code.NodeKey) {
 fn nodeKeyFromName(name: []const u8) code.NodeKey {
     // there should be a more effective way to generate this multi-way string comp:
     return @enumToInt(switch (name[0]) {
-        'b' => if (std.meta.eql(name, "body")) NodeKey.body else unreachable,
-        'd' => if (std.meta.eql(name, "declarator")) NodeKey.declarator else unreachable,
-        'p' => if (std.meta.eql(name, "parameters")) NodeKey.body else unreachable,
-        else => @panic("unreachable: the key map is incomplete"),
+        'b' => if (std.mem.eql(u8, name, "body")) NodeKey.body else dbgunreachable(name),
+        'd' => if (std.mem.eql(u8, name, "declarator")) NodeKey.declarator else dbgunreachable(name),
+        'p' => if (std.mem.eql(u8, name, "parameters")) NodeKey.body else dbgunreachable(name),
+        else => dbgunreachable(name),
     });
 }
 
-const AliasKey = enum(code.AliasKey) {
+pub const AliasKey = enum(code.AliasKey) {
     body,
     params,
     name,
@@ -61,10 +68,10 @@ const AliasKey = enum(code.AliasKey) {
 
 fn aliasKeyFromName(name: []const u8) code.AliasKey {
     return @enumToInt(switch (name[0]) {
-        'b' => if (std.meta.eql(name, "body")) AliasKey.body else unreachable,
-        'n' => if (std.meta.eql(name, "name")) AliasKey.name else unreachable,
-        'p' => if (std.meta.eql(name, "params")) AliasKey.params else unreachable,
-        else => @panic("unreachable: the key map is incomplete"),
+        'b' => if (std.mem.eql(u8, name, "body")) AliasKey.body else dbgunreachable(name),
+        'n' => if (std.mem.eql(u8, name, "name")) AliasKey.name else dbgunreachable(name),
+        'p' => if (std.mem.eql(u8, name, "params")) AliasKey.params else dbgunreachable(name),
+        else => dbgunreachable(name),
     });
 }
 
@@ -74,16 +81,16 @@ fn nodeFormats(_key: code.NodeKey) code.WriteCommand {
     // FIXME: need to use tree-sitter support of non-string based AST
     // node type tags instead of expensive string checks
     return switch (key) {
-        .@"0" => code.WriteCommand{.ref=.{.name=code.Expr{.name="0"}}},
+        .@"0" => code.WriteCommand{.ref=.{.name=code.Expr{.name=0}}},
         .declarator => code.WriteCommand{.trivial={}},
         .parameters => code.WriteCommand{.trivial={}},
         .body => code.WriteCommand{.trivial={}},
     };
 }
 
-const NodePath = []const NodeKey;
+pub const NodePath = []const NodeKey;
 
-const defaultAlias: NodePath = &[_]NodeKey{.@"0"};
+pub const defaultAlias: NodePath = &[_]NodeKey{.@"0"};
 
 /// set of shortcuts from a given key
 fn aliasing(_from: code.NodeType, _alias: code.AliasKey) *const code.NodePath {

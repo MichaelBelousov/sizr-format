@@ -51,7 +51,8 @@ pub const Expr = union(enum) {
     noderef: []const u8,
     literal: Literal,
     group: *const Expr,
-    name: []const u8,
+    /// rename this when the zls can do that
+    name: AliasKey,
     all,
 
     /// create a dot expression from a chain of names
@@ -75,13 +76,13 @@ pub const Expr = union(enum) {
     }
 
     /// parse a string into an expression
-    pub fn parse(alloc: std.mem.Allocator, source: []const u8) !*Expr {
+    pub fn parse(languageFormat: LanguageFormat, alloc: std.mem.Allocator, source: []const u8) !*Expr {
         // super bare-bones impl only supporting member-of operator for now
         var remaining = source;
         var cur_expr: ?*Expr = null;
         while (true) {
             const index = std.mem.indexOf(u8, remaining, ".") orelse remaining.len;
-            const name_expr = Expr{.name = remaining[0..index]};
+            const name_expr = Expr{.name = languageFormat.aliasKeyFromName(remaining[0..index])};
             if (cur_expr) |cur_expr_val| {
                 const prev_expr = cur_expr_val;
                 const name_expr_slot = try alloc.create(Expr);
@@ -138,7 +139,7 @@ pub const Expr = union(enum) {
                 else => false,
             },
             .name => |l| switch (other.*) {
-                .name => |r| std.mem.eql(u8, l, r),
+                .name => |r| l == r,
                 else => false,
             },
             .all => (other.* == .all),
@@ -149,15 +150,15 @@ pub const Expr = union(enum) {
 
 test "Expr.parse" {
     // TODO: figure out how to specify literals as mutable
-    var @"0" = Expr{.name="0"};
-    var expr = Expr{.binop = .{ .op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="2"}}};
+    var @"0" = Expr{.name=0};
+    var expr = Expr{.binop = .{ .op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=2}}};
 
-    const parsed1 = try Expr.parse(std.testing.allocator, "0");
+    const parsed1 = try Expr.parse(cpp.languageFormat, std.testing.allocator, "body");
     defer parsed1.free(std.testing.allocator);
 
     try expect(std.meta.eql(parsed1.*, @"0"));
 
-    const parsed = try Expr.parse(std.testing.allocator, "0.2");
+    const parsed = try Expr.parse(cpp.languageFormat, std.testing.allocator, "body.name");
     defer parsed.free(std.testing.allocator);
 
     try expect(parsed.eql(&expr));
@@ -245,8 +246,8 @@ fn EvalCtx(comptime WriterType: type) type {
             resolver: Resolver(ts.Node),
 
             fn resolveFn(resolver: Resolver(ts.Node), node: ts.Node, expr: Expr) ?Value {
-                const self = @fieldParentPtr(@This(), "resolver", &resolver);
-                //const evalCtx = @fieldParentPtr(EvalCtx, "varResolver", &self);
+                const self = @fieldParentPtr(LangResolver, "resolver", &resolver);
+                const evalCtx = @fieldParentPtr(EvalCtx(WriterType), "varResolver", self);
 
                 // TODO: this not taking an allocator is inconsistent... I know it's an underlying libc allocation but maybe a dummy arg is still a good idea?
                 const debug_str = node.string();
@@ -255,23 +256,25 @@ fn EvalCtx(comptime WriterType: type) type {
 
                 // Workaround used here for a bug https://github.com/ziglang/zig/issues/10601
                 return switch(expr) {
-                    .name => |name|
-                        if (std.meta.eql(name, "type")) blk: {
-                            const cstr = ts._c.ts_node_type(node._c);
-                            const len = std.mem.len(cstr);
-                            break :blk @as(?Value, Value{ .string = cstr[0..len] });
-                        } else if (std.fmt.parseInt(u32, name, 10)) |index| (
-                            // the parser will reject negative indices
-                            if (index < 0) unreachable else _: {
-                                const maybe_field_name = node.field_name_for_child(index);
-                                if (maybe_field_name) |field_name| {
-                                    dbglogv("field {} is named '{s}'\n", .{index, field_name});
-                                } else {
-                                    dbglogv("field {} had null name\n", .{index});
-                                }
-                                break :_ @as(?Value, Value{ .node = ts.Node{ ._c = ts._c.ts_node_child(node._c, index) } });
-                            }
-                        ) else |_| @as(?Value, Value{ .node = node.child_by_field_name(name) }),
+                    .name => |alias| {
+                        const maybeRawNodeType = node.type();
+                        const nodePath = if (maybeRawNodeType) |rawNodeType| _: {
+                            const nodeType = evalCtx.languageFormat.nodeTypeFromName(rawNodeType);
+                            dbglogv("nodetype> '{s}', {}\n", .{rawNodeType, nodeType});
+                            break :_ evalCtx.languageFormat.aliasing(nodeType, alias);
+                        } else (
+                            @ptrCast(*const NodePath, cpp.defaultAlias)
+                        );
+                        var curNode = node;
+                        // NOTE: these aliases do not match the field id at all!
+                        for (nodePath.*) |step| {
+                            //dbglogv("curNode1> step:{} node:'{s}'\n", .{step, nodetype});
+                            curNode = ts.Node{ ._c = ts._c.ts_node_child_by_field_id(curNode._c, step) };
+                            const curNodeType = if (curNode.type()) |curNodetype| curNodetype else "NULL++";
+                            dbglogv("curNode2> step:{} name/type:'{s}'\n", .{step, curNodeType});
+                        }
+                        return @as(?Value, Value{ .node = curNode });
+                    },
                     .binop => |op| switch (op.op) {
                         .dot => {
                             const left = resolveFn(self.resolver, node, op.left.*);
@@ -444,8 +447,9 @@ pub const NodeType = u16;
 /// a path of node links, usually those represented by an alias
 pub const NodePath = []const NodeKey;
 
-// why don't I just ship the zig compiler itself for plugins rather than make them dynamically loadable,
-// dynamically compile them? Brutish approach but might not be that bad...
+// why don't I just bundle the zig compiler itself for plugins rather than make them in a dynamically format?
+// Brutish approach but might not be that bad...
+
 /// language specific data of how to format a language's AST
 pub const LanguageFormat = struct {
     aliasing: fn(NodeType, AliasKey) *const NodePath,
@@ -464,9 +468,7 @@ test "write" {
         fn expectWrittenString(self: *@This(), src: []const u8, comptime wcmd: WriteCommand, expected: []const u8) !void {
             dbglog("\n");
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
-            const TestLanguageFormat = struct {
-                fn nodeFormats(_: u16) WriteCommand { return wcmd; }
-            };
+            const TestLanguageFormat = struct { fn nodeFormats(_: u16) WriteCommand { return wcmd; } };
             var ctx = EvalCtx(@TypeOf(bufWriter)).init(.{
                 .source = src,
                 .writer = bufWriter,
@@ -499,27 +501,27 @@ test "write" {
     );
     try local.expectWrittenString(
         "void test(){}",
-        WriteCommand{ .ref = .{ .name = Expr{.name = "0"}  }},
+        WriteCommand{ .ref = .{ .name = Expr{.name = 0}  }},
         "void test(){}\x00"
     );
     try local.expectWrittenString(
         "void test(){}",
-        WriteCommand{ .ref = .{ .name = Expr{.name = "0"}  }},
+        WriteCommand{ .ref = .{ .name = Expr{.name = 0}  }},
         "void test(){}\x00"
     );
 
     try local.expectWrittenString(
         "void test(){}",
-        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="0"}}}  }},
+        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=0}}}  }},
         "void\x00"
     );
 
-    const expr2 = try Expr.parse(std.testing.allocator, "0.2");
+    const expr2 = try Expr.parse(cpp.languageFormat, std.testing.allocator, "0.2");
     defer expr2.free(std.testing.allocator);
 
     try local.expectWrittenString(
         "void test(){}",
-        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="1"}}}  }},
+        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=1}}}  }},
         "test()\x00"
     );
 
@@ -529,19 +531,19 @@ test "write" {
         "test( )\x00"
     );
 
-    const funcname = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="declarator"}}}, .right = &Expr{.name="declarator"}}};
-    const params = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name="0"}, .right = &Expr{.name="declarator"}}}, .right = &Expr{.name="parameters"}}};
-    const body = Expr{.binop = .{.op = .dot, .left = &Expr{.name = "0"}, .right = &Expr{.name="body"}}};
+    //const funcname = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.declarator)}}}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.declarator)}}};
+    //const params = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.declarator)}}}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.params)}}};
+    //const body = Expr{.binop = .{.op = .dot, .left = &Expr{.name = 0}, .right = &Expr{.name="body"}}};
 
     try local.expectWrittenString(
         "void someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong ()     {     }  ",
         // must use an explicit slice instead of tuple literal to avoid a compiler bug
         WriteCommand{ .sequence = &[_]WriteCommand{
-            WriteCommand{.ref = .{.name=funcname}},
+            WriteCommand{.ref = .{.name=Expr{.name=@enumToInt(cpp.AliasKey.name)}}},
             WriteCommand.wrapPoint,
-            WriteCommand{.ref = .{.name=params}},
+            WriteCommand{.ref = .{.name=Expr{.name=@enumToInt(cpp.AliasKey.params)}}},
             WriteCommand.wrapPoint,
-            WriteCommand{.ref = .{.name=body}}
+            WriteCommand{.ref = .{.name=Expr{.name=@enumToInt(cpp.AliasKey.body)}}}
         } },
         "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong\n(){     }\x00"
     );

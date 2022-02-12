@@ -65,7 +65,33 @@ pub const Node = struct {
 
     // TODO: maybe wrap all ts.Node usage in optionals and hide the concept of the invalid raw c struct?
     pub fn @"null"(self: @This()) bool {
-        return self._c.id == null;
+        return c_api.ts_node_is_null(self._c);
+    }
+
+    pub fn @"type"(self: @This()) ?[]const u8 {
+        if (self.@"null"()) return null;
+        const raw = c_api.ts_node_type(self._c);
+        return if (raw == null) null else std.mem.span(raw);
+    }
+
+    pub fn is_named(self: @This()) boolean {
+        return c_api.ts_node_is_named(self._c);
+    }
+
+    pub fn is_missing(self: @This()) boolean {
+        return c_api.ts_node_is_missing(self._c);
+    }
+
+    pub fn is_extra(self: @This()) boolean {
+        return c_api.ts_node_is_extra(self._c);
+    }
+
+    pub fn has_changes(self: @This()) boolean {
+        return c_api.ts_node_has_changes(self._c);
+    }
+
+    pub fn has_error(self: @This()) boolean {
+        return c_api.ts_node_has_error(self._c);
     }
 
     pub fn child_by_field_name(self: @This(), field_name: []const u8) Node {
@@ -73,8 +99,9 @@ pub const Node = struct {
         return Node {._c = c_api.ts_node_child_by_field_name(self._c, field_name.ptr, @truncate(u32, field_name.len)) };
     }
 
-    pub fn field_name_for_child(self: @This(), index: u32) [*c]const u8 {
-        return c_api.ts_node_field_name_for_child(self._c, index);
+    pub fn field_name_for_child(self: @This(), index: u32) ?[]const u8 {
+        const raw = c_api.ts_node_field_name_for_child(self._c, index);
+        return if (raw == null) null else std.mem.span(raw);
     }
 
     pub const FreeableCStr = struct {
@@ -86,6 +113,16 @@ pub const Node = struct {
 
     pub fn string(self: @This()) FreeableCStr {
         return FreeableCStr{ .ptr = c_api.ts_node_string(self._c) };
+    }
+
+    pub fn dbgprint(self: @This(), lng: Language) void {
+        if (self.@"null"())
+            std.debug.print("<node NULL />")
+        else {
+            std.debug.print("<node isMissing={} isExtra={} type={s}  />\n", 
+            .{self.is_missing(), self.is_extra(), self.type(), self.
+            lng.field_id_for_name()});
+        }
     }
 };
 
