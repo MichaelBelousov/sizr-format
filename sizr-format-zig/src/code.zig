@@ -437,12 +437,12 @@ test "EvalCtx" {
     _ = ctx;
 }
 
-const NodeKey = u16;
-const AliasKey = u16;
-const NodeType = u16;
+pub const NodeKey = u16;
+pub const AliasKey = u16;
+pub const NodeType = u16;
 
 /// a path of node links, usually those represented by an alias
-const NodePath = []const u16;
+pub const NodePath = []const NodeKey;
 
 // why don't I just ship the zig compiler itself for plugins rather than make them dynamically loadable,
 // dynamically compile them? Brutish approach but might not be that bad...
@@ -464,15 +464,21 @@ test "write" {
         fn expectWrittenString(self: *@This(), src: []const u8, comptime wcmd: WriteCommand, expected: []const u8) !void {
             dbglog("\n");
             const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
-            const TestFormatLanguage = struct { fn nodeFormats(_: []const u8) WriteCommand { return wcmd; } };
+            const TestLanguageFormat = struct {
+                fn nodeFormats(_: u16) WriteCommand { return wcmd; }
+            };
             var ctx = EvalCtx(@TypeOf(bufWriter)).init(.{
                 .source = src,
                 .writer = bufWriter,
                 .allocator = std.testing.allocator,
                 .desiredLineSize = 60,
                 .languageFormat = LanguageFormat{
-                    .nodeFormats =  TestFormatLanguage.nodeFormats,
-                    .rootNodeType = "",
+                    .nodeFormats = TestLanguageFormat.nodeFormats,
+                    .aliasing = cpp.languageFormat.aliasing,
+                    .nodeTypeFromName = cpp.languageFormat.nodeTypeFromName,
+                    .nodeKeyFromName = cpp.languageFormat.nodeKeyFromName,
+                    .aliasKeyFromName = cpp.languageFormat.aliasKeyFromName,
+                    .rootNodeType = 0,
                 }
             }) catch unreachable;
             defer ctx.free(std.testing.allocator);
