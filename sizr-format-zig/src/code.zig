@@ -12,6 +12,9 @@ const expectEqualStrings = @import("std").testing.expectEqualStrings;
 const expectError = @import("std").testing.expectError;
 
 const util = @import("./util.zig");
+const dbglog = util.dbglog;
+const dbglogv = util.dbglogv;
+
 const test_util = @import("./test_util.zig");
 const ts = @import("./tree_sitter.zig");
 const cpp = @import("./cpp.zig");
@@ -238,7 +241,7 @@ fn Resolver(
     };
 }
 
-fn EvalCtx(comptime WriterType: type) type {
+pub fn EvalCtx(comptime WriterType: type) type {
     return struct {
         const Self = @This();
 
@@ -465,120 +468,77 @@ pub const LanguageFormat = struct {
 
 test "write" {
     // TODO: move to test_util.zig
-    var local = struct {
-        buf: [1024]u8,
-
-        fn expectWrittenString(self: *@This(), src: []const u8, comptime wcmd: WriteCommand, expected: []const u8) !void {
-            dbglog("\n");
-            const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
-            const TestLanguageFormat = struct { fn nodeFormats(_: u16) WriteCommand { return wcmd; } };
-            var ctx = EvalCtx(@TypeOf(bufWriter)).init(.{
-                .source = src,
-                .writer = bufWriter,
-                .allocator = std.testing.allocator,
-                .desiredLineSize = 60,
-                .languageFormat = LanguageFormat{
-                    .nodeFormats = TestLanguageFormat.nodeFormats,
-                    .aliasing = cpp.languageFormat.aliasing,
-                    .nodeTypeFromName = cpp.languageFormat.nodeTypeFromName,
-                    .nodeKeyFromName = cpp.languageFormat.nodeKeyFromName,
-                    .aliasKeyFromName = cpp.languageFormat.aliasKeyFromName,
-                    .rootNodeType = 0,
-                }
-            }) catch unreachable;
-            defer ctx.free(std.testing.allocator);
-            ctx.writeSrc() catch unreachable;
-            bufWriter.writeByte(0) catch unreachable;
-            const len = 1 + (std.mem.indexOf(u8, self.buf[0..], "\x00") orelse self.buf.len);
-            dbglogv("buf content: '{s}'\n", .{self.buf[0..len]});
-            return expectEqualStrings(expected, self.buf[0..len], );
-        }
-    }{
-        .buf = undefined,
-    };
-
-    try local.expectWrittenString(
+    try test_util.write_commands.expectWrittenString(
         "void test(){}",
         WriteCommand{ .raw = "test" },
         "test\x00"
     );
-    try local.expectWrittenString(
+    try test_util.write_commands.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.name = 0}  }},
         "void test(){}\x00"
     );
-    try local.expectWrittenString(
+    try test_util.write_commands.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.name = 0}  }},
         "void test(){}\x00"
     );
 
-    try local.expectWrittenString(
+    try test_util.write_commands.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=0}}}  }},
         "void\x00"
     );
 
-    try local.expectWrittenString(
+    try test_util.write_commands.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.returnType)}}}  }},
         "void\x00"
     );
 
-    try local.expectWrittenString(
+    try test_util.write_commands.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.params)}}}  }},
         "()\x00"
     );
 
-    try local.expectWrittenString(
+    try test_util.write_commands.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.name)}}}  }},
         "test\x00"
     );
 
-    try local.expectWrittenString(
+    try test_util.write_commands.expectWrittenString(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.body)}}}  }},
         "{}\x00"
     );
 
 
-    try local.expectWrittenString(
+    try test_util.write_commands.expectWrittenString(
         "void test(){}",
         WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
         "test( )\x00"
     );
 
-    // //const funcname = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.declarator)}}}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.declarator)}}};
-    // //const params = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.declarator)}}}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.params)}}};
-    // //const body = Expr{.binop = .{.op = .dot, .left = &Expr{.name = 0}, .right = &Expr{.name="body"}}};
-
-    // try local.expectWrittenString(
-    //     "void someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong ()     {     }  ",
-    //     // must use an explicit slice instead of tuple literal to avoid a compiler bug
-    //     WriteCommand{ .sequence = &[_]WriteCommand{
-    //         WriteCommand{.ref = .{.name=Expr{.name=@enumToInt(cpp.AliasKey.name)}}},
-    //         WriteCommand.wrapPoint,
-    //         WriteCommand{.ref = .{.name=Expr{.name=@enumToInt(cpp.AliasKey.params)}}},
-    //         WriteCommand.wrapPoint,
-    //         WriteCommand{.ref = .{.name=Expr{.name=@enumToInt(cpp.AliasKey.body)}}}
-    //     } },
-    //     "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong\n(){     }\x00"
-    // );
+    try test_util.write_commands.expectWrittenString(
+        "void someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong ()     {     }  ",
+        // must use an explicit slice instead of tuple literal to avoid a compiler bug
+        WriteCommand{ .sequence = &[_]WriteCommand{
+            WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.name)}}}  }},
+            WriteCommand.wrapPoint,
+            WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.params)}}}  }},
+            WriteCommand.wrapPoint,
+            WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.body)}}}  }},
+        } },
+        "someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong\n(){     }\x00"
+    );
 
     // still need to be tested:
-    // - wrapPoint,
     // - conditional
     // - indentMark: IndentMark,
 }
 
-fn dbglog(comptime str: []const u8) void {
-    if (std.os.getenv("DEBUG") != null)
-        std.debug.print(str, .{});
-}
-
-fn dbglogv(comptime str: []const u8, args: anytype) void {
-    if (std.os.getenv("DEBUG") != null)
-        std.debug.print(str, args);
+test "elm format" {
+    // TODO: implement an elm-format style C++ writer
 }

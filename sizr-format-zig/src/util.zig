@@ -1,3 +1,4 @@
+const std = @import("std");
 const expect = @import("std").testing.expect;
 const expectError = @import("std").testing.expectError;
 
@@ -21,4 +22,14 @@ test "indexOfNotAny" {
     try expect(indexOfNotAny(i64, &items, &[_]i64{ 8, -5, 0 }) == @as(usize, 0));
     try expect(indexOfNotAny(i64, &items, &items) == null);
     try expect(indexOfNotAny(i64, &[_]i64{ 1, 2, 1, 2, 1, 2 }, &[_]i64{ 1, 2 }) == null);
+}
+
+pub fn dbglog(comptime str: []const u8) void {
+    if (std.os.getenv("DEBUG") != null)
+        std.debug.print(str, .{});
+}
+
+pub fn dbglogv(comptime str: []const u8, args: anytype) void {
+    if (std.os.getenv("DEBUG") != null)
+        std.debug.print(str, args);
 }
