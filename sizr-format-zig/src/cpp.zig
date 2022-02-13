@@ -12,8 +12,9 @@ fn dbgunreachable(str: []const u8) noreturn {
 
 /// node types
 pub const NodeType = enum(code.NodeType) {
-    translationUnit,
-    functionDefinition,
+    // need to generate these by invoking tree_sitter
+    translationUnit = 165, // are these hackily gathered ones even right?
+    functionDefinition = 166,
     primitiveType,
     functionDeclarator,
     identifier,
@@ -43,9 +44,10 @@ fn nodeTypeFromName(name: []const u8) code.NodeType {
 /// typed keys in nodes
 pub const NodeKey = enum(code.NodeKey) {
     @"0" = 0,
-    declarator,
+    @"type" = 32,
+    declarator = 9,
     parameters,
-    body,
+    body = 5,
 };
 
 // TODO: generate from tree_sitter grammar
@@ -61,6 +63,7 @@ fn nodeKeyFromName(name: []const u8) code.NodeKey {
 }
 
 pub const AliasKey = enum(code.AliasKey) {
+    @"0" = 0,
     body,
     params,
     name,
@@ -82,32 +85,39 @@ fn nodeFormats(_key: code.NodeKey) code.WriteCommand {
     // node type tags instead of expensive string checks
     return switch (key) {
         .@"0" => code.WriteCommand{.ref=.{.name=code.Expr{.name=0}}},
-        .declarator => code.WriteCommand{.trivial={}},
-        .parameters => code.WriteCommand{.trivial={}},
-        .body => code.WriteCommand{.trivial={}},
+        .declarator => .trivial,
+        .parameters => .trivial,
+        .body => .trivial,
+        .type => .trivial,
+        //else => .trivial
     };
 }
 
 pub const NodePath = []const NodeKey;
 
-pub const defaultAlias: NodePath = &[_]NodeKey{.@"0"};
+pub const defaultAliasPath: NodePath = &[_]NodeKey{.@"0"};
 
 /// set of shortcuts from a given key
 fn aliasing(_from: code.NodeType, _alias: code.AliasKey) *const code.NodePath {
-    const from = @intToEnum(NodeType, _from);
     const alias = @intToEnum(AliasKey, _alias);
-    const result: *const NodePath = switch (from) {
-        .translationUnit => &defaultAlias,
+    // @"0" is the null alias it seems...
+    const from = @intToEnum(NodeType, _from);
+    const result: *const NodePath =
+    if (alias == .@"0")
+        &defaultAliasPath
+    else switch (from) {
+        .translationUnit => &defaultAliasPath,
         .functionDefinition => switch(alias) {
             .body => &@as(NodePath, &[_]NodeKey{.@"0", .body}),
             .name => &@as(NodePath, &[_]NodeKey{.@"0", .declarator, .declarator}),
             .params => &@as(NodePath, &[_]NodeKey{.@"0", .declarator, .parameters}),
+            else => unreachable,
         },
-        .functionDeclarator => &defaultAlias,
-        .primitiveType => &defaultAlias,
-        .identifier => &defaultAlias,
-        .parameterList => &defaultAlias,
-        .compoundStatement => &defaultAlias,
+        .functionDeclarator => &defaultAliasPath,
+        .primitiveType => &defaultAliasPath,
+        .identifier => &defaultAliasPath,
+        .parameterList => &defaultAliasPath,
+        .compoundStatement => &defaultAliasPath,
     };
     return @ptrCast(*const code.NodePath, result);
 }

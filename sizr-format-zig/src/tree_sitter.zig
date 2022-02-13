@@ -74,29 +74,33 @@ pub const Node = struct {
         return if (raw == null) null else std.mem.span(raw);
     }
 
-    pub fn is_named(self: @This()) boolean {
+    pub fn is_named(self: @This()) bool {
         return c_api.ts_node_is_named(self._c);
     }
 
-    pub fn is_missing(self: @This()) boolean {
+    pub fn is_missing(self: @This()) bool {
         return c_api.ts_node_is_missing(self._c);
     }
 
-    pub fn is_extra(self: @This()) boolean {
+    pub fn is_extra(self: @This()) bool {
         return c_api.ts_node_is_extra(self._c);
     }
 
-    pub fn has_changes(self: @This()) boolean {
+    pub fn has_changes(self: @This()) bool {
         return c_api.ts_node_has_changes(self._c);
     }
 
-    pub fn has_error(self: @This()) boolean {
+    pub fn has_error(self: @This()) bool {
         return c_api.ts_node_has_error(self._c);
     }
 
     pub fn child_by_field_name(self: @This(), field_name: []const u8) Node {
         if (self.@"null"()) return self; // HACK
         return Node {._c = c_api.ts_node_child_by_field_name(self._c, field_name.ptr, @truncate(u32, field_name.len)) };
+    }
+
+    pub fn child(self: @This(), index: u32) Node {
+        return Node{ ._c = c_api.ts_node_child(self._c, index) };
     }
 
     pub fn field_name_for_child(self: @This(), index: u32) ?[]const u8 {
@@ -115,14 +119,72 @@ pub const Node = struct {
         return FreeableCStr{ .ptr = c_api.ts_node_string(self._c) };
     }
 
-    pub fn dbgprint(self: @This(), lng: Language) void {
-        if (self.@"null"())
-            std.debug.print("<node NULL />")
-        else {
-            std.debug.print("<node isMissing={} isExtra={} type={s}  />\n", 
-            .{self.is_missing(), self.is_extra(), self.type(), self.
-            lng.field_id_for_name()});
+    pub fn parent(self: @This()) Node {
+        if (self.@"null"()) return self;
+        return Node { ._c = c_api.ts_node_parent(self._c) };
+    }
+
+    pub fn child_count(self: @This()) u32 {
+        if (self.@"null"()) return 0;
+        return c_api.ts_node_child_count(self._c);
+    }
+
+
+    pub fn symbol(self: @This()) Symbol {
+        if (self.@"null"()) return 0;
+        return c_api.ts_node_symbol(self._c);
+    }
+
+    pub fn dbgprint_fields(self: @This()) void {
+        const lang = cpp(); // temp
+        if (self.@"null"()) {
+            std.debug.print("{{NULL}}\n", .{});
+            return;
         }
+        const count = self.child_count();
+        var i: u32 = 0;
+        //std.debug.print("{s} = [{}]: {{\n", .{self.@"type"(), count});
+        while (i < count) {
+            std.debug.print("  - field #: {}\n", .{i});
+            const maybeFieldName = self.field_name_for_child(i);
+            if (maybeFieldName) |fieldName| {
+                std.debug.print("\tfield name: {s}\n", .{fieldName});
+                std.debug.print("\tfield id: {}\n", .{lang.field_id_for_name(fieldName)});
+            } else {
+                std.debug.print("\tfield name: NONE\n", .{});
+                std.debug.print("\tfield id: NONE\n", .{});
+            }
+            i += 1;
+        }
+        std.debug.print("}}\n", .{});
+    }
+
+    pub fn dbgprint_field_in_parent(self: @This()) void {
+        const lang = cpp(); // temp
+        if (self.@"null"()) {
+            std.debug.print("<node NULL />\n", .{});
+            return;
+        }
+        const count = self.parent().child_count();
+        std.debug.print("node type/symbol: {}, child count: {}\n", .{self.symbol(), count});
+        var i: u32 = 0;
+        while (i < count) {
+            std.debug.print("{}:  {} <=> {}\n", .{i, self._c, self.child(i)._c});
+            if (std.meta.eql(self._c, self.child(i)._c)) {
+                const maybeFieldName = self.field_name_for_child(i);
+                if (maybeFieldName) |fieldName| {
+                    std.debug.print("field name: {s}\n", .{fieldName});
+                    std.debug.print("field id: {}\n", .{lang.field_id_for_name(fieldName)});
+                } else {
+                    std.debug.print("field name: NONE\n", .{});
+                    std.debug.print("field id: NONE\n", .{});
+                }
+                std.debug.print("\n", .{});
+                return;
+            }
+            i += 1;
+        }
+        //unreachable;
     }
 };
 
