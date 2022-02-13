@@ -46,7 +46,7 @@ pub const NodeKey = enum(code.NodeKey) {
     @"0" = 0,
     @"type" = 32,
     declarator = 9,
-    parameters,
+    parameters = 24,
     body = 5,
 };
 

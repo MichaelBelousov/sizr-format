@@ -263,7 +263,7 @@ fn EvalCtx(comptime WriterType: type) type {
                             dbglogv("nodetype> '{s}', {}\n", .{rawNodeType, nodeType});
                             break :_ evalCtx.languageFormat.aliasing(nodeType, alias);
                         } else (
-                            unreachable //@ptrCast(*const NodePath, cpp.defaultAlias)
+                            unreachable
                         );
                         var curNode = node;
                         dbglogv("node path: {any}\n", .{nodePath.*});
@@ -524,6 +524,25 @@ test "write" {
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.returnType)}}}  }},
         "void\x00"
     );
+
+    try local.expectWrittenString(
+        "void test(){}",
+        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.params)}}}  }},
+        "()\x00"
+    );
+
+    try local.expectWrittenString(
+        "void test(){}",
+        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.name)}}}  }},
+        "test\x00"
+    );
+
+    try local.expectWrittenString(
+        "void test(){}",
+        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.body)}}}  }},
+        "{}\x00"
+    );
+
 
     try local.expectWrittenString(
         "void test(){}",
