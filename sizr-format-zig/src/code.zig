@@ -150,8 +150,8 @@ pub const Expr = union(enum) {
 
 test "Expr.parse" {
     // TODO: figure out how to specify literals as mutable
-    var @"0" = Expr{.name=0};
-    var expr = Expr{.binop = .{ .op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=2}}};
+    var @"0" = Expr{.name=@enumToInt(cpp.AliasKey.body)};
+    var expr = Expr{.binop = .{ .op = .dot, .left = &Expr{.name=@enumToInt(cpp.AliasKey.body)}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.name)}}};
 
     const parsed1 = try Expr.parse(cpp.languageFormat, std.testing.allocator, "body");
     defer parsed1.free(std.testing.allocator);
@@ -266,14 +266,15 @@ fn EvalCtx(comptime WriterType: type) type {
                             unreachable //@ptrCast(*const NodePath, cpp.defaultAlias)
                         );
                         var curNode = node;
-                        // NOTE: these aliases do not match the field id at all!
                         dbglogv("node path: {any}\n", .{nodePath.*});
+                        if (std.os.getenv("DEBUG") != null) node.dbgprint_fields();
                         for (nodePath.*) |step| {
                             if (step == 0) { // HACK
                                 curNode = node.child(0);
                             } else {
                                 curNode = ts.Node{ ._c = ts._c.ts_node_child_by_field_id(curNode._c, step) };
                             }
+                            if (std.os.getenv("DEBUG") != null) curNode.dbgprint_fields();
                         }
                         return @as(?Value, Value{ .node = curNode });
                     },
@@ -518,20 +519,17 @@ test "write" {
         "void\x00"
     );
 
-    // const expr2 = try Expr.parse(cpp.languageFormat, std.testing.allocator, "0.2");
-    // defer expr2.free(std.testing.allocator);
+    try local.expectWrittenString(
+        "void test(){}",
+        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.returnType)}}}  }},
+        "void\x00"
+    );
 
-    // try local.expectWrittenString(
-    //     "void test(){}",
-    //     WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=1}}}  }},
-    //     "test()\x00"
-    // );
-
-    // try local.expectWrittenString(
-    //     "void test(){}",
-    //     WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
-    //     "test( )\x00"
-    // );
+    try local.expectWrittenString(
+        "void test(){}",
+        WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
+        "test( )\x00"
+    );
 
     // //const funcname = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.declarator)}}}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.declarator)}}};
     // //const params = Expr{.binop = .{.op = .dot, .left = &Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.declarator)}}}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.params)}}};

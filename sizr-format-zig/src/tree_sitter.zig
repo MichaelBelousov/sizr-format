@@ -143,7 +143,7 @@ pub const Node = struct {
         }
         const count = self.child_count();
         var i: u32 = 0;
-        //std.debug.print("{s} = [{}]: {{\n", .{self.@"type"(), count});
+        std.debug.print("{s} = [{}]: {{\n", .{self.@"type"(), count});
         while (i < count) {
             std.debug.print("  - field #: {}\n", .{i});
             const maybeFieldName = self.field_name_for_child(i);

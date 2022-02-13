@@ -67,6 +67,7 @@ pub const AliasKey = enum(code.AliasKey) {
     body,
     params,
     name,
+    returnType,
 };
 
 fn aliasKeyFromName(name: []const u8) code.AliasKey {
@@ -74,6 +75,7 @@ fn aliasKeyFromName(name: []const u8) code.AliasKey {
         'b' => if (std.mem.eql(u8, name, "body")) AliasKey.body else dbgunreachable(name),
         'n' => if (std.mem.eql(u8, name, "name")) AliasKey.name else dbgunreachable(name),
         'p' => if (std.mem.eql(u8, name, "params")) AliasKey.params else dbgunreachable(name),
+        'r' => if (std.mem.eql(u8, name, "returnType")) AliasKey.returnType else dbgunreachable(name),
         else => dbgunreachable(name),
     });
 }
@@ -95,6 +97,7 @@ fn nodeFormats(_key: code.NodeKey) code.WriteCommand {
 
 pub const NodePath = []const NodeKey;
 
+// rename to trivialAliasPath or something
 pub const defaultAliasPath: NodePath = &[_]NodeKey{.@"0"};
 
 /// set of shortcuts from a given key
@@ -108,10 +111,12 @@ fn aliasing(_from: code.NodeType, _alias: code.AliasKey) *const code.NodePath {
     else switch (from) {
         .translationUnit => &defaultAliasPath,
         .functionDefinition => switch(alias) {
-            .body => &@as(NodePath, &[_]NodeKey{.@"0", .body}),
-            .name => &@as(NodePath, &[_]NodeKey{.@"0", .declarator, .declarator}),
-            .params => &@as(NodePath, &[_]NodeKey{.@"0", .declarator, .parameters}),
-            else => unreachable,
+            .@"0" => &defaultAliasPath,
+            .body => &@as(NodePath, &[_]NodeKey{.body}),
+            .name => &@as(NodePath, &[_]NodeKey{.declarator, .declarator}),
+            .params => &@as(NodePath, &[_]NodeKey{.declarator, .parameters}),
+            .returnType => &@as(NodePath, &[_]NodeKey{.type}),
+            //else => unreachable,
         },
         .functionDeclarator => &defaultAliasPath,
         .primitiveType => &defaultAliasPath,
