@@ -253,9 +253,9 @@ pub fn EvalCtx(comptime WriterType: type) type {
                 const evalCtx = @fieldParentPtr(EvalCtx(WriterType), "varResolver", self);
 
                 // TODO: figure out what to do when it allocates but doesn't take an alloc arg
-                const debug_str = node.string();
-                dbglogv("{s}\n", .{debug_str.ptr});
-                defer debug_str.free();
+                // const debug_str = node.string();
+                // dbglogv("{s}\n", .{debug_str.ptr});
+                // defer debug_str.free();
 
                 // Workaround used here for a bug https://github.com/ziglang/zig/issues/10601
                 return switch(expr) {
@@ -263,21 +263,21 @@ pub fn EvalCtx(comptime WriterType: type) type {
                         const maybeRawNodeType = node.type();
                         const nodePath = if (maybeRawNodeType) |rawNodeType| _: {
                             const nodeType = evalCtx.languageFormat.nodeTypeFromName(rawNodeType);
-                            dbglogv("nodetype> '{s}', {}\n", .{rawNodeType, nodeType});
+                            dbglogv("resolve> '{s}', {}\n", .{rawNodeType, nodeType});
                             break :_ evalCtx.languageFormat.aliasing(nodeType, alias);
                         } else (
                             unreachable
                         );
                         var curNode = node;
-                        dbglogv("node path: {any}\n", .{nodePath.*});
-                        if (std.os.getenv("DEBUG") != null) node.dbgprint_fields();
+                        dbglogv("resolve> {any}\n", .{nodePath.*});
+                        //if (std.os.getenv("DEBUG") != null) node.dbgprint_fields();
                         for (nodePath.*) |step| {
                             if (step == 0) { // HACK
                                 curNode = node.child(0);
                             } else {
                                 curNode = ts.Node{ ._c = ts._c.ts_node_child_by_field_id(curNode._c, step) };
                             }
-                            if (std.os.getenv("DEBUG") != null) curNode.dbgprint_fields();
+                            //if (std.os.getenv("DEBUG") != null) curNode.dbgprint_fields();
                         }
                         return @as(?Value, Value{ .node = curNode });
                     },
@@ -325,7 +325,10 @@ pub fn EvalCtx(comptime WriterType: type) type {
             const maybe_eval_result = self.eval(expr);
             if (maybe_eval_result) |eval_result| {
                 switch (eval_result) {
-                    .node => |node| try self.writeNode(node),
+                    .node => |node| {
+                        dbglogv("evalAndWrite> type: '{s}'\n", .{node.type()});
+                        try self.writeNode(node);
+                    },
                     else => {
                         // FIXME: take an allocator instance argument so we can track leaks in tests
                         const serialized = eval_result.serialize(std.heap.c_allocator, self);
@@ -413,8 +416,8 @@ pub fn EvalCtx(comptime WriterType: type) type {
         }
 
         /// write a formatted node
-        pub fn writeNode(self: *Self, node: ts.Node) WriterType.Error!void {
-            dbglogv("write node> type: '{s}', symbol: {}\n", .{ node.type(), node.symbol() });
+        fn writeNode(self: *Self, node: ts.Node) WriterType.Error!void {
+            dbglogv("writeNode> type: '{s}', symbol: {}\n", .{node.type(), node.symbol()});
             const wcmd = self.languageFormat.nodeFormats(node.symbol());
             return self.writeCmd(wcmd);
         }
@@ -422,10 +425,13 @@ pub fn EvalCtx(comptime WriterType: type) type {
         // FIXME: need to separate this further from writeSrc
         // TODO: Self should probably be itself a (proxy) writer that handles wrapping
         // could be basically the same as std.io.BufferedWriter
-        pub fn writeCmd(self: *Self, cmd: WriteCommand) WriterType.Error!void {
+        fn writeCmd(self: *Self, cmd: WriteCommand) WriterType.Error!void {
             switch (cmd) {
                 .raw => |val| try self._write(val),
-                .ref => |val| try self.evalAndWrite(val.name),
+                .ref => |val| {
+                    dbglogv("writeCmd> '{s}', \n", .{val.name});
+                    try self.evalAndWrite(val.name);
+                },
                 .wrapPoint => try self.tryWrap(),
                 .conditional => |val| {
                     if (self.@"test"(val.@"test") and val.then != null) {
@@ -440,7 +446,16 @@ pub fn EvalCtx(comptime WriterType: type) type {
                         _ = try self.writeCmd(sub_cmd);
                     }
                 },
-                .trivial => try self.evalAndWrite(.all),
+                // TODO:remove .all Expr
+                .trivial => {
+                    var i: u32 = 0;
+                    const count = node.child_count();
+                    while (i < count) {
+                        const child = self.child(i);
+                        try self.writeNode(child);
+                        i += 1;
+                    }
+                }
             }
         }
     };
@@ -458,8 +473,13 @@ test "EvalCtx" {
     _ = ctx;
 }
 
+// TODO: rename to FieldKey
+/// keys that are usable within a node to access fields in a tree-sitter context
 pub const NodeKey = u16;
+// TODO: rename to VirtualFieldKey
+/// keys that are usable within a node to access fields in a sizr context
 pub const AliasKey = u16;
+/// a unique identifier, corresponds to tree-sitter symbols
 pub const NodeType = u16;
 
 /// a path of node links, usually those represented by an alias
@@ -471,7 +491,7 @@ pub const NodePath = []const NodeKey;
 /// language specific data of how to format a language's AST
 pub const LanguageFormat = struct {
     aliasing: fn(NodeType, AliasKey) *const NodePath,
-    nodeFormats: fn(NodeKey) WriteCommand,
+    nodeFormats: fn(NodeType) WriteCommand,
     nodeTypeFromName: fn([]const u8) NodeType,
     nodeKeyFromName: fn([]const u8) NodeKey,
     aliasKeyFromName: fn([]const u8) AliasKey,
@@ -479,69 +499,68 @@ pub const LanguageFormat = struct {
 };
 
 test "write temp" {
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringCpp(
         "void test(){}",
-        WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.params)}}}  }},
         "()\x00"
     );
 }
 
 test "write basic" {
     if (true) return error.SkipZigTest;
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringStatic(
         "void test(){}",
         WriteCommand{ .raw = "test" },
         "test\x00"
     );
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringStatic(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.name = 0}  }},
         "void test(){}\x00"
     );
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringStatic(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.name = 0}  }},
         "void test(){}\x00"
     );
 
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringStatic(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=0}}}  }},
         "void\x00"
     );
 
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringStatic(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.returnType)}}}  }},
         "void\x00"
     );
 
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringStatic(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.params)}}}  }},
         "()\x00"
     );
 
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringStatic(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.name)}}}  }},
         "test\x00"
     );
 
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringStatic(
         "void test(){}",
         WriteCommand{ .ref = .{ .name = Expr{.binop = .{.op = .dot, .left = &Expr{.name=0}, .right = &Expr{.name=@enumToInt(cpp.AliasKey.body)}}}  }},
         "{}\x00"
     );
 
 
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringStatic(
         "void test(){}",
         WriteCommand{ .sequence = &.{ WriteCommand{.raw = "test"}, WriteCommand{.raw = "("}, WriteCommand{.raw=" )"} } },
         "test( )\x00"
     );
 
-    try test_util.write_commands.expectWrittenString(
+    try test_util.write_commands.expectWrittenStringStatic(
         "void someRidiculouslyLongFunctionNameLikeForRealWhatsUpWhyShouldItBeThisLong ()     {     }  ",
         // must use an explicit slice instead of tuple literal to avoid a compiler bug
         WriteCommand{ .sequence = &[_]WriteCommand{

@@ -81,17 +81,19 @@ fn aliasKeyFromName(name: []const u8) code.AliasKey {
 }
 
 // probably want to generate this from tree_sitter grammar for C++
-fn nodeFormats(_key: code.NodeKey) code.WriteCommand {
-    const key = @intToEnum(NodeKey, _key);
+fn nodeFormats(_key: code.NodeType) code.WriteCommand {
+    std.debug.print("nodeFormats> key: {}\n", .{_key});
+    const key = @intToEnum(NodeType, _key);
     // FIXME: need to use tree-sitter support of non-string based AST
     // node type tags instead of expensive string checks
     return switch (key) {
-        .@"0" => code.WriteCommand{.ref=.{.name=code.Expr{.name=0}}},
-        .declarator => .trivial,
-        .parameters => .trivial,
-        .body => .trivial,
-        .type => .trivial,
-        //else => .trivial
+        .translationUnit => .trivial,
+        .functionDefinition => .trivial,
+        .primitiveType => .trivial,
+        .functionDeclarator => .trivial,
+        .identifier => .trivial,
+        .parameterList => .trivial,
+        .compoundStatement => .trivial,
     };
 }
 
