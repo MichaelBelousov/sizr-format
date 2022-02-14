@@ -211,8 +211,9 @@ pub const Language = struct {
         return c_api.ts_language_symbol_count(self._c);
     }
 
-    pub fn symbol_name(self: Self, symbol: Symbol) [:0]const u8 {
-        return c_api.ts_language_symbol_name(self._c, symbol);
+    pub fn symbol_name(self: Self, symbol: Symbol) ?[]const u8 {
+        const result = c_api.ts_language_symbol_name(self._c, symbol);
+        return if (result == null) null else std.mem.span(result);
     }
     pub fn symbol_for_name(self: Self, string: []const u8, is_named: bool) Symbol {
         return c_api.ts_language_symbol_for_name(self._c, string.ptr, @truncate(u32, string.len), is_named);
@@ -220,9 +221,9 @@ pub const Language = struct {
     pub fn field_count(self: Self) u32 {
         return c_api.ts_language_field_count(self._c);
     }
-    pub fn field_name_for_id(self: Self, field_id: FieldId) []const u8 {
-        // FIXME: implicitly converts from [:0] const u8
-        return c_api.ts_language_field_name_for_id(self._c, field_id);
+    pub fn field_name_for_id(self: Self, field_id: FieldId) ?[]const u8 {
+        const result = c_api.ts_language_field_name_for_id(self._c, field_id);
+        return if (result == null) null else std.mem.span(result);
     }
     pub fn field_id_for_name(self: Self, name: []const u8) FieldId {
         return c_api.ts_language_field_id_for_name(self._c, name.ptr, @truncate(u32, name.len));

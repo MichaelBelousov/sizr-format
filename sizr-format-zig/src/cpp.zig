@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const code = @import("./code.zig");
+const ts = @import("./tree_sitter.zig");
 
 fn dbgunreachable(str: []const u8) noreturn {
     if (std.os.getenv("DEBUG") != null) {
@@ -14,12 +15,16 @@ fn dbgunreachable(str: []const u8) noreturn {
 pub const NodeType = enum(code.NodeType) {
     // need to generate these by invoking tree_sitter
     translationUnit = 165, // are these hackily gathered ones even right?
-    functionDefinition = 166,
-    primitiveType,
-    functionDeclarator,
-    identifier,
+    functionDefinition = 186,
+    primitiveType = 78,
+    functionDeclarator = 216,
+    identifier = 1,
     parameterList = 239,
-    compoundStatement,
+    compoundStatement = 225,
+    @"(" = 5,
+    @")" = 8,
+    @"{" = 59,
+    @"}" = 60,
 };
 
 // TODO: generate from tree_sitter grammar
@@ -83,6 +88,8 @@ fn aliasKeyFromName(name: []const u8) code.AliasKey {
 // probably want to generate this from tree_sitter grammar for C++
 fn nodeFormats(_key: code.NodeType) code.WriteCommand {
     std.debug.print("nodeFormats> key: {}\n", .{_key});
+    std.debug.print("nodeFormats> field: {s}\n", .{ts.cpp().field_name_for_id(_key)});
+    std.debug.print("nodeFormats> symbol: {s}\n", .{ts.cpp().symbol_name(_key)});
     const key = @intToEnum(NodeType, _key);
     // FIXME: need to use tree-sitter support of non-string based AST
     // node type tags instead of expensive string checks
@@ -94,6 +101,12 @@ fn nodeFormats(_key: code.NodeType) code.WriteCommand {
         .identifier => .trivial,
         .parameterList => .trivial,
         .compoundStatement => .trivial,
+        .@"(" => code.WriteCommand{.raw="("},
+        .@")" => code.WriteCommand{.raw=")"},
+        .@"{" => code.WriteCommand{.raw="{"},
+        .@"}" => code.WriteCommand{.raw="}"},
+        // TODO: remove by generating exhaustively
+        //else => .trivial,
     };
 }
 
@@ -125,6 +138,8 @@ fn aliasing(_from: code.NodeType, _alias: code.AliasKey) *const code.NodePath {
         .identifier => &defaultAliasPath,
         .parameterList => &defaultAliasPath,
         .compoundStatement => &defaultAliasPath,
+        // TODO: remove once generating the entire alias/virtual field map
+        else => &defaultAliasPath,
     };
     return @ptrCast(*const code.NodePath, result);
 }
@@ -135,5 +150,4 @@ pub const languageFormat = code.LanguageFormat{
     .aliasKeyFromName = aliasKeyFromName,
     .aliasing = aliasing,
     .nodeFormats = nodeFormats,
-    .rootNodeType = @enumToInt(NodeType.translationUnit)
 };

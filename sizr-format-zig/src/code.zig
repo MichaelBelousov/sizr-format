@@ -315,19 +315,17 @@ pub fn EvalCtx(comptime WriterType: type) type {
         lineBuffer: []u8,
         lineBufCursor: usize,
 
-        fn eval(self: Self, expr: Expr) ?Value {
-            //const node = self.nodeCursor
-            const node = ts.Node{ ._c = ts._c.ts_tree_cursor_current_node(&self.nodeCursor) };
+        fn eval(self: Self, node: ts.Node, expr: Expr) ?Value {
             return self.varResolver.resolver.resolve(node, expr);
         }
 
-        fn evalAndWrite(self: *Self, expr: Expr) !void {
-            const maybe_eval_result = self.eval(expr);
+        fn evalAndWrite(self: *Self, node: ts.Node, expr: Expr) !void {
+            const maybe_eval_result = self.eval(node, expr);
             if (maybe_eval_result) |eval_result| {
                 switch (eval_result) {
-                    .node => |node| {
-                        dbglogv("evalAndWrite> type: '{s}'\n", .{node.type()});
-                        try self.writeNode(node);
+                    .node => |refNode| {
+                        dbglogv("evalAndWrite> type: '{s}'\n", .{refNode.type()});
+                        try self.writeNode(refNode);
                     },
                     else => {
                         // FIXME: take an allocator instance argument so we can track leaks in tests
@@ -339,9 +337,9 @@ pub fn EvalCtx(comptime WriterType: type) type {
             }
         }
 
-        pub fn @"test"(self: Self, expr: Expr) bool {
+        pub fn @"test"(self: Self, node: ts.Node, expr: Expr) bool {
             // TODO: need to also return true if it's a node or etc
-            return if (self.eval(expr)) |expr_val| switch (expr_val) {
+            return if (self.eval(node, expr)) |expr_val| switch (expr_val) {
                 .boolean => |val| val,
                 .string => |val| !std.mem.eql(u8, "", val),
                 .regex => |val| !std.mem.eql(u8, "", val),
@@ -412,38 +410,39 @@ pub fn EvalCtx(comptime WriterType: type) type {
         /// get the write command registered for the root syntactic construct
         /// and write the source in this EvalCtx
         pub fn writeSrc(self: *Self) WriterType.Error!void {
-            try self.writeCmd(self.languageFormat.nodeFormats(self.languageFormat.rootNodeType));
+            const node = ts.Node{ ._c = ts._c.ts_tree_cursor_current_node(&self.nodeCursor) };
+            try self.writeNode(node);
         }
 
         /// write a formatted node
         fn writeNode(self: *Self, node: ts.Node) WriterType.Error!void {
             dbglogv("writeNode> type: '{s}', symbol: {}\n", .{node.type(), node.symbol()});
             const wcmd = self.languageFormat.nodeFormats(node.symbol());
-            return self.writeCmd(wcmd);
+            return self.writeCmd(node, wcmd);
         }
 
         // FIXME: need to separate this further from writeSrc
         // TODO: Self should probably be itself a (proxy) writer that handles wrapping
         // could be basically the same as std.io.BufferedWriter
-        fn writeCmd(self: *Self, cmd: WriteCommand) WriterType.Error!void {
+        fn writeCmd(self: *Self, node: ts.Node, cmd: WriteCommand) WriterType.Error!void {
             switch (cmd) {
                 .raw => |val| try self._write(val),
                 .ref => |val| {
                     dbglogv("writeCmd> '{s}', \n", .{val.name});
-                    try self.evalAndWrite(val.name);
+                    try self.evalAndWrite(node, val.name);
                 },
                 .wrapPoint => try self.tryWrap(),
                 .conditional => |val| {
-                    if (self.@"test"(val.@"test") and val.then != null) {
-                        _ = try self.writeCmd(val.then.?.*);
+                    if (self.@"test"(node, val.@"test") and val.then != null) {
+                        _ = try self.writeCmd(node, val.then.?.*);
                     } else if (val.@"else" != null) {
-                        _ = try self.writeCmd(val.@"else".?.*);
+                        _ = try self.writeCmd(node, val.@"else".?.*);
                     }
                 },
                 .indentMark => |val| _ = self.indent(val),
                 .sequence => |cmds| {
                     for (cmds) |sub_cmd| {
-                        _ = try self.writeCmd(sub_cmd);
+                        _ = try self.writeCmd(node, sub_cmd);
                     }
                 },
                 // TODO:remove .all Expr
@@ -451,8 +450,7 @@ pub fn EvalCtx(comptime WriterType: type) type {
                     var i: u32 = 0;
                     const count = node.child_count();
                     while (i < count) {
-                        const child = self.child(i);
-                        try self.writeNode(child);
+                        try self.writeNode(node.child(i));
                         i += 1;
                     }
                 }
@@ -495,7 +493,6 @@ pub const LanguageFormat = struct {
     nodeTypeFromName: fn([]const u8) NodeType,
     nodeKeyFromName: fn([]const u8) NodeKey,
     aliasKeyFromName: fn([]const u8) AliasKey,
-    rootNodeType: NodeType,
 };
 
 test "write temp" {
