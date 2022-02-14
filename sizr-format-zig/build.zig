@@ -25,6 +25,10 @@ pub fn build(b: *std.build.Builder) void {
 
     var tests = b.addTest("src/main.zig");
 
+    // use `-Dtest-filter=x` to filter on tests
+    const maybe_test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match the filter");
+    if (maybe_test_filter) |test_filter| { tests.setFilter(test_filter); }
+
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig
     for ([_]*std.build.LibExeObjStep{exe, tests}) |artifact| {

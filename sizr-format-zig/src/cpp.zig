@@ -18,7 +18,7 @@ pub const NodeType = enum(code.NodeType) {
     primitiveType,
     functionDeclarator,
     identifier,
-    parameterList,
+    parameterList = 239,
     compoundStatement,
 };
 
