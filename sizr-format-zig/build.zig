@@ -35,8 +35,8 @@ pub fn build(b: *std.build.Builder) void {
         artifact.setBuildMode(mode);
         artifact.linkLibC();
         artifact.linkSystemLibrary("c++");
-        artifact.addIncludeDir("thirdparty/tree-sitter/lib/include");
-        artifact.addLibPath("thirdparty/tree-sitter");
+        artifact.addIncludePath("thirdparty/tree-sitter/lib/include");
+        artifact.addLibraryPath("thirdparty/tree-sitter");
         artifact.linkSystemLibrary("tree-sitter");
         artifact.addCSourceFile("thirdparty/tree-sitter-cpp/src/parser.c", &.{"-std=c99"});
         artifact.addCSourceFile("thirdparty/tree-sitter-cpp/src/scanner.cc", &.{"-std=c++14"});

@@ -22,3 +22,7 @@ lofty goals:
 
 - create an XML and sizr-format-lang serialization of the bytecode specification
 - can use peg to generate a parser for sizr-format-lang from a peg file and wrap it in a zig serializer
+
+## Better things to do
+
+- create a mapping of tree-sitter-cpp to clang in order to implement AST transforms and reference tracking from tree-sitter

@@ -3,7 +3,7 @@ const sizr_parser = @import("./parser.zig");
 const code = @import("./code.zig");
 const ts = @import("./tree_sitter.zig");
 
-test "" {
+test {
     _ = code;
     _ = ts;
 }
