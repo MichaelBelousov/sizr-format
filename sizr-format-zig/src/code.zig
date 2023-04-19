@@ -468,7 +468,6 @@ test "EvalCtx" {
         .languageFormat = cpp.languageFormat
     }) catch unreachable;
     defer ctx.free(std.testing.allocator);
-    _ = ctx;
 }
 
 // TODO: rename to FieldKey
