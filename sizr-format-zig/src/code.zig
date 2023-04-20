@@ -79,7 +79,7 @@ pub const Expr = union(enum) {
     }
 
     /// parse a string into an expression
-    pub fn parse(languageFormat: LanguageFormat, alloc: std.mem.Allocator, source: []const u8) !*Expr {
+    pub fn parse(comptime languageFormat: LanguageFormat, alloc: std.mem.Allocator, source: []const u8) !*Expr {
         // super bare-bones impl only supporting member-of operator for now
         var remaining = source;
         var cur_expr: ?*Expr = null;
@@ -234,7 +234,7 @@ fn Resolver(
 ) type {
     return struct {
         const Self = @This();
-        resolveFn: fn (self: Self, ctx: Ctx, expr: Expr) ?Value,
+        resolveFn: *const fn(self: Self, ctx: Ctx, expr: Expr) ?Value,
         pub fn resolve(self: Self, ctx: Ctx, expr: Expr) ?Value {
             return self.resolveFn(self, ctx, expr);
         }
@@ -487,11 +487,11 @@ pub const NodePath = []const NodeKey;
 
 /// language specific data of how to format a language's AST
 pub const LanguageFormat = struct {
-    aliasing: fn(NodeType, AliasKey) *const NodePath,
-    nodeFormats: fn(NodeType) WriteCommand,
-    nodeTypeFromName: fn([]const u8) NodeType,
-    nodeKeyFromName: fn([]const u8) NodeKey,
-    aliasKeyFromName: fn([]const u8) AliasKey,
+    aliasing: *const fn(NodeType, AliasKey) *const NodePath,
+    nodeFormats: *const fn(NodeType) WriteCommand,
+    nodeTypeFromName: *const fn([]const u8) NodeType,
+    nodeKeyFromName: *const fn([]const u8) NodeKey,
+    aliasKeyFromName: *const fn([]const u8) AliasKey,
 };
 
 test "write temp" {
