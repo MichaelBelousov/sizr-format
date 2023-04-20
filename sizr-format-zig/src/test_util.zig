@@ -20,7 +20,8 @@ pub var write_commands = struct {
     /// given a C++ translation unit source string, a write-command, expect a given string to be written
     pub fn expectWrittenStringStatic(self: *@This(), src: []const u8, comptime wcmd: code.WriteCommand, expected: []const u8) !void {
         dbglog("\n");
-        const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
+        var bufStream = std.io.fixedBufferStream(&self.buf);
+        const bufWriter = bufStream.writer();
         const TestLanguageFormat = struct { fn nodeFormats(_: u16) code.WriteCommand { return wcmd; } };
         var ctx = code.EvalCtx(@TypeOf(bufWriter)).init(.{
             .source = src,
@@ -47,7 +48,8 @@ pub var write_commands = struct {
     /// given a C++ translation unit source string, a write-command, expect a given string to be written
     pub fn expectWrittenStringCpp(self: *@This(), src: []const u8, expected: []const u8) !void {
         dbglog("\n");
-        const bufWriter = std.io.fixedBufferStream(&self.buf).writer();
+        var bufStream = std.io.fixedBufferStream(&self.buf);
+        const bufWriter = bufStream.writer();
         var ctx = code.EvalCtx(@TypeOf(bufWriter)).init(.{
             .source = src,
             .writer = bufWriter,
@@ -65,3 +67,4 @@ pub var write_commands = struct {
 }{
     .buf = undefined,
 };
+

@@ -324,7 +324,7 @@ pub fn EvalCtx(comptime WriterType: type) type {
             if (maybe_eval_result) |eval_result| {
                 switch (eval_result) {
                     .node => |refNode| {
-                        dbglogv("evalAndWrite> type: '{s}'\n", .{refNode.type()});
+                        dbglogv("evalAndWrite> type: '{?s}'\n", .{refNode.type()});
                         try self.writeNode(refNode);
                     },
                     else => {
@@ -416,7 +416,7 @@ pub fn EvalCtx(comptime WriterType: type) type {
 
         /// write a formatted node
         fn writeNode(self: *Self, node: ts.Node) WriterType.Error!void {
-            dbglogv("writeNode> type: '{s}', symbol: {}\n", .{node.type(), node.symbol()});
+            dbglogv("writeNode> type: '{any}', symbol: {}\n", .{node.type(), node.symbol()});
             const wcmd = self.languageFormat.nodeFormats(node.symbol());
             return self.writeCmd(node, wcmd);
         }
@@ -428,7 +428,7 @@ pub fn EvalCtx(comptime WriterType: type) type {
             switch (cmd) {
                 .raw => |val| try self._write(val),
                 .ref => |val| {
-                    dbglogv("writeCmd> '{s}', \n", .{val.name});
+                    dbglogv("writeCmd> '{any}', \n", .{val.name});
                     try self.evalAndWrite(node, val.name);
                 },
                 .wrapPoint => try self.tryWrap(),
