@@ -25,13 +25,17 @@ pub fn build(b: *std.build.Builder) void {
 
     var tests = b.addTest("src/main.zig");
 
+    // FIXME: breakout ts_query_exe comp from being mixed in here
+    const ts_query_exe = b.addExecutable("tsquery", "tsquery.zig");
+    ts_query_exe.step.dependOn(tree_sitter_step);
+
     // use `-Dtest-filter=x` to filter on tests
     const maybe_test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match the filter");
     if (maybe_test_filter) |test_filter| { tests.setFilter(test_filter); }
 
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig
-    for ([_]*std.build.LibExeObjStep{exe, tests}) |artifact| {
+    for ([_]*std.build.LibExeObjStep{exe, tests, ts_query_exe}) |artifact| {
         artifact.setBuildMode(mode);
         artifact.linkLibC();
         artifact.linkSystemLibrary("c++");
@@ -55,6 +59,16 @@ pub fn build(b: *std.build.Builder) void {
 
     const test_step = b.step("test", "run tests");
     test_step.dependOn(&tests.step);
+
+    ts_query_exe.install();
+    const run_tsquery_cmd = exe.run();
+    run_tsquery_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_tsquery_cmd.addArgs(args);
+    }
+
+    const run_tsquery_step = b.step("query", "Run tsquery");
+    run_tsquery_step.dependOn(&run_tsquery_cmd.step);
 }
 
 pub fn buildPeg(b: *std.build.Builder) *std.build.Step {
@@ -75,3 +89,4 @@ pub fn buildTreeSitter(b: *std.build.Builder) *std.build.Step {
     make_tree_sitter.addArgs(&[_][]const u8{ "/bin/make", "--directory", "thirdparty/tree-sitter" });
     return &make_tree_sitter.step;
 }
+

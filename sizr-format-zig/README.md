@@ -26,3 +26,10 @@ lofty goals:
 ## Better things to do
 
 - create a mapping of tree-sitter-cpp to clang in order to implement AST transforms and reference tracking from tree-sitter
+
+### What if tree-sitter-cpp was powered by clang
+
+OK, so tree-sitter can't be because it uses one static parser library.
+But what if there were a higher-level API in which a clang-powered alternative could provide similar features, such
+as tree-sitter queries
+
