@@ -61,7 +61,7 @@ pub fn build(b: *std.build.Builder) void {
     test_step.dependOn(&tests.step);
 
     ts_query_exe.install();
-    const run_tsquery_cmd = exe.run();
+    const run_tsquery_cmd = ts_query_exe.run();
     run_tsquery_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_tsquery_cmd.addArgs(args);

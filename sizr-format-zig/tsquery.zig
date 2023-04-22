@@ -8,10 +8,10 @@ pub fn main() !void {
   }
 
   const query = std.os.argv[1];
-  std.debug.print("query: {s}", .{query});
+  std.debug.print("query: {s}\n", .{query});
 
   const path = std.os.argv[2];
-  std.debug.print("path: {s}", .{path});
+  std.debug.print("path: {s}\n", .{path});
 
   const file = try std.fs.cwd().openFileZ(path, .{});
   defer file.close();
