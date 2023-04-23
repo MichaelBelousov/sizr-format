@@ -29,7 +29,7 @@ pub fn main() !void {
     const parser = ts.Parser.new();
     defer parser.free();
     if (!parser.set_language(ts.cpp()))
-    @panic("couldn't set cpp lang");
+        @panic("couldn't set cpp lang");
 
     const tree = parser.parse_string(null, &src);
     defer tree.delete();
@@ -40,8 +40,11 @@ pub fn main() !void {
 
     var query_len = std.mem.len(query);
     var query_match_iter = try root.exec_query(query[0..query_len]);
+
     while (query_match_iter.next()) |match| {
-        std.debug.print("match: {any}", .{match});
+        std.debug.print("match: {any}\n", .{match});
+    } else {
+        std.debug.print("no more matches\n", .{});
     }
 }
 
