@@ -39,7 +39,7 @@ pub fn build(b: *std.build.Builder) void {
         artifact.addCSourceFile("../thirdparty/tree-sitter-cpp/src/scanner.cc", &.{"-std=c++14"});
         artifact.addPackage(std.build.Pkg{
             .name = "tree-sitter",
-            .source = std.build.FileSource.relative("../tree-sitter/build.zig"),
+            .source = std.build.FileSource.relative("../tree-sitter/tree_sitter.zig"),
             .dependencies = null,
         });
     }

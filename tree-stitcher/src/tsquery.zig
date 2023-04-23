@@ -16,15 +16,16 @@ pub fn main() !void {
     const file = try std.fs.cwd().openFileZ(path, .{});
     defer file.close();
 
-    //var src: [8192]u8 = undefined;
-    //const bytes_read = try file.readAll(&src);
-    var src = std.c.mmap(path);
+    var src: [8192]u8 = undefined;
+    const bytes_read = try file.readAll(&src);
+    // TODO: mmap
+    // var src = std.c.mmap(path);
 
-    // if (bytes_read >= src.len) {
-    //     std.log.err("File was too long", .{});
-    //     return error.FileTooLong;
-    // }
-    //src[src.len - 1] = '\x00';
+    if (bytes_read >= src.len) {
+        std.log.err("File was too long", .{});
+        return error.FileTooLong;
+    }
+    src[src.len - 1] = '\x00';
 
     const parser = ts.Parser.new();
     defer parser.free();
