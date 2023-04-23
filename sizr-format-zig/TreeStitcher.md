@@ -22,9 +22,18 @@ extension of tree-sitter query feature to allow transformations between queries
     ; NOTE: should I make it possible to inline predicates?
     (#match? @name "^[a-z][a-z_0-9]+"))
   ; SUBSTITUTIONS
-  (@func name: (upper_case! @name)) ; I would need a true lisp standard library to do this...
+  (@func name: (upper_case! @name)) ; I would need to embed a real lisp with an stdlib to do this...
 )
 ```
 
 Now the real hard part is. How the @#$% do I detect renames when I capture.
+
+## Possible embeddable lisps
+
+- racket
+- tinyscheme (does it have an stdlib?)
+- [embeddable common-lisp](http://sdf.org/?tutorials/ecl_tutorial)
+- [s7](https://ccrma.stanford.edu/software/snd/snd/s7.html)
+- guile
+- [chibi-scheme](https://github.com/ashinn/chibi-scheme)
 
