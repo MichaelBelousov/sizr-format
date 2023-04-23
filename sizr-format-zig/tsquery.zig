@@ -4,14 +4,15 @@ const ts = @import("./src/tree_sitter.zig");
 pub fn main() !void {
   if (std.os.argv.len != 3) {
     std.log.info("Usage: query <QUERY> <SOURCE_PATH>", .{});
+    for (std.os.argv) |arg| {
+      std.debug.print("arg: {s}\n", .{arg});
+    }
     return error.BadArgs;
   }
 
   const query = std.os.argv[1];
-  std.debug.print("query: {s}\n", .{query});
-
+  _ = query;
   const path = std.os.argv[2];
-  std.debug.print("path: {s}\n", .{path});
 
   const file = try std.fs.cwd().openFileZ(path, .{});
   defer file.close();
