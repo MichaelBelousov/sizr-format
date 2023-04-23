@@ -11,7 +11,6 @@ pub fn main() !void {
     }
 
     const query = std.os.argv[1];
-    _ = query;
     const path = std.os.argv[2];
 
     const file = try std.fs.cwd().openFileZ(path, .{});
@@ -39,7 +38,8 @@ pub fn main() !void {
     defer syntax_tree_str.free();
     std.debug.print("syntax_tree: '{s}'\n", .{syntax_tree_str.ptr});
 
-    var query_match_iter = try root.exec_query("(function_definition)");
+    var query_len = std.mem.len(query);
+    var query_match_iter = try root.exec_query(query[0..query_len]);
     while (query_match_iter.next()) |match| {
         std.debug.print("match: {any}", .{match});
     }
