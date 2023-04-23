@@ -43,6 +43,13 @@ pub fn main() !void {
 
     while (query_match_iter.next()) |match| {
         std.debug.print("match: {any}\n", .{match});
+        var i: usize = 0;
+        while (i < match._c.capture_count) : (i += 1) {
+            const capture_node = ts.Node{._c = match._c.captures[i].node};
+            const capture_str = capture_node.string();
+            defer capture_str.free();
+            std.debug.print("capture: {s}\n", .{capture_str.ptr});
+        }
     } else {
         std.debug.print("no more matches\n", .{});
     }
