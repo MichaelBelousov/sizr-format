@@ -120,6 +120,12 @@ pub const Node = struct {
         return FreeableCStr{ .ptr = c_api.ts_node_string(self._c) };
     }
 
+    pub fn in_source(self: @This(), src: []const u8) []const u8 {
+        const start = @as(usize, c_api.ts_node_start_byte(self._c));
+        const end = @as(usize, c_api.ts_node_end_byte(self._c));
+        return src[start..end];
+    }
+
     pub fn parent(self: @This()) Node {
         if (self.@"null"()) return self;
         return Node { ._c = c_api.ts_node_parent(self._c) };

@@ -1,5 +1,5 @@
 
-# Stupid name, TreeSnipper
+# Stupid name, TreeStitcher
 
 extension of tree-sitter query feature to allow transformations between queries
 
@@ -10,7 +10,7 @@ extension of tree-sitter query feature to allow transformations between queries
 (transform
   ((function_declaration (identifier) @name) @func
     (#match? @name "^[A-Z][A-Z_]+"))
-  ((@func (upper_case @name))
+  ((@func (upper_case @name)))
 )
 ```
 

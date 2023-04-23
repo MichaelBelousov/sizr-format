@@ -49,6 +49,7 @@ pub fn main() !void {
             const capture_str = capture_node.string();
             defer capture_str.free();
             std.debug.print("capture: {s}\n", .{capture_str.ptr});
+            std.debug.print("capture source: {s}\n", .{capture_node.in_source(&src)});
         }
     } else {
         std.debug.print("no more matches\n", .{});
