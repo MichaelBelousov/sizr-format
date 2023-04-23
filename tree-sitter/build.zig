@@ -14,12 +14,13 @@ pub fn build(b: *std.build.Builder) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
 
+    const lib = b.addStaticLibrary("tree-sitter", "./tree_sitter.zig");
+
+    lib.step.dependOn(tree_sitter_step);
+
+    lib.setTarget(target);
+
     var tests = b.addTest("src/main.zig");
-
-    const exe = b.addExecutable("tsquery", "src/tsquery.zig");
-    exe.step.dependOn(tree_sitter_step);
-
-    exe.setTarget(target);
 
     // use `-Dtest-filter=x` to filter on tests
     const maybe_test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match the filter");
@@ -27,37 +28,22 @@ pub fn build(b: *std.build.Builder) void {
 
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig
-    for ([_]*std.build.LibExeObjStep{exe, tests}) |artifact| {
+    for ([_]*std.build.LibExeObjStep{lib, tests}) |artifact| {
         artifact.setBuildMode(mode);
         artifact.linkLibC();
         artifact.linkSystemLibrary("c++");
-        // TODO: move thirdparty up to share it more appropriately
         artifact.addIncludePath("../thirdparty/tree-sitter/lib/include");
+        // NOTE: why use linkSystemLibrary? Can't link it directly?
         artifact.addLibraryPath("../thirdparty/tree-sitter");
         artifact.linkSystemLibrary("tree-sitter");
         artifact.addCSourceFile("../thirdparty/tree-sitter-cpp/src/parser.c", &.{"-std=c99"});
         artifact.addCSourceFile("../thirdparty/tree-sitter-cpp/src/scanner.cc", &.{"-std=c++14"});
-        artifact.addPackage(std.build.Pkg{
-            .name = "tree-sitter",
-            .source = std.build.FileSource.relative("../tree-sitter/build.zig"),
-            .dependencies = null,
-        });
     }
 
-    exe.install();
+    lib.install();
 
     const test_step = b.step("test", "run tests");
     test_step.dependOn(&tests.step);
-
-    exe.install();
-    const run_tsquery_cmd = exe.run();
-    run_tsquery_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_tsquery_cmd.addArgs(args);
-    }
-
-    const run_tsquery_step = b.step("query", "Run tsquery");
-    run_tsquery_step.dependOn(&run_tsquery_cmd.step);
 }
 
 // TODO: abstract the concept of adding a gnumake invocation step (also check if zig has something for this)
