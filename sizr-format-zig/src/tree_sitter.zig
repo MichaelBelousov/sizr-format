@@ -64,6 +64,7 @@ pub const Node = struct {
     _c: c_api.TSNode,
 
     // TODO: maybe wrap all ts.Node usage in optionals and hide the concept of the invalid raw c struct?
+    // or just use another zig tree-sitter binding
     pub fn @"null"(self: @This()) bool {
         return c_api.ts_node_is_null(self._c);
     }
@@ -186,10 +187,31 @@ pub const Node = struct {
         }
         //unreachable;
     }
+
+    /// not from tree-sitter API, convenience wrapper
+    pub fn exec_query(self: @This(), query_src: []u8) void {
+        var err_offset = @as(u32, 0);
+        var err_type = c_api.TSQueryError.TSQueryErrorNone;
+        const language = c_api.ts_tree_language(self._c.tree);
+        const query = c_api.ts_query_new(language, query_src.ptr, query_src.len, &err_offset, &err_type);
+        if (err_type != c_api.TSQueryError.TSQueryErrorNone)
+            return;
+        const cursor = c_api.ts_query_cursor_new();
+        c_api.ts_query_cursor_exec(cursor, query, self._c);
+
+        var match: c_api.TSQueryMatch = undefined;
+        while (c_api.ts_query_cursor_next_match(cursor, match)) {
+            std.debug.print("{any}\n", .{match});
+        }
+    }
 };
 
 pub const Tree = struct {
     _c: *c_api.TSTree,
+
+    pub fn language(self: @This()) bool {
+        return c_api.ts_tree_language(self._c);
+    }
 };
 
 // these are just typedefs to native types
@@ -298,6 +320,49 @@ test "wrapType" {
 //     }
 }
 
+const QueryError = enum {
+  None,
+  Syntax,
+  NodeType,
+  Field,
+  Capture,
+  Structure,
+  Language,
+};
+
+// pub const QueryResult = union(enum) {
+//     result: Query,
+//     error: QueryError,
+// };
+
+pub const Query = struct {
+    _c: *c_api.TSQuery,
+
+    const Self = @This();
+
+    pub fn new(lang: Language, source: []u8) Self {
+        return Self{ ._c = c_api.ts_query_new(lang, source).? };
+    }
+
+    pub fn symbol_count(self: Self) u32 {
+        return c_api.ts_language_symbol_count(self._c);
+    }
+};
+
+pub const QueryCursor = struct {
+    _c: *c_api.TSQueryCursor,
+
+    const Self = @This();
+
+    pub fn new() Self {
+        return Self{ ._c = c_api.ts_query_cursor_new().? };
+    }
+
+    pub fn exec(self: Self, query: Query, node: Node) void {
+        return c_api.ts_query_cursor_exec(self._c, query._c, node._c);
+    }
+};
+
 // c++ support
 extern fn tree_sitter_cpp() callconv(.C) *c_api.TSLanguage;
 
@@ -305,3 +370,4 @@ extern fn tree_sitter_cpp() callconv(.C) *c_api.TSLanguage;
 pub fn cpp() Language {
     return Language{._c = tree_sitter_cpp() };
 }
+

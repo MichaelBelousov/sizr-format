@@ -18,9 +18,9 @@ pub fn main() !void {
   defer file.close();
 
   var src: [8192]u8 = undefined;
-  const bytes_read = try file.read(&src);
+  const bytes_read = try file.readAll(&src);
 
-  if (bytes_read == src.len) {
+  if (bytes_read >= src.len) {
     std.log.err("File was too long", .{});
     return error.FileTooLong;
   }
@@ -31,11 +31,16 @@ pub fn main() !void {
   defer parser.free();
   if (!parser.set_language(ts.cpp()))
     @panic("couldn't set cpp lang");
+
   const tree = parser.parse_string(null, &src);
   defer ts._c.ts_tree_delete(tree._c);
   const root = ts._c.ts_tree_root_node(tree._c);
   const syntax_tree = ts._c.ts_node_string(root);
   defer std.c.free(syntax_tree);
   std.debug.print("syntax_tree: '{s}'\n", .{syntax_tree});
+
+  for (root.exec_query("(function_definition)")) |match| {
+    std.debug.print("match: {any}", .{match});
+  }
 }
 
