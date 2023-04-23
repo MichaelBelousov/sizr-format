@@ -189,20 +189,42 @@ pub const Node = struct {
     }
 
     /// not from tree-sitter API, convenience wrapper
-    pub fn exec_query(self: @This(), query_src: []u8) void {
+    pub fn exec_query(self: @This(), query_src: []const u8) !QueryMatchesIterator {
         var err_offset = @as(u32, 0);
-        var err_type = c_api.TSQueryError.TSQueryErrorNone;
+        var err_type: c_api.TSQueryError = c_api.TSQueryErrorNone;
         const language = c_api.ts_tree_language(self._c.tree);
-        const query = c_api.ts_query_new(language, query_src.ptr, query_src.len, &err_offset, &err_type);
-        if (err_type != c_api.TSQueryError.TSQueryErrorNone)
-            return;
-        const cursor = c_api.ts_query_cursor_new();
+        const query = c_api.ts_query_new(language, query_src.ptr, @intCast(u32, query_src.len), &err_offset, &err_type);
+        switch (err_type) {
+            c_api.TSQueryErrorSyntax => return error.TSQueryErrorSyntax,
+            c_api.TSQueryErrorNodeType => return error.TSQueryErrorNodeType,
+            c_api.TSQueryErrorField => return error.TSQueryErrorField,
+            c_api.TSQueryErrorCapture => return error.TSQueryErrorCapture,
+            c_api.TSQueryErrorStructure => return error.TSQueryErrorStructure,
+            c_api.TSQueryErrorLanguage => return error.TSQueryErrorLanguage,
+            //c_api.TSQueryErrorNone => {},
+            else => {}, // ignore others, there are no other enum values
+        }
+        const cursor = c_api.ts_query_cursor_new().?;
         c_api.ts_query_cursor_exec(cursor, query, self._c);
 
+        return QueryMatchesIterator { ._cursor = cursor };
+    }
+};
+
+pub const QueryMatch = struct {
+    _c: c_api.TSQueryMatch,
+};
+
+// TODO: what is zig's agreed upon iterator interface?
+pub const QueryMatchesIterator = struct {
+    _cursor: *c_api.TSQueryCursor,
+
+    const Self = @This();
+
+    pub fn next(self: Self) ?QueryMatch {
         var match: c_api.TSQueryMatch = undefined;
-        while (c_api.ts_query_cursor_next_match(cursor, match)) {
-            std.debug.print("{any}\n", .{match});
-        }
+        var hadMoreMatches = c_api.ts_query_cursor_next_match(self._cursor, &match);
+        return if (hadMoreMatches) QueryMatch{._c = match} else null;
     }
 };
 
@@ -211,6 +233,14 @@ pub const Tree = struct {
 
     pub fn language(self: @This()) bool {
         return c_api.ts_tree_language(self._c);
+    }
+
+    pub fn delete(self: @This()) void {
+        return c_api.ts_tree_delete(self._c);
+    }
+
+    pub fn root_node(self: @This()) Node {
+        return Node { ._c = c_api.ts_tree_root_node(self._c) };
     }
 };
 

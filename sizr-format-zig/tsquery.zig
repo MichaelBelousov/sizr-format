@@ -2,45 +2,46 @@ const std = @import("std");
 const ts = @import("./src/tree_sitter.zig");
 
 pub fn main() !void {
-  if (std.os.argv.len != 3) {
-    std.log.info("Usage: query <QUERY> <SOURCE_PATH>", .{});
-    for (std.os.argv) |arg| {
-      std.debug.print("arg: {s}\n", .{arg});
+    if (std.os.argv.len != 3) {
+        std.log.info("Usage: query <QUERY> <SOURCE_PATH>", .{});
+        for (std.os.argv) |arg| {
+            std.debug.print("arg: {s}\n", .{arg});
+        }
+        return error.BadArgs;
     }
-    return error.BadArgs;
-  }
 
-  const query = std.os.argv[1];
-  _ = query;
-  const path = std.os.argv[2];
+    const query = std.os.argv[1];
+    _ = query;
+    const path = std.os.argv[2];
 
-  const file = try std.fs.cwd().openFileZ(path, .{});
-  defer file.close();
+    const file = try std.fs.cwd().openFileZ(path, .{});
+    defer file.close();
 
-  var src: [8192]u8 = undefined;
-  const bytes_read = try file.readAll(&src);
+    var src: [8192]u8 = undefined;
+    const bytes_read = try file.readAll(&src);
 
-  if (bytes_read >= src.len) {
-    std.log.err("File was too long", .{});
-    return error.FileTooLong;
-  }
+    if (bytes_read >= src.len) {
+        std.log.err("File was too long", .{});
+        return error.FileTooLong;
+    }
 
-  src[src.len - 1] = '\x00';
+    src[src.len - 1] = '\x00';
 
-  const parser = ts.Parser.new();
-  defer parser.free();
-  if (!parser.set_language(ts.cpp()))
+    const parser = ts.Parser.new();
+    defer parser.free();
+    if (!parser.set_language(ts.cpp()))
     @panic("couldn't set cpp lang");
 
-  const tree = parser.parse_string(null, &src);
-  defer ts._c.ts_tree_delete(tree._c);
-  const root = ts._c.ts_tree_root_node(tree._c);
-  const syntax_tree = ts._c.ts_node_string(root);
-  defer std.c.free(syntax_tree);
-  std.debug.print("syntax_tree: '{s}'\n", .{syntax_tree});
+    const tree = parser.parse_string(null, &src);
+    defer tree.delete();
+    const root = tree.root_node();
+    const syntax_tree_str = root.string();
+    defer syntax_tree_str.free();
+    std.debug.print("syntax_tree: '{s}'\n", .{syntax_tree_str.ptr});
 
-  for (root.exec_query("(function_definition)")) |match| {
-    std.debug.print("match: {any}", .{match});
-  }
+    var query_match_iter = try root.exec_query("(function_definition)");
+    while (query_match_iter.next()) |match| {
+        std.debug.print("match: {any}", .{match});
+    }
 }
 
