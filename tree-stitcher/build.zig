@@ -17,25 +17,26 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     var tests = b.addTest("src/main.zig");
+    // use `-Dtest-filter=x` to filter on tests
+    const maybe_test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match the filter");
+    if (maybe_test_filter) |test_filter| { tests.setFilter(test_filter); }
 
     const exe = b.addExecutable("tsquery", "src/tsquery.zig");
     exe.step.dependOn(tree_sitter_step);
 
     exe.setTarget(target);
-
-    // use `-Dtest-filter=x` to filter on tests
-    const maybe_test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match the filter");
-    if (maybe_test_filter) |test_filter| { tests.setFilter(test_filter); }
-
+  
+    const query_binding = b.addSharedLibrary("bindings", "src/bindings.zig", .unversioned);
     const build_chibi_bindings_src = b.addSystemCommand(&.{ "chibi-ffi", "./tree-sitter-chibi-ffi.scm" });
     const build_chibi_bindings = b.addSharedLibrary("scheme-bindings", "./tree-sitter-chibi-ffi.c", .unversioned);
 
+    build_chibi_bindings.step.dependOn(&query_binding.step);
     build_chibi_bindings.step.dependOn(&build_chibi_bindings_src.step);
     exe.step.dependOn(&build_chibi_bindings.step);
 
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig
-    for ([_]*std.build.LibExeObjStep{exe, tests}) |artifact| {
+    for ([_]*std.build.LibExeObjStep{exe, tests, query_binding}) |artifact| {
         artifact.setBuildMode(mode);
         artifact.linkLibC();
         artifact.linkSystemLibrary("c++");
