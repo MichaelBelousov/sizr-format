@@ -28,7 +28,8 @@ pub fn build(b: *std.build.Builder) void {
   
     const query_binding = b.addSharedLibrary("bindings", "src/bindings.zig", .unversioned);
     const build_chibi_bindings_src = b.addSystemCommand(&.{ "chibi-ffi", "./tree-sitter-chibi-ffi.scm" });
-    const build_chibi_bindings = b.addSharedLibrary("scheme-bindings", "./tree-sitter-chibi-ffi.c", .unversioned);
+    const build_chibi_bindings = b.addStaticLibrary("scheme-bindings", "./tree-sitter-chibi-ffi.c"); //, .unversioned);
+    build_chibi_bindings.addCSourceFile("./tree-sitter-chibi-ffi.c", &.{"-std=c99"});
 
     build_chibi_bindings.step.dependOn(&query_binding.step);
     build_chibi_bindings.step.dependOn(&build_chibi_bindings_src.step);
@@ -71,12 +72,6 @@ pub fn build(b: *std.build.Builder) void {
 
 // TODO: abstract the concept of adding a gnumake invocation step (also check if zig has something for this)
 pub fn buildTreeSitter(b: *std.build.Builder) *std.build.Step {
-    const make_tree_sitter = std.build.RunStep.create(b, "run 'make' in thirdparty tree_sitter dep");
-    make_tree_sitter.addArgs(&[_][]const u8{ "/bin/make", "--directory", "../thirdparty/tree-sitter" });
-    return &make_tree_sitter.step;
-}
-
-pub fn buildChibiSchemeBindings(b: *std.build.Builder) *std.build.Step {
     const make_tree_sitter = std.build.RunStep.create(b, "run 'make' in thirdparty tree_sitter dep");
     make_tree_sitter.addArgs(&[_][]const u8{ "/bin/make", "--directory", "../thirdparty/tree-sitter" });
     return &make_tree_sitter.step;
