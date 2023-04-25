@@ -26,19 +26,19 @@ pub fn build(b: *std.build.Builder) void {
 
     exe.setTarget(target);
   
-    const query_binding = b.addSharedLibrary("bindings", "src/bindings.zig", .unversioned);
     const build_chibi_bindings_src = b.addSystemCommand(&.{ "chibi-ffi", "./tree-sitter-chibi-ffi.scm" });
-    const build_chibi_bindings = b.addStaticLibrary("scheme-bindings", "./tree-sitter-chibi-ffi.c"); //, .unversioned);
-    build_chibi_bindings.addCSourceFile("./tree-sitter-chibi-ffi.c", &.{"-std=c99"});
 
-    build_chibi_bindings.step.dependOn(&query_binding.step);
-    build_chibi_bindings.step.dependOn(&build_chibi_bindings_src.step);
-    exe.step.dependOn(&build_chibi_bindings.step);
+    const query_binding = b.addSharedLibrary("bindings", "src/bindings.zig", .unversioned);
+    query_binding.addCSourceFile("./tree-sitter-chibi-ffi.c", &.{"-std=c99"});
+    query_binding.linkSystemLibrary("chibi-scheme");
+
+    query_binding.step.dependOn(&build_chibi_bindings_src.step);
 
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig
     for ([_]*std.build.LibExeObjStep{exe, tests, query_binding}) |artifact| {
         artifact.setBuildMode(mode);
+        artifact.setTarget(target);
         artifact.linkLibC();
         artifact.linkSystemLibrary("c++");
         // TODO: move thirdparty up to share it more appropriately
@@ -55,11 +55,11 @@ pub fn build(b: *std.build.Builder) void {
     }
 
     exe.install();
+    query_binding.install();
 
     const test_step = b.step("test", "run tests");
     test_step.dependOn(&tests.step);
 
-    exe.install();
     const run_tsquery_cmd = exe.run();
     run_tsquery_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
