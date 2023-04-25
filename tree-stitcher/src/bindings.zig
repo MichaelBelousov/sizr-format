@@ -9,12 +9,17 @@ export fn my_test(x: i32) [*]const u8 {
     return "hello!";
 }
 
+export fn free_query_match(match: *ts.QueryMatch) void {
+    // FIXME: not freed yet because owning container needs to be freed
+    _ = match;
+    //std.heap.c_allocator.destroy(match);
+}
+
 export fn exec_query(
     query: [*:0]const u8,
-    query_len: usize,
     srcs: [*c][*:0]const u8,
     srcs_count: usize
-) ?*const ts.QueryMatch {
+) ?[*:null]?*const ts.QueryMatch {
     // FIXME: replace these catches
     const file = std.fs.cwd().openFileZ(srcs[0], .{}) catch {
         std.debug.print("openFileZ failed", .{});
@@ -51,12 +56,23 @@ export fn exec_query(
     defer syntax_tree_str.free();
     std.debug.print("syntax_tree: '{s}'\n", .{syntax_tree_str.ptr});
 
+    const query_len = std.mem.len(query);
     var query_match_iter = root.exec_query(query[0..query_len]) catch {
         std.debug.print("openFileZ failed", .{});
         return null;
     };
 
+    var list = std.SegmentedList(ts.QueryMatch, 16){};
+    defer list.deinit(std.heap.c_allocator); // TODO: use arena allocator
+
     while (query_match_iter.next()) |match| {
+        // copy onto heap
+        const match_slot = list.addOne(std.heap.c_allocator) catch |err| {
+            std.debug.print("add to list err: {any}", .{err});
+            return null;
+        };
+        std.mem.copy(@TypeOf(match), @as(*[1]@TypeOf(match), match_slot), &.{match});
+
         std.debug.print("match: {any}\n", .{match});
         var i: usize = 0;
         while (i < match._c.capture_count) : (i += 1) {
@@ -66,11 +82,14 @@ export fn exec_query(
             std.debug.print("capture: {s}\n", .{capture_str.ptr});
             std.debug.print("capture source: {s}\n", .{capture_node.in_source(src)});
         }
-        return &match;
     } else {
         std.debug.print("no more matches\n", .{});
     }
 
-    return null;
+    // FIXME: leaks container
+    const array = std.heap.c_allocator.allocSentinel(*ts.QueryMatch, list.len, null);
+    list.writeToSlice(array[0..list.len]);
+
+    return array;
 }
 

@@ -54,7 +54,7 @@ pub fn build(b: *std.build.Builder) void {
         });
     }
 
-    exe.install();
+    // exe.install();
     query_binding.install();
 
     const test_step = b.step("test", "run tests");
@@ -72,8 +72,9 @@ pub fn build(b: *std.build.Builder) void {
 
 // TODO: abstract the concept of adding a gnumake invocation step (also check if zig has something for this)
 pub fn buildTreeSitter(b: *std.build.Builder) *std.build.Step {
-    const make_tree_sitter = std.build.RunStep.create(b, "run 'make' in thirdparty tree_sitter dep");
-    make_tree_sitter.addArgs(&[_][]const u8{ "/bin/make", "--directory", "../thirdparty/tree-sitter" });
+    const make_tree_sitter = b.addSystemCommand(&[_][]const u8{ "/bin/make", "--directory", "../thirdparty/tree-sitter" });
+    //const make_tree_sitter = std.build.RunStep.create(b, "run 'make' in thirdparty tree_sitter dep");
+    //make_tree_sitter.addArgs(&[_][]const u8{ "/bin/make", "--directory", "../thirdparty/tree-sitter" });
     return &make_tree_sitter.step;
 }
 
