@@ -15,10 +15,12 @@ export fn free_query_match(match: *ts.QueryMatch) void {
     //std.heap.c_allocator.destroy(match);
 }
 
+/// Caller must use libc free to free each object pointed to by the returned list,
+/// as well as the returned list itself
 export fn exec_query(
     query: [*:0]const u8,
     srcs: [*c][*:0]const u8
-) ?[*:null]?*const ts.QueryMatch {
+) ?[*:null]?*const ts._c.TSQueryMatch {
     // FIXME: replace these catches
     const file = std.fs.cwd().openFileZ(srcs[0], .{}) catch {
         std.debug.print("openFileZ failed", .{});
@@ -103,7 +105,7 @@ export fn exec_query(
     }
 
     // caller must `free` this
-    const array = std.heap.c_allocator.allocSentinel(?*ts.QueryMatch, list.len, null) catch |err| {
+    const array = std.heap.c_allocator.allocSentinel(?*ts._c.TSQueryMatch, list.len, null) catch |err| {
         std.debug.print("allocSentinel err {any}", .{err});
         return null;
     };
@@ -111,7 +113,8 @@ export fn exec_query(
 
     var i: usize = 0;
     while (list_iter.next()) |val| {
-        array[i] = val;
+        // FIXME: remove usage of the wrapping ts.QueryMatch
+        array[i] = &val._c;
         i += 1;
     }
 
