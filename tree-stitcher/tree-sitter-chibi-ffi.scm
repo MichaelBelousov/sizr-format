@@ -1,22 +1,28 @@
 
 (c-include "./bindings.h")
 
-; FIXME: INCOMPLETE
-(define-c-struct tstree)
+;; (define-c-struct tstree)
 
-(define-c-struct tsnode
-  ((array unsigned-long 4) context context)
+(define-c-struct TSNode
+  ((array unsigned-int 4) context context)
   ((const (pointer void)) id id)
-  ((const (pointer tstree)) tree tree))
+  ((const (pointer void)) tree tree))
 
-(define-c-struct query_capture
-  (tsnode node node)
-  (unsigned-long index index))
+(define-c-struct TSQueryCapture
+  ((struct TSNode) node node)
+  (unsigned-int index index))
 
+(define-c-struct TSQueryMatch
+  (int capture_count capture-count)
+  ((array (const TSQueryCapture) null) captures captures))
+
+;; TODO: fix casing for scheme? i.e. no underscores?
 (define-c-struct query_match
-  [finalizer: free_query_match]
-  (int c_field_name capture_count capture-count)
-  ((pointer string) captures captures))
+  ; [finalizer: free_query_match]
+  ((struct TSQueryMatch) match match))
 
-(define-c (free (array (const query_match) null)) exec_query ((const string) (array (const string))))
+(define-c
+  (free (array (pointer (const query_match)) null))
+  exec_query
+  ((const string) (array (const string) null)))
 
