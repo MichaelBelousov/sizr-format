@@ -16,6 +16,8 @@
   ((const (pointer void)) id id)
   ((const (pointer void)) tree tree))
 
+(define-c string ts_node_string ((struct TSNode)))
+
 (define-c-struct TSQueryCapture
   ((struct TSNode) node node)
   (unsigned-int index index))
@@ -26,11 +28,12 @@
 
 ;; TODO: fix casing for scheme? i.e. no underscores?
 (define-c-struct query_match
-  ; [finalizer: free_query_match]
   ((struct TSQueryMatch) match match))
 
 (define-c
-  (free (array (pointer (const query_match)) null))
+  ;; FIXME: leaking!
+  ;; (free (array (pointer (const query_match)) null))
+  (array (pointer (const query_match)) null)
   exec_query
   ((const string) (array (const string) null)))
 

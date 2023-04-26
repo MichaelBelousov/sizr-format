@@ -1,0 +1,5 @@
+(load "zig-out/lib/libbindings.so")
+(define q (exec_query "((function_definition) @func)" '("/home/mike/test2.cpp")))
+; (display (captures (match (car q))))
+(display (node (captures (match (car q)))))
+(display "\n")

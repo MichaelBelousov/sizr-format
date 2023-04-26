@@ -213,7 +213,10 @@ pub const Node = struct {
         const cursor = c_api.ts_query_cursor_new().?;
         c_api.ts_query_cursor_exec(cursor, query, self._c);
 
-        return QueryMatchesIterator { ._cursor = cursor };
+        return QueryMatchesIterator {
+            ._query = query orelse @panic("null query"),
+            ._cursor = cursor
+        };
     }
 };
 
@@ -224,6 +227,7 @@ pub const QueryMatch = struct {
 // TODO: what is zig's agreed upon iterator interface?
 pub const QueryMatchesIterator = struct {
     _cursor: *c_api.TSQueryCursor,
+    _query: *c_api.TSQuery,
 
     const Self = @This();
 
@@ -231,6 +235,11 @@ pub const QueryMatchesIterator = struct {
         var match: c_api.TSQueryMatch = undefined;
         var hadMoreMatches = c_api.ts_query_cursor_next_match(self._cursor, &match);
         return if (hadMoreMatches) QueryMatch{._c = match} else null;
+    }
+
+    pub fn free(self: Self) void {
+        c_api.ts_query_cursor_delete(self._cursor);
+        c_api.ts_query_delete(self._query);
     }
 };
 

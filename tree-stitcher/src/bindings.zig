@@ -32,17 +32,27 @@ export fn exec_query(
         std.debug.print("stat file failed", .{});
         return null;
     }).size;
+    _ = file_len;
 
-    var src_ptr = @alignCast(
-        std.mem.page_size,
-        std.c.mmap(null, file_len, mman.PROT_READ, mman.MAP_FILE, file.handle, 0)
-    );
-    var src = @ptrCast([*]const u8, src_ptr)[0..file_len];
-    defer {
-        var result = std.c.getErrno(std.c.munmap(src_ptr, file_len));
-        if (result != .SUCCESS)
-            std.debug.print("munmap errno: {any}", .{ result });
-    }
+    var buf: [8192]u8 = undefined;
+
+    _ = file.readAll(&buf) catch |err| {
+        std.debug.print("readAll fail {any}", .{err});
+        return null;
+    };
+
+    const src = &buf;
+
+    // var src_ptr = @alignCast(
+    //     std.mem.page_size,
+    //     std.c.mmap(null, file_len, mman.PROT_READ, mman.MAP_FILE, file.handle, 0)
+    // );
+    //var src = @ptrCast([*]const u8, src_ptr)[0..file_len];
+    // defer {
+    //     var result = std.c.getErrno(std.c.munmap(src_ptr, file_len));
+    //     if (result != .SUCCESS)
+    //         std.debug.print("munmap errno: {any}", .{ result });
+    // }
 
     const parser = ts.Parser.new();
     defer parser.free();
@@ -61,9 +71,10 @@ export fn exec_query(
         std.debug.print("openFileZ failed", .{});
         return null;
     };
+    defer query_match_iter.free();
 
     var list = std.SegmentedList(ts.QueryMatch, 16){};
-    defer list.deinit(std.heap.c_allocator); // TODO: use arena allocator
+    defer list.deinit(std.heap.c_allocator); // TODO: consider use arena allocator
 
     while (query_match_iter.next()) |match| {
         const match_slot = std.heap.c_allocator.create(ts.QueryMatch) catch |err| {
@@ -91,7 +102,7 @@ export fn exec_query(
         std.debug.print("no more matches\n", .{});
     }
 
-    // FIXME: leaks container
+    // caller must `free` this
     const array = std.heap.c_allocator.allocSentinel(?*ts.QueryMatch, list.len, null) catch |err| {
         std.debug.print("allocSentinel err {any}", .{err});
         return null;
