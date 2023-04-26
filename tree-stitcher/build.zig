@@ -35,22 +35,22 @@ pub fn build(b: *std.build.Builder) void {
     const build_chibi_bindings_src = b.addSystemCommand(&.{ "chibi-ffi", "./tree-sitter-chibi-ffi.scm" });
     // TODO: ask tree-sitter to tag their struct typedefs
     const patch_chibi_bindings_src = b.addSystemCommand(&[_][]const u8{
-        "sed", "-i", "-r", "s/struct (TS\\w+)/\\1/g", "./tree-sitter-chibi-ffi.c"
+        "sed", "-i", "-r",
+        "-e", "s/struct (TS\\w+)/\\1/g", // remove struct keyword usage for tree-sitter APIs
+        "-e", "/sexp_car\\(res\\) =/s/\\)\\);$/);/", // remove extraneous ')'
+        "./tree-sitter-chibi-ffi.c"
     });
     patch_chibi_bindings_src.step.dependOn(&build_chibi_bindings_src.step);
 
     const query_binding = b.addSharedLibrary("bindings", "src/bindings.zig", .unversioned);
-    query_binding.addCSourceFile("./tree-sitter-chibi-ffi.c", &.{"-std=c99"});
+    query_binding.addCSourceFile("./tree-sitter-chibi-ffi.c", &.{"-std=c99", "-fPIC"});
     query_binding.linkSystemLibrary("chibi-scheme");
 
     query_binding.step.dependOn(&patch_chibi_bindings_src.step);
-    query_binding.addIncludePath("../thirdparty/tree-sitter/lib/include");
-    query_binding.addPackage(tree_sitter_pkg);
-    query_binding.linkLibC();
 
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig
-    for ([_]*std.build.LibExeObjStep{exe, tests}) |artifact| {
+    for ([_]*std.build.LibExeObjStep{exe, tests, query_binding}) |artifact| {
         artifact.setBuildMode(mode);
         artifact.setTarget(target);
         artifact.linkLibC();
