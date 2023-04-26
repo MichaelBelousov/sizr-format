@@ -17,15 +17,15 @@ export fn free_query_match(match: *ts.QueryMatch) void {
 
 export fn exec_query(
     query: [*:0]const u8,
-    srcs: [*c][*:0]const u8,
-    srcs_count: usize
+    srcs: [*c][*:0]const u8
 ) ?[*:null]?*const ts.QueryMatch {
     // FIXME: replace these catches
     const file = std.fs.cwd().openFileZ(srcs[0], .{}) catch {
         std.debug.print("openFileZ failed", .{});
         return null;
     };
-    _ = srcs_count;
+    // compiler error
+    //_ = std.mem.len(srcs);
     defer file.close();
 
     var file_len = (file.stat() catch {
@@ -66,12 +66,17 @@ export fn exec_query(
     defer list.deinit(std.heap.c_allocator); // TODO: use arena allocator
 
     while (query_match_iter.next()) |match| {
+        const match_slot = std.heap.c_allocator.create(ts.QueryMatch) catch |err| {
+            std.debug.print("c_allocator create err: {any}", .{err});
+            return null;
+        };
+        match_slot.* = match;
+
         // copy onto heap
-        const match_slot = list.addOne(std.heap.c_allocator) catch |err| {
+        list.append(std.heap.c_allocator, match) catch |err| {
             std.debug.print("add to list err: {any}", .{err});
             return null;
         };
-        std.mem.copy(@TypeOf(match), @as(*[1]@TypeOf(match), match_slot), &.{match});
 
         std.debug.print("match: {any}\n", .{match});
         var i: usize = 0;
@@ -87,8 +92,17 @@ export fn exec_query(
     }
 
     // FIXME: leaks container
-    const array = std.heap.c_allocator.allocSentinel(*ts.QueryMatch, list.len, null);
-    list.writeToSlice(array[0..list.len]);
+    const array = std.heap.c_allocator.allocSentinel(?*ts.QueryMatch, list.len, null) catch |err| {
+        std.debug.print("allocSentinel err {any}", .{err});
+        return null;
+    };
+    var list_iter = list.iterator(0);
+
+    var i: usize = 0;
+    while (list_iter.next()) |val| {
+        array[i] = val;
+        i += 1;
+    }
 
     return array;
 }
