@@ -10,9 +10,10 @@
   (unsigned-int context2)
   (unsigned-int context3)
   (unsigned-int context4)
-  ((pointer (const void)) id id)
-  ((pointer (const void)) tree tree))
+  ((maybe-null (pointer (const void))) id id)
+  ((maybe-null (pointer (const void))) tree tree))
 
+;; raw tree-sitter binding
 (define-c string ts_node_string ((struct TSNode)))
 
 (define-c-struct TSQueryCapture
@@ -24,10 +25,6 @@
   (unsigned-short pattern_index pattern-index)
   (unsigned-short capture_count capture-count)
   ((array (const TSQueryCapture) null) captures captures))
-
-;; TODO: fix casing for scheme? i.e. no underscores?
-; (define-c-struct query_match
-  ; ((struct TSQueryMatch) match match))
 
 (define-c
   ;; FIXME: leaking!

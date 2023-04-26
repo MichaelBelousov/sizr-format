@@ -75,8 +75,8 @@ export fn exec_query(
     };
     defer query_match_iter.free();
 
-    var list = std.SegmentedList(ts.QueryMatch, 16){};
-    defer list.deinit(std.heap.c_allocator); // TODO: consider use arena allocator
+    var list = std.SegmentedList(*ts.QueryMatch, 16){};
+    defer list.deinit(std.heap.c_allocator);
 
     while (query_match_iter.next()) |match| {
         const match_slot = std.heap.c_allocator.create(ts.QueryMatch) catch |err| {
@@ -86,18 +86,18 @@ export fn exec_query(
         match_slot.* = match;
 
         // copy onto heap
-        list.append(std.heap.c_allocator, match) catch |err| {
+        list.append(std.heap.c_allocator, match_slot) catch |err| {
             std.debug.print("add to list err: {any}", .{err});
             return null;
         };
 
-        std.debug.print("match: {any}\n", .{match});
+        //std.debug.print("match: {any}\n", .{match});
         var i: usize = 0;
         while (i < match._c.capture_count) : (i += 1) {
             const capture_node = ts.Node{._c = match._c.captures[i].node};
             const capture_str = capture_node.string();
             defer capture_str.free();
-            std.debug.print("capture: {s}\n", .{capture_str.ptr});
+            //std.debug.print("capture: {s}\n", .{capture_str.ptr});
             std.debug.print("capture source: {s}\n", .{capture_node.in_source(src)});
         }
     } else {
@@ -114,7 +114,7 @@ export fn exec_query(
     var i: usize = 0;
     while (list_iter.next()) |val| {
         // FIXME: remove usage of the wrapping ts.QueryMatch
-        array[i] = &val._c;
+        array[i] = &val.*._c;
         i += 1;
     }
 
