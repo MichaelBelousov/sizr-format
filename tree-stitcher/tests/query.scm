@@ -5,3 +5,5 @@
 (display "\n")
 (display (ts_node_string (node (captures (car (matches_ExecQueryResult q))))))
 (display "\n")
+(display (node_source (node (captures (car (matches_ExecQueryResult q)))) q))
+(display "\n")

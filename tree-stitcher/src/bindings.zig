@@ -19,11 +19,25 @@ export fn free_ExecQueryResult(r: *ExecQueryResult) void {
     for (r.matches[0..match_count]) |maybe_match| {
         if (maybe_match) |match| std.heap.c_allocator.destroy(match);
     }
+    // NOTE: maybe should use actual std.c.free (and malloc)?
     std.heap.c_allocator.destroy(r);
 }
 
 export fn matches_ExecQueryResult(r: *ExecQueryResult) [*:null]?*const ts._c.TSQueryMatch {
     return r.matches;
+}
+
+/// Caller is responsible for std.c.free'ing the result
+export fn node_source(_node: ts._c.TSNode, ctx: *const ExecQueryResult) [*c]const u8 {
+    const node = ts.Node { ._c = _node };
+    const source = node.in_source(&ctx.buff);
+    const result = std.heap.c_allocator.allocSentinel(u8, source.len, 0) catch |err| {
+        std.debug.print("node_source allocSentinel err {any}", .{err});
+        return null;
+    };
+    std.mem.copy(u8, result[0..source.len], source);
+    // confusing...
+    return @as([*:0]const u8, result);
 }
 
 

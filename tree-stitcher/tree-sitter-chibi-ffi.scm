@@ -24,10 +24,12 @@
   (unsigned-short capture_count capture-count)
   ((array (const TSQueryCapture) null) captures captures))
 
-;; opaque
+;; opaque, hence stupid hidden int property
 (define-c-struct ExecQueryResult
   [finalizer: free_ExecQueryResult]
   (int _test))
+
+(define-c (free string) node_source ((struct TSNode) ExecQueryResult))
 
 (define-c (array (const TSQueryMatch) null) matches_ExecQueryResult (ExecQueryResult))
 
