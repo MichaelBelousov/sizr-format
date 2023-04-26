@@ -4,23 +4,35 @@ const mman = @cImport({
     @cInclude("sys/mman.h");
 });
 
-export fn my_test(x: i32) [*]const u8 {
-    _ = x;
-    return "hello!";
+const ExecQueryResult = struct {
+    parse_tree: ts.Tree,
+    query_match_iter: ts.QueryMatchesIterator,
+    matches: [*:null]?*const ts._c.TSQueryMatch,
+    buff: [8192]u8,
+};
+
+/// free a malloc'ed ExecQueryResult
+export fn free_ExecQueryResult(r: *ExecQueryResult) void {
+    r.parse_tree.delete();
+    r.query_match_iter.free();
+    const match_count = std.mem.len(r.matches);
+    for (r.matches[0..match_count]) |maybe_match| {
+        if (maybe_match) |match| std.heap.c_allocator.destroy(match);
+    }
+    std.heap.c_allocator.destroy(r);
 }
 
-export fn free_query_match(match: *ts.QueryMatch) void {
-    // FIXME: not freed yet because owning container needs to be freed
-    _ = match;
-    //std.heap.c_allocator.destroy(match);
+export fn matches_ExecQueryResult(r: *ExecQueryResult) [*:null]?*const ts._c.TSQueryMatch {
+    return r.matches;
 }
+
 
 /// Caller must use libc free to free each object pointed to by the returned list,
 /// as well as the returned list itself
 export fn exec_query(
     query: [*:0]const u8,
     srcs: [*c][*:0]const u8
-) ?[*:null]?*const ts._c.TSQueryMatch {
+) ?*ExecQueryResult {
     // FIXME: replace these catches
     const file = std.fs.cwd().openFileZ(srcs[0], .{}) catch {
         std.debug.print("openFileZ failed", .{});
@@ -36,14 +48,17 @@ export fn exec_query(
     }).size;
     _ = file_len;
 
-    var buf: [8192]u8 = undefined;
+    var result = std.heap.c_allocator.create(ExecQueryResult) catch |err| {
+        std.debug.print("couldn't alloc ExecQueryResult because {any}", .{err});
+        return null;
+    };
 
-    _ = file.readAll(&buf) catch |err| {
+    _ = file.readAll(&result.buff) catch |err| {
         std.debug.print("readAll fail {any}", .{err});
         return null;
     };
 
-    const src = &buf;
+    const src = &result.buff;
 
     // var src_ptr = @alignCast(
     //     std.mem.page_size,
@@ -61,24 +76,22 @@ export fn exec_query(
     if (!parser.set_language(ts.cpp()))
         @panic("couldn't set cpp lang");
 
-    const tree = parser.parse_string(null, src);
-    defer tree.delete();
-    const root = tree.root_node();
+    result.parse_tree = parser.parse_string(null, src);
+    const root = result.parse_tree.root_node();
     const syntax_tree_str = root.string();
     defer syntax_tree_str.free();
     std.debug.print("syntax_tree: '{s}'\n", .{syntax_tree_str.ptr});
 
     const query_len = std.mem.len(query);
-    var query_match_iter = root.exec_query(query[0..query_len]) catch {
+    result.query_match_iter = root.exec_query(query[0..query_len]) catch {
         std.debug.print("openFileZ failed", .{});
         return null;
     };
-    defer query_match_iter.free();
 
     var list = std.SegmentedList(*ts.QueryMatch, 16){};
     defer list.deinit(std.heap.c_allocator);
 
-    while (query_match_iter.next()) |match| {
+    while (result.query_match_iter.next()) |match| {
         const match_slot = std.heap.c_allocator.create(ts.QueryMatch) catch |err| {
             std.debug.print("c_allocator create err: {any}", .{err});
             return null;
@@ -104,8 +117,7 @@ export fn exec_query(
         std.debug.print("no more matches\n", .{});
     }
 
-    // caller must `free` this
-    const array = std.heap.c_allocator.allocSentinel(?*ts._c.TSQueryMatch, list.len, null) catch |err| {
+    result.matches = std.heap.c_allocator.allocSentinel(?*ts._c.TSQueryMatch, list.len, null) catch |err| {
         std.debug.print("allocSentinel err {any}", .{err});
         return null;
     };
@@ -114,10 +126,10 @@ export fn exec_query(
     var i: usize = 0;
     while (list_iter.next()) |val| {
         // FIXME: remove usage of the wrapping ts.QueryMatch
-        array[i] = &val.*._c;
+        result.matches[i] = &val.*._c;
         i += 1;
     }
 
-    return array;
+    return result;
 }
 

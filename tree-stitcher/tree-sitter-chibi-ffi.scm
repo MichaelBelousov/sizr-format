@@ -1,8 +1,6 @@
 
 (c-include "./bindings.h")
 
-;; (define-c-struct tstree)
-
 (define-c-struct TSNode
   ;; chibi scheme seems to be unable to handle an embedded array
   ;; ((array unsigned-int 4) context context)
@@ -26,10 +24,17 @@
   (unsigned-short capture_count capture-count)
   ((array (const TSQueryCapture) null) captures captures))
 
+;; opaque
+(define-c-struct ExecQueryResult
+  [finalizer: free_ExecQueryResult]
+  (int _test))
+
+(define-c (array (const TSQueryMatch) null) matches_ExecQueryResult (ExecQueryResult))
+
 (define-c
   ;; FIXME: leaking!
   ;; (free (array (pointer (const query_match)) null))
-  (array (pointer (const TSQueryMatch)) null)
+  (pointer ExecQueryResult)
   exec_query
   ((const string) (array (const string) null)))
 
