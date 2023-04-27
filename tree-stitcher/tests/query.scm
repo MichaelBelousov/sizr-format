@@ -10,23 +10,25 @@
       (write e out)
       (get-output-string out))))
 
+(define (string->expr s)
+  (read (open-input-string s)))
+
 (define-syntax exec_query2
   (syntax-rules ()
+    ; is this hygeinic?
     ((exec_query2 exp path)
-     (let ((result (exec_query (expr->string (quote exp)) '(path))))
-     (cons (matches_ExecQueryResult result) result)))))
+       (map (lambda (c) (string->expr (ts_node_string (node (captures c)))))
+            (matches_ExecQueryResult (exec_query (expr->string (quote exp)) '(path)))))))
 
-(define q (exec_query "((function_definition) @func)" '("/home/mike/test2.cpp")))
+(define q (exec_query "((function_definition) @func)" '("/home/mike/test.cpp")))
 
 ; (display (ts_node_string (node (captures (car (matches_ExecQueryResult q))))))
 ; (display "\n")
-; (display (node_source (node (captures (car (matches_ExecQueryResult q)))) q))
-; (display "\n")
-
-(display (exec_query2 ((function_definition) @func) "/home/mike/test2.cpp"))
+(display (node_source (node (captures (car (matches_ExecQueryResult q)))) q))
 (display "\n")
-(define q (cdr (exec_query2 ((function_definition) @func) "/home/mike/test2.cpp")))
-;; TODO: node's should be aware of the source from which they came to avoid this nonsense
-(display (node_source (node (captures (list-ref (car (exec_query2 ((identifier) @ident) "/home/mike/test2.cpp")) 0))) q))
+(display (node_source (node (captures (cadr (matches_ExecQueryResult q)))) q))
+(display "\n")
+
+(display (exec_query2 ((function_definition) @func) "/home/mike/test.cpp"))
 (display "\n")
 
