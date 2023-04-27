@@ -94,7 +94,6 @@ export fn exec_query(
     const root = result.parse_tree.root_node();
     const syntax_tree_str = root.string();
     defer syntax_tree_str.free();
-    std.debug.print("syntax_tree: '{s}'\n", .{syntax_tree_str.ptr});
 
     const query_len = std.mem.len(query);
     result.query_match_iter = root.exec_query(query[0..query_len]) catch {
@@ -118,17 +117,12 @@ export fn exec_query(
             return null;
         };
 
-        //std.debug.print("match: {any}\n", .{match});
         var i: usize = 0;
         while (i < match._c.capture_count) : (i += 1) {
             const capture_node = ts.Node{._c = match._c.captures[i].node};
             const capture_str = capture_node.string();
             defer capture_str.free();
-            //std.debug.print("capture: {s}\n", .{capture_str.ptr});
-            std.debug.print("capture source: {s}\n", .{capture_node.in_source(src)});
         }
-    } else {
-        std.debug.print("no more matches\n", .{});
     }
 
     result.matches = std.heap.c_allocator.allocSentinel(?*ts._c.TSQueryMatch, list.len, null) catch |err| {

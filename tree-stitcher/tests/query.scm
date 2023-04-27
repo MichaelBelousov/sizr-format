@@ -1,6 +1,5 @@
 ;#!r7rs
-(import (chibi io)
-        (scheme small))
+(import (scheme small))
 
 (load "zig-out/lib/libbindings.so")
 
@@ -14,7 +13,8 @@
 (define-syntax exec_query2
   (syntax-rules ()
     ((exec_query2 exp path)
-     (matches_ExecQueryResult (exec_query (expr->string (quote exp)) '(path))))))
+     (let ((result (exec_query (expr->string (quote exp)) '(path))))
+     (cons (matches_ExecQueryResult result) result)))))
 
 (define q (exec_query "((function_definition) @func)" '("/home/mike/test2.cpp")))
 
@@ -24,3 +24,9 @@
 ; (display "\n")
 
 (display (exec_query2 ((function_definition) @func) "/home/mike/test2.cpp"))
+(display "\n")
+(define q (cdr (exec_query2 ((function_definition) @func) "/home/mike/test2.cpp")))
+;; TODO: node's should be aware of the source from which they came to avoid this nonsense
+(display (node_source (node (captures (list-ref (car (exec_query2 ((identifier) @ident) "/home/mike/test2.cpp")) 0))) q))
+(display "\n")
+
