@@ -33,6 +33,8 @@
 
 (define-c (array (const TSQueryMatch) null) matches_ExecQueryResult (ExecQueryResult))
 
+(define-c string transform_ExecQueryResult (ExecQueryResult sexp))
+
 (define-c
   ;; FIXME: leaking!
   ;; (free (array (pointer (const query_match)) null))

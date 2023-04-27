@@ -1,8 +1,6 @@
 const std = @import("std");
 const ts = @import("tree-sitter");
-const mman = @cImport({
-    @cInclude("sys/mman.h");
-});
+const mman = @cImport({ @cInclude("sys/mman.h"); });
 
 const ExecQueryResult = struct {
     parse_tree: ts.Tree,
@@ -119,5 +117,39 @@ export fn exec_query(
     }
 
     return result;
+}
+
+// file issue on zig about all this stuff not working
+const chibi = @cImport({ @cInclude("chibi/eval.h"); });
+//const chibi = @cImport({ @cInclude("chibi_macros.h"); });
+extern fn _sexp_car(ctx: chibi.sexp, s: chibi.sexp) chibi.sexp;
+extern fn _sexp_length_unboxed(s: chibi.sexp) c_long;
+extern fn _sexp_symbol_to_string(ctx: chibi.sexp, s: chibi.sexp) c_long;
+
+export fn transform_ExecQueryResult(r: *ExecQueryResult, transform: chibi.sexp) [*c]const u8 {
+    var result = std.heap.c_allocator.allocSentinel(u8, 8192, 0) catch unreachable;
+    var writer = std.io.fixedBufferStream(result);
+    //chibi.sexp_debug(null, "message", transform);
+    std.debug.print("length: {any}\n", .{ _sexp_length_unboxed(transform) });
+
+    const match_count = std.mem.len(r.matches);
+    var i: usize = 0;
+    for (r.matches[0..match_count]) |maybe_match| {
+        if (maybe_match) |match| {
+            const outer_capture = match.captures[match.capture_count - 1];
+            _ = outer_capture.node;
+            const start = ts._c.ts_node_start_byte(outer_capture.node);
+            const end = ts._c.ts_node_end_byte(outer_capture.node);
+            _ = writer.write(r.buff[i..start]) catch unreachable;
+            i = end;
+
+            std.debug.print("symbol1: {any}\n", .{ _sexp_symbol_to_string(null, _sexp_car(null, transform)) });
+            std.debug.print("symbol2: {any}\n", .{ _sexp_symbol_to_string(null, transform) });
+            _ = writer.write(r.buff[i..start]) catch unreachable;
+        }
+    }
+    _ = writer.write(r.buff[i..]) catch unreachable;
+    
+    return &result[0];
 }
 

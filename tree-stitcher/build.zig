@@ -44,6 +44,7 @@ pub fn build(b: *std.build.Builder) void {
 
     const query_binding = b.addSharedLibrary("bindings", "src/bindings.zig", .unversioned);
     query_binding.addCSourceFile("./tree-sitter-chibi-ffi.c", &.{"-std=c99", "-fPIC"});
+    query_binding.addCSourceFile("src/chibi_macros.h", &.{"-std=c99", "-fPIC"});
     query_binding.linkSystemLibrary("chibi-scheme");
 
     query_binding.step.dependOn(&patch_chibi_bindings_src.step);

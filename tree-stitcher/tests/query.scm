@@ -20,15 +20,27 @@
        (map (lambda (c) (string->expr (ts_node_string (node (captures c)))))
             (matches_ExecQueryResult (exec_query (expr->string (quote exp)) '(path)))))))
 
-(define q (exec_query "((function_definition) @func)" '("/home/mike/test.cpp")))
+(define-syntax transform
+  (syntax-rules ()
+    ; is this hygienic?
+    ((transform from to path)
+       (let* ((query-str (expr->string (quote from)))
+              (query-str-outer-capture (string-append "(" query-str " @__OUTER)"))
+              (r (exec_query query-str-outer-capture '(path))))
+       ;; need get all text between the captured nodes
+       (transform_ExecQueryResult r (quote to))))))
 
+; (define q (exec_query "((function_definition) @func)" '("/home/mike/test.cpp")))
 ; (display (ts_node_string (node (captures (car (matches_ExecQueryResult q))))))
 ; (display "\n")
-(display (node_source (node (captures (car (matches_ExecQueryResult q)))) q))
-(display "\n")
-(display (node_source (node (captures (cadr (matches_ExecQueryResult q)))) q))
-(display "\n")
+; (display (node_source (node (captures (list-ref (matches_ExecQueryResult q) 0))) q))
+; (display "\n")
+; (display (node_source (node (captures (list-ref (matches_ExecQueryResult q) 1))) q))
+; (display "\n")
 
-(display (exec_query2 ((function_definition) @func) "/home/mike/test.cpp"))
+; (display (exec_query2 ((function_definition) @func) "/home/mike/test.cpp"))
+; (display "\n")
+
+(display (transform ((function_definition) @func) '(what about this) "/home/mike/test.cpp"))
 (display "\n")
 

@@ -32,6 +32,7 @@ pub fn build(b: *std.build.Builder) void {
         artifact.setBuildMode(mode);
         artifact.linkLibC();
         artifact.linkSystemLibrary("c++");
+        artifact.addIncludePath("./src");
         artifact.addIncludePath("../thirdparty/tree-sitter/lib/include");
         // NOTE: why use linkSystemLibrary? Can't link it directly?
         artifact.addLibraryPath("../thirdparty/tree-sitter");
