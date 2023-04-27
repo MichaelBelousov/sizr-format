@@ -86,7 +86,6 @@ export fn exec_query(
     const query_len = std.mem.len(query);
     result.query_match_iter = root.exec_query(query[0..query_len]) catch unreachable;
 
-    //var list = std.SegmentedList(*ts.QueryMatch, 16){};
     var list = std.SegmentedList(*ts._c.TSQueryMatch, 16){};
     defer list.deinit(std.heap.c_allocator);
 
@@ -96,16 +95,13 @@ export fn exec_query(
 
         // LEAK? working around that tree-sitter seems to reuse the capture pointer of returned matches when you
         // call next again... but will tree-sitter free it correctly later?
-        const newCaptures = @as(
-            [*c]ts._c.TSQueryCapture,
-            &(std.heap.c_allocator.alloc(ts._c.TSQueryCapture, match._c.capture_count) catch unreachable)[0]
-        );
+        const newCaptures = std.heap.c_allocator.alloc(ts._c.TSQueryCapture, match._c.capture_count) catch unreachable;
         std.mem.copy(
             ts._c.TSQueryCapture,
             newCaptures[0..match._c.capture_count],
             match._c.captures[0..match._c.capture_count]
         );
-        match_slot.captures = newCaptures;
+        match_slot.captures = @as([*c]ts._c.TSQueryCapture, &newCaptures[0]);
 
         list.append(std.heap.c_allocator, match_slot) catch unreachable;
     }
