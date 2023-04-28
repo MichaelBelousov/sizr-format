@@ -120,17 +120,14 @@ export fn exec_query(
 }
 
 // file issue on zig about all this stuff not working
-const chibi = @cImport({ @cInclude("chibi/eval.h"); });
-//const chibi = @cImport({ @cInclude("chibi_macros.h"); });
-extern fn _sexp_car(ctx: chibi.sexp, s: chibi.sexp) chibi.sexp;
-extern fn _sexp_length_unboxed(s: chibi.sexp) c_long;
-extern fn _sexp_symbol_to_string(ctx: chibi.sexp, s: chibi.sexp) c_long;
+//const chibi = @cImport({ @cInclude("chibi/eval.h"); });
+const chibi = @cImport({ @cInclude("chibi_macros.h"); });
 
-export fn transform_ExecQueryResult(r: *ExecQueryResult, transform: chibi.sexp) [*c]const u8 {
+export fn transform_ExecQueryResult(r: *ExecQueryResult, transform: chibi.sexp, ctx: chibi.sexp) [*c]const u8 {
     var result = std.heap.c_allocator.allocSentinel(u8, 8192, 0) catch unreachable;
     var writer = std.io.fixedBufferStream(result);
-    //chibi.sexp_debug(null, "message", transform);
-    std.debug.print("length: {any}\n", .{ _sexp_length_unboxed(transform) });
+    chibi._sexp_debug(ctx, "transform arg:", transform);
+    std.debug.print("length: {any}\n", .{ chibi._sexp_length_unboxed(transform) });
 
     const match_count = std.mem.len(r.matches);
     var i: usize = 0;
@@ -140,11 +137,13 @@ export fn transform_ExecQueryResult(r: *ExecQueryResult, transform: chibi.sexp) 
             _ = outer_capture.node;
             const start = ts._c.ts_node_start_byte(outer_capture.node);
             const end = ts._c.ts_node_end_byte(outer_capture.node);
+            std.debug.print("chunk: {d}:{d}\n", .{i, start});
             _ = writer.write(r.buff[i..start]) catch unreachable;
             i = end;
 
-            std.debug.print("symbol1: {any}\n", .{ _sexp_symbol_to_string(null, _sexp_car(null, transform)) });
-            std.debug.print("symbol2: {any}\n", .{ _sexp_symbol_to_string(null, transform) });
+            chibi._sexp_debug(ctx, "transform arg:", chibi._sexp_car(transform));
+            //std.debug.print("symbol1: {any}\n", .{ _sexp_symbol_to_string(null, _sexp_car(null, transform)) });
+            //std.debug.print("symbol2: {s}\n", .{ chibi._sexp_string_data(chibi._sexp_symbol_to_string(ctx, transform)) });
             _ = writer.write(r.buff[i..start]) catch unreachable;
         }
     }
