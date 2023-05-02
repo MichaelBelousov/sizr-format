@@ -23,10 +23,10 @@
 (define-syntax transform
   (syntax-rules ()
     ; is this hygienic?
-    ((transform from to path)
+    ((transform from to paths)
        (let* ((query-str (expr->string (quote from)))
               (query-str-outer-capture (string-append "(" query-str " @__OUTER)"))
-              (r (exec_query query-str-outer-capture '(path))))
+              (r (exec_query query-str-outer-capture paths)))
        ;; need get all text between the captured nodes
        (transform_ExecQueryResult r (quote to))))))
 
@@ -41,6 +41,10 @@
 ; (display (exec_query2 ((function_definition) @func) "/home/mike/test.cpp"))
 ; (display "\n")
 
-(display (transform ((function_definition) @func) '(what about this) "/home/mike/test.cpp"))
+(display
+  (transform
+    ((function_definition) @func)
+    (@func (string-upcase name:))
+    '("/home/mike/test.cpp")))
 (display "\n")
 
