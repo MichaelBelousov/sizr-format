@@ -127,74 +127,77 @@ const chibi = @cImport({ @cInclude("./chibi_macros.h"); });
 /// - replace all tree-sitter query capture syntax `@symbol` with the tree-sitter s-exp for that capture
 /// - replace all naked tree-sitter query field syntax `field:` with tree-sitter s-exp for that field
 /// - collapse all tree-sitter query field syntax `field: (expr)` into operations on that node
-fn functionize_transform_body(r: *ExecQueryResult, match: ts._c.TSQueryMatch, ctx: chibi.sexp, t: chibi.sexp) chibi.sexp {
-    const Impl = struct {
-        pub fn impl(r: *ExecQueryResult, match: ts._c.TSQueryMatch, ctx: chibi.sexp, t: chibi.sexp, capture_index: *usize) chibi.sexp {
-            const env = chibi.sexp_context_env(ctx);
+fn functionize_transform_body(
+    _r: *ExecQueryResult,
+    _match: ts._c.TSQueryMatch,
+    _ctx: chibi.sexp,
+    _t: chibi.sexp
+) chibi.sexp {
+    const Impl = struct { pub fn impl(r: *ExecQueryResult, match: ts._c.TSQueryMatch, ctx: chibi.sexp, t: chibi.sexp, capture_index: *usize) chibi.sexp {
+        const env = chibi.sexp_context_env(ctx);
 
-            const none: chibi.sexp = null;
-            // TODO: only needed in an error situation
-            const self = chibi.sexp_env_ref(env, chibi._sexp_intern(ctx, "transform_ExecQueryResult", -1), none);
-            if (self == none) @panic("could not find owning function bindings in environment");
+        const none: chibi.sexp = null;
+        // TODO: only needed in an error situation
+        const self = chibi.sexp_env_ref(env, chibi._sexp_intern(ctx, "transform_ExecQueryResult", -1), none);
+        if (self == none) @panic("could not find owning function bindings in environment");
 
-            if (!chibi.sexp_pairp(t)) {
-                if (chibi.sexp_symbolp(t)) {
-                    // TODO: add util func for this
-                    const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(ctx, t));
-                    if (std.mem.startsWith(u8, symbol_str, "@")) {
-                        if (capture_index.* >= match.capture_count)
-                            std.debug.panic("capture list overflowed (capture_index={d})", .{capture_index.*});
-                        capture_index.* += 1;
-                        const capture = match.captures[capture_index.*];
-                        const capture_node = ts.Node { ._c = capture.node };
-                        const capture_sexp_string = capture_node.string();
-                        defer capture_sexp_string.free();
-                        const string_to_expr = chibi.sexp_env_ref(env, chibi._sexp_intern(ctx, "string->expr", -1), none);
-                        if (self == none) @panic("could not find 'string->expr' in environment");
-                        const capture_sexp_string_sexp = chibi.sexp_c_string(ctx, capture_sexp_string.ptr, -1);
-                        const capture_sexp = chibi.sexp_apply(ctx, string_to_expr, capture_sexp_string_sexp);
-                        return capture_sexp;
-                    } if (std.mem.endsWith(u8, symbol_str, ":")) {
-                        // to do this, need to know the current level of the ast we're in...
-                        const capture = match.captures[capture_index.*];
-                        const capture_node = ts.Node { ._c = capture.node };
-                        const capture_sexp_string = capture_node.string();
-                        defer capture_sexp_string.free();
-                        const string_to_expr = chibi.sexp_env_ref(env, chibi._sexp_intern(ctx, "string->expr", -1), none);
-                        if (self == none) @panic("could not find 'string->expr' in environment");
-                        const capture_sexp_string_sexp = chibi.sexp_c_string(ctx, capture_sexp_string.ptr, -1);
-                        const capture_sexp = chibi.sexp_apply(ctx, string_to_expr, capture_sexp_string_sexp);
-                        return capture_sexp;
-                    } else {
-                        // just an ast function name
-                        // NEXT
-
-                    }
-                    return t;
+        if (!chibi.sexp_pairp(t)) {
+            if (chibi.sexp_symbolp(t)) {
+                // TODO: add util func for this
+                const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(ctx, t));
+                if (std.mem.startsWith(u8, symbol_str, "@")) {
+                    if (capture_index.* >= match.capture_count)
+                        std.debug.panic("capture list overflowed (capture_index={d})", .{capture_index.*});
+                    capture_index.* += 1;
+                    const capture = match.captures[capture_index.*];
+                    const capture_node = ts.Node { ._c = capture.node };
+                    const capture_sexp_string = capture_node.string();
+                    defer capture_sexp_string.free();
+                    const string_to_expr = chibi.sexp_env_ref(env, chibi._sexp_intern(ctx, "string->expr", -1), none);
+                    if (self == none) @panic("could not find 'string->expr' in environment");
+                    const capture_sexp_string_sexp = chibi.sexp_c_string(ctx, capture_sexp_string.ptr, -1);
+                    const capture_sexp = chibi.sexp_apply(ctx, string_to_expr, capture_sexp_string_sexp);
+                    return capture_sexp;
+                } if (std.mem.endsWith(u8, symbol_str, ":")) {
+                    // to do this, need to know the current level of the ast we're in...
+                    const capture = match.captures[capture_index.*];
+                    const capture_node = ts.Node { ._c = capture.node };
+                    const capture_sexp_string = capture_node.string();
+                    defer capture_sexp_string.free();
+                    const string_to_expr = chibi.sexp_env_ref(env, chibi._sexp_intern(ctx, "string->expr", -1), none);
+                    if (self == none) @panic("could not find 'string->expr' in environment");
+                    const capture_sexp_string_sexp = chibi.sexp_c_string(ctx, capture_sexp_string.ptr, -1);
+                    const capture_sexp = chibi.sexp_apply(ctx, string_to_expr, capture_sexp_string_sexp);
+                    return capture_sexp;
                 } else {
-                    return t;
+                    // just an ast function name
+                    // NEXT
+
                 }
+                return t;
             } else {
-                const car = chibi._sexp_car(t);
-                const cdr = chibi._sexp_cdr(t);
-                const new_car = functionize_transform_body(r, ctx, car);
-                const new_cdr = if (!chibi._sexp_nullp(cdr)) functionize_transform_body(r, ctx, cdr) else null;
-                return chibi._sexp_cons(ctx, new_car, new_cdr);
+                return t;
             }
-
-            //const symbol = chibi.sexp_env_define(
-                //ctx, env, chibi.sexp_intern(ctx, t.name, -1),
-            //);
-
-            //chibi.sexp_define_foreign(ctx, env, t.name, 1, sexp_proc);
-            //const symbol = chibi.sexp_env_define(
-                //ctx, env, chibi.sexp_intern(ctx, t.name, -1),
-            //);
+        } else {
+            const car = chibi._sexp_car(t);
+            const cdr = chibi._sexp_cdr(t);
+            const new_car = functionize_transform_body(r, ctx, car);
+            const new_cdr = if (!chibi._sexp_nullp(cdr)) functionize_transform_body(r, ctx, cdr) else null;
+            return chibi._sexp_cons(ctx, new_car, new_cdr);
         }
-    };
+
+        //const symbol = chibi.sexp_env_define(
+            //ctx, env, chibi.sexp_intern(ctx, t.name, -1),
+        //);
+
+        //chibi.sexp_define_foreign(ctx, env, t.name, 1, sexp_proc);
+        //const symbol = chibi.sexp_env_define(
+            //ctx, env, chibi.sexp_intern(ctx, t.name, -1),
+        //);
+    } };
 
     var index: usize = 0;
-    return Impl.impl(r, match, ctx, t, &index);
+    return Impl.impl(_r, _match, _ctx, _t, &index);
 }
 
 export fn transform_ExecQueryResult(r: *ExecQueryResult, transform: chibi.sexp, ctx: chibi.sexp) [*c]const u8 {
