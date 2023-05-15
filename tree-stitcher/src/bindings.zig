@@ -127,13 +127,13 @@ const chibi = @cImport({ @cInclude("./chibi_macros.h"); });
 /// - replace all tree-sitter query capture syntax `@symbol` with the tree-sitter s-exp for that capture
 /// - replace all naked tree-sitter query field syntax `field:` with tree-sitter s-exp for that field
 /// - collapse all tree-sitter query field syntax `field: (expr)` into operations on that node
-fn functionize_transform_body(
+fn transform_match(
     _r: *ExecQueryResult,
     _match: ts._c.TSQueryMatch,
     _ctx: chibi.sexp,
-    _t: chibi.sexp
+    _transform: chibi.sexp
 ) chibi.sexp {
-    const Impl = struct { pub fn impl(r: *ExecQueryResult, match: ts._c.TSQueryMatch, ctx: chibi.sexp, t: chibi.sexp, capture_index: *usize) chibi.sexp {
+    const Impl = struct { pub fn impl(r: *ExecQueryResult, match: ts._c.TSQueryMatch, ctx: chibi.sexp, transform: chibi.sexp, capture_index: *usize) chibi.sexp {
         const env = chibi.sexp_context_env(ctx);
 
         const none: chibi.sexp = null;
@@ -141,10 +141,10 @@ fn functionize_transform_body(
         const self = chibi.sexp_env_ref(env, chibi._sexp_intern(ctx, "transform_ExecQueryResult", -1), none);
         if (self == none) @panic("could not find owning function bindings in environment");
 
-        if (!chibi.sexp_pairp(t)) {
-            if (chibi.sexp_symbolp(t)) {
+        if (!chibi.sexp_pairp(transform)) {
+            if (chibi.sexp_symbolp(transform)) {
                 // TODO: add util func for this
-                const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(ctx, t));
+                const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(ctx, transform));
                 if (std.mem.startsWith(u8, symbol_str, "@")) {
                     if (capture_index.* >= match.capture_count)
                         std.debug.panic("capture list overflowed (capture_index={d})", .{capture_index.*});
@@ -174,15 +174,15 @@ fn functionize_transform_body(
                     // NEXT
 
                 }
-                return t;
+                return transform;
             } else {
-                return t;
+                return transform;
             }
         } else {
-            const car = chibi._sexp_car(t);
-            const cdr = chibi._sexp_cdr(t);
-            const new_car = functionize_transform_body(r, ctx, car);
-            const new_cdr = if (!chibi._sexp_nullp(cdr)) functionize_transform_body(r, ctx, cdr) else null;
+            const car = chibi._sexp_car(transform);
+            const cdr = chibi._sexp_cdr(transform);
+            const new_car = transform_match(r, ctx, car);
+            const new_cdr = if (!chibi._sexp_nullp(cdr)) transform_match(r, ctx, cdr) else null;
             return chibi._sexp_cons(ctx, new_car, new_cdr);
         }
 
@@ -197,7 +197,7 @@ fn functionize_transform_body(
     } };
 
     var index: usize = 0;
-    return Impl.impl(_r, _match, _ctx, _t, &index);
+    return Impl.impl(_r, _match, _ctx, _transform, &index);
 }
 
 export fn transform_ExecQueryResult(r: *ExecQueryResult, transform: chibi.sexp, ctx: chibi.sexp) [*c]const u8 {
