@@ -1,5 +1,5 @@
-//! TODO: doing this by hand for now but some kind of clang plugin could probably generate bindings better
-//! alternatively, tree-sitter queries themselves or even sizr-format could potentially generate this
+//! DO NOT EDIT. This has been superceded by the tree-sitter package in this repo, and once I come back
+//! to this project and redo its build script, I can remove this
 
 const std = @import("std");
 

@@ -1,5 +1,6 @@
 ;#!r7rs
 (import (scheme small))
+(import (scheme regex))
 
 (load "zig-out/lib/libbindings.so")
 
@@ -41,10 +42,21 @@
 ; (display (exec_query2 ((function_definition) @func) "/home/mike/test.cpp"))
 ; (display "\n")
 
+(define starts-with-in_ (regexp '(: "in_" (* any))))
+
 (display
   (transform
-    ((function_definition) @func)
-    (@func (string-upcase name:))
+    (((function_definition) name: (identifier) @name) @func)
+    ;; ; TODO: make this work
+    ;; NOTE: an alternative that might integrate better, would be use the tree-sitter field and node
+    ;; data to define all the node type symbols (e.g. (function_definition)) in this scope, so that
+    ;; native filtering and building of them could be easier?
+    ;; (((function_definition)
+    ;;     ; functions must be replaced with wildcard and checked later
+    ;;     name: (lambda (identifier) (regexp-matches? starts-with-in identifier)) @name)
+    ;;    @func)
+    (@func name: (string-upcase (serialize @name)))
+    ;(@func name: (string-upcase @name))
     '("/home/mike/test.cpp")))
 (display "\n")
 

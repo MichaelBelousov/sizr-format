@@ -408,6 +408,16 @@ pub const QueryCursor = struct {
     }
 };
 
+pub const TreeCursor = struct {
+    _c: c_api.TSTreeCursor,
+
+    const Self = @This();
+
+    pub fn new(node: Node) Self {
+        return Self{ ._c = c_api.ts_tree_cursor_new(node._c) };
+    }
+};
+
 // c++ support
 extern fn tree_sitter_cpp() callconv(.C) *c_api.TSLanguage;
 
