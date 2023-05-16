@@ -408,15 +408,95 @@ pub const QueryCursor = struct {
     }
 };
 
+// TODO: inline all direct wrappers
 pub const TreeCursor = struct {
     _c: c_api.TSTreeCursor,
 
     const Self = @This();
 
-    pub fn new(node: Node) Self {
+    pub inline fn new(node: Node) Self {
         return Self{ ._c = c_api.ts_tree_cursor_new(node._c) };
     }
+
+    pub inline fn goto_first_child(self: *Self) bool {
+        return c_api.ts_tree_cursor_goto_first_child(self._c) != 0;
+    }
+
+    pub inline fn goto_next_sibling(self: *Self) bool {
+        return c_api.ts_tree_cursor_goto_next_sibling(self._c) != 0;
+    }
+
+    pub inline fn goto_parent(self: *Self) bool {
+        return c_api.ts_tree_cursor_goto_parent(self._c) != 0;
+    }
+
+    pub inline fn current_node(self: Self) Node {
+        return Node{._c = c_api.ts_tree_cursor_current_node(&self)};
+    }
+
+    pub inline fn current_field_name(self: *Self) ?[]const u8 {
+        const maybe_cstr = c_api.ts_tree_cursor_current_field_name(&self);
+        if (maybe_cstr) |cstr| {
+            return maybe_cstr[0..std.mem.len(cstr)];
+        } else {
+            return null;
+        }
+    }
+
+    pub inline fn current_field_id(self: *Self) c_api.TSFieldId {
+        return c_api.ts_tree_cursor_current_field_id(&self);
+    }
 };
+
+test "TreeCursor" {
+    // NOTE: can I make this global or comptime data only referenced by tests and therefore not part
+    // of standard builds?
+    var parser = Parser.new();
+    defer parser.free();
+
+    if (!parser.set_language(cpp())) @panic("couldn't set cpp lang");
+
+    const tree = parser.parse_string(null, "int main() {}");
+    // NOTE: would be nice to just read `expect` a zig struct if more complicated tests are necessary...
+    // .{ .name="translation_unit", .children=.{.{.name=fn_def}} }
+
+    const cursor = TreeCursor.new(tree.root_node());
+    std.testing.expectEqual("translation_unit", cursor.current_node().@"type"());
+    std.testing.expectEqual(false, cursor.goto_next_sibling());
+    std.testing.expectEqual(true, cursor.goto_first_child());
+
+    std.testing.expectEqual("function_definition", cursor.current_node().@"type"());
+    std.testing.expectEqual(null, cursor.current_field_name());
+    std.testing.expectEqual(false, cursor.goto_next_sibling());
+    std.testing.expectEqual(true, cursor.goto_first_child());
+
+    std.testing.expectEqual("primitive_type", cursor.current_node().@"type"());
+    std.testing.expectEqual("type", cursor.current_field_name());
+    std.testing.expectEqual(false, cursor.goto_first_child());
+    std.testing.expectEqual(true, cursor.goto_next_sibling());
+
+    std.testing.expectEqual("function_declarator", cursor.current_node().@"type"());
+    std.testing.expectEqual("declarator", cursor.current_field_name());
+    std.testing.expectEqual(true, cursor.goto_first_child());
+
+    std.testing.expectEqual("identifier", cursor.current_node().@"type"());
+    std.testing.expectEqual("declarator", cursor.current_field_name());
+    std.testing.expectEqual(false, cursor.goto_first_child());
+    std.testing.expectEqual(true, cursor.goto_next_sibling());
+
+    std.testing.expectEqual("parameter_list", cursor.current_node().@"type"());
+    std.testing.expectEqual("parameters", cursor.current_field_name());
+    std.testing.expectEqual(false, cursor.goto_first_child());
+    std.testing.expectEqual(false, cursor.goto_next_sibling());
+    std.testing.expectEqual(true, cursor.goto_parent());
+
+    std.testing.expectEqual(true, cursor.goto_parent());
+
+    std.testing.expectEqual("compound_statement", cursor.current_node().@"type"());
+    std.testing.expectEqual("body", cursor.current_field_name());
+    std.testing.expectEqual(false, cursor.goto_first_child());
+    std.testing.expectEqual(false, cursor.goto_next_sibling());
+}
 
 // c++ support
 extern fn tree_sitter_cpp() callconv(.C) *c_api.TSLanguage;

@@ -20,7 +20,7 @@ pub fn build(b: *std.build.Builder) void {
 
     lib.setTarget(target);
 
-    var tests = b.addTest("src/main.zig");
+    var tests = b.addTest("tree_sitter.zig");
 
     // use `-Dtest-filter=x` to filter on tests
     const maybe_test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match the filter");
@@ -32,7 +32,6 @@ pub fn build(b: *std.build.Builder) void {
         artifact.setBuildMode(mode);
         artifact.linkLibC();
         artifact.linkSystemLibrary("c++");
-        artifact.addIncludePath("./src");
         artifact.addIncludePath("../thirdparty/tree-sitter/lib/include");
         // NOTE: why use linkSystemLibrary? Can't link it directly?
         artifact.addLibraryPath("../thirdparty/tree-sitter");
