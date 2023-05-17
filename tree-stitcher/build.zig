@@ -42,7 +42,7 @@ pub fn build(b: *std.build.Builder) void {
     });
     patch_chibi_bindings_src.step.dependOn(&build_chibi_bindings_src.step);
 
-    const query_binding = b.addSharedLibrary("bindings", "src/bindings.zig", .unversioned);
+    const query_binding = b.addSharedLibrary("bindings", "src/chibi_transform.zig", .unversioned);
     query_binding.addCSourceFile("./tree-sitter-chibi-ffi.c", &.{"-std=c99", "-fPIC"});
     // compiler bug: previously I accidentally did src/chibi_macros.h here, which caused a malformed object file
     // which ld.lld would think was a linker script and scream at
