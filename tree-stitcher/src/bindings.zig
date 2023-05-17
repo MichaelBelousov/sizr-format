@@ -2,7 +2,7 @@ const std = @import("std");
 const ts = @import("tree-sitter");
 const mman = @cImport({ @cInclude("sys/mman.h"); });
 
-const ExecQueryResult = struct {
+const ExecQueryResult = extern struct {
     parse_tree: ts.Tree,
     query_match_iter: ts.QueryMatchesIterator,
     matches: [*:null]?*const ts._c.TSQueryMatch,
@@ -124,13 +124,20 @@ export fn exec_query(
 const chibi = @cImport({ @cInclude("./chibi_macros.h"); });
 
 export fn node_to_ast(ctx: chibi.sexp, in_node: ts._c.TSNode) chibi.sexp {
-    _ = ctx;
-    var ast: chibi.sexp = null;
+    var ast = chibi.SEXP_NULL;
     const node = ts.Node{._c = in_node};
     const cursor = ts.TreeCursor.new(node);
-    _ = cursor;
+    defer cursor.free();
+    // make it backwards and then run reverse because lisp!
+
+    while (true) {
+        cursor.current_node();
+        ast = chibi._sexp_cons();
+    }
+
+    chibi.sexp_nreverse(ctx, ast);
+
     return ast;
-    //while
 }
 
 const MatchTransformer = struct {

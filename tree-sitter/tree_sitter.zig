@@ -418,6 +418,14 @@ pub const TreeCursor = struct {
         return Self{ ._c = c_api.ts_tree_cursor_new(node._c) };
     }
 
+    pub inline fn free(self: Self) void {
+        c_api.ts_tree_cursor_delete(&self._c);
+    }
+
+    pub inline fn reset(self: Self, node: Node) void {
+        c_api.ts_tree_cursor_reset(&self._c, node._c);
+    }
+
     pub inline fn goto_first_child(self: *Self) bool {
         return c_api.ts_tree_cursor_goto_first_child(&self._c);
     }
@@ -461,6 +469,8 @@ test "TreeCursor" {
     // .{ .name="translation_unit", .children=.{.{.name=fn_def}} }
 
     var cursor = TreeCursor.new(tree.root_node());
+    defer cursor.free();
+
     try std.testing.expectEqualStrings("translation_unit", cursor.current_node().@"type"().?);
     try std.testing.expectEqual(false, cursor.goto_next_sibling());
     try std.testing.expectEqual(true, cursor.goto_first_child());
