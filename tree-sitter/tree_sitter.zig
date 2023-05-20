@@ -70,7 +70,7 @@ pub const Node = struct {
     }
 
     pub fn @"type"(self: @This()) ?[]const u8 {
-        if (self.@"null"()) return null;
+        if (self.is_null()) return null;
         const raw = c_api.ts_node_type(self._c);
         return if (raw == null) null else std.mem.span(raw);
     }
@@ -96,7 +96,7 @@ pub const Node = struct {
     }
 
     pub fn child_by_field_name(self: @This(), field_name: []const u8) Node {
-        if (self.@"null"()) return self; // HACK
+        if (self.is_null()) return self; // HACK
         return Node {._c = c_api.ts_node_child_by_field_name(self._c, field_name.ptr, @truncate(u32, field_name.len)) };
     }
 
@@ -127,24 +127,24 @@ pub const Node = struct {
     }
 
     pub fn parent(self: @This()) Node {
-        if (self.@"null"()) return self;
+        if (self.is_null()) return self;
         return Node { ._c = c_api.ts_node_parent(self._c) };
     }
 
     pub fn child_count(self: @This()) u32 {
-        if (self.@"null"()) return 0;
+        if (self.is_null()) return 0;
         return c_api.ts_node_child_count(self._c);
     }
 
 
     pub fn symbol(self: @This()) Symbol {
-        if (self.@"null"()) return 0;
+        if (self.is_null()) return 0;
         return c_api.ts_node_symbol(self._c);
     }
 
     pub fn dbgprint_fields(self: @This()) void {
         const lang = cpp(); // temp
-        if (self.@"null"()) {
+        if (self.is_null()) {
             std.debug.print("{{NULL}}\n", .{});
             return;
         }
@@ -168,7 +168,7 @@ pub const Node = struct {
 
     pub fn dbgprint_field_in_parent(self: @This()) void {
         const lang = cpp(); // temp
-        if (self.@"null"()) {
+        if (self.is_null()) {
             std.debug.print("<node NULL />\n", .{});
             return;
         }

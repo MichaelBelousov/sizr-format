@@ -33,7 +33,7 @@
 
 (define q (exec_query "((function_definition) @func)" '("/home/mike/test.cpp")))
 (define my-node (node (captures (car (matches_ExecQueryResult q)))))
-(display (node_to_ast my-node))
+(display (node_to_ast my-node q))
 
 ; (display (ts_node_string (node (captures (car (matches_ExecQueryResult q))))))
 ; (display "\n")
@@ -63,4 +63,10 @@
     ;(@func name: (string-upcase @name))
     '("/home/mike/test.cpp")))
 (display "\n")
+
+
+(function_definition
+  (primitive_type)
+    (function_declarator (identifier) (parameter_list "(" ")")))
+
 

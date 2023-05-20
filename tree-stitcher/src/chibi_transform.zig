@@ -3,21 +3,21 @@ const bindings = @import("./bindings.zig");
 const ts = @import("tree-sitter");
 const chibi = @cImport({ @cInclude("./chibi_macros.h"); });
 
-fn _sexp_prepend(ctx: chibi.sexp, list: chibi.sexp, exp: chibi.sexp) void {
+fn _sexp_prepend(ctx: chibi.sexp, list: *chibi.sexp, exp: chibi.sexp) void {
     // ZIGBUG: possible zig translate-c bug when using just sexp_push
-    list = chibi.sexp_push_op(ctx, &list, chibi.SEXP_VOID);
-    chibi._set_sexp_car(list, exp);
+    _ = chibi.sexp_push_op(ctx, list, chibi.SEXP_VOID);
+    chibi._set_sexp_car(list.*, exp);
 }
 
 const NodeToAstImpl = struct {
-    fn node_to_ast_impl(ctx: chibi.sexp, cursor: ts.TreeCursor, parse_ctx: bindings.ExecQueryResult) chibi.sexp {
+    fn node_to_ast_impl(ctx: chibi.sexp, cursor: *ts.TreeCursor, parse_ctx: *const bindings.ExecQueryResult) chibi.sexp {
         var ast = chibi.SEXP_NULL;
         const root_node = cursor.current_node();
         const root_node_type = root_node.@"type"();
         std.debug.assert(root_node_type != null);
         // ZIGBUG: this should be an implicit conversion
         const root_node_sym = chibi.sexp_intern(ctx, root_node_type.?.ptr, -1);
-        _sexp_prepend(ctx, ast, root_node_sym);
+        _sexp_prepend(ctx, &ast, root_node_sym);
 
         if (!cursor.goto_first_child()) return ast;
 
@@ -26,31 +26,36 @@ const NodeToAstImpl = struct {
             if (!hasSibling) break;
             const child = cursor.current_node();
             if (child.is_null()) {
-                std.debug.assert("child was null, not possible with tree cursor");
+                @panic("child was null, not possible with tree cursor");
             } else if (child.is_missing()) {
                 continue;
             } else if (child.is_named()) {
-                _sexp_prepend(ctx, ast, node_to_ast_impl(ctx, cursor, parse_ctx));
+                _sexp_prepend(ctx, &ast, node_to_ast_impl(ctx, cursor, parse_ctx));
             } else { // is anonymous
-                const str = chibi.sexp_c_string(ctx, child.in_source(parse_ctx.buff), -1);
-                _sexp_prepend(ctx, ast, str);
+                const slice = child.in_source(&parse_ctx.buff);
+                const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
+                _sexp_prepend(ctx, &ast, str);
             }
         }
 
-        _ = chibi._sexp_nreverse(ctx, ast);
-
-        chibi._sexp_debug(ctx, "node_to_ast done:", ast);
+        ast = chibi._sexp_nreverse(ctx, ast);
 
         return ast;
     }
 
-    export fn node_to_ast(ctx: chibi.sexp, in_node: ts._c.TSNode, parse_ctx: bindings.ExecQueryResult) chibi.sexp {
+    fn node_to_ast(ctx: chibi.sexp, in_node: ts._c.TSNode, parse_ctx: *const bindings.ExecQueryResult) chibi.sexp {
         const node = ts.Node{._c = in_node};
         var cursor = ts.TreeCursor.new(node);
         defer cursor.free();
-        return node_to_ast_impl(ctx, cursor, parse_ctx);
+        const ast = node_to_ast_impl(ctx, &cursor, parse_ctx);
+        chibi._sexp_debug(ctx, "node_to_ast done:", ast);
+        return ast;
     }
 };
+
+export fn node_to_ast(ctx: chibi.sexp, in_node: ts._c.TSNode, parse_ctx: *const bindings.ExecQueryResult) chibi.sexp {
+     return NodeToAstImpl.node_to_ast(ctx, in_node, parse_ctx);
+}
 
 const MatchTransformer = struct {
     r: *bindings.ExecQueryResult,

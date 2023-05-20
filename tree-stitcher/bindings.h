@@ -14,5 +14,5 @@ const char* transform_ExecQueryResult(struct ExecQueryResult*, sexp substitution
 
 const char* node_source(TSNode, const struct ExecQueryResult*);
 
-sexp node_to_ast(sexp ctx, TSNode node);
+sexp node_to_ast(sexp ctx, TSNode node, const struct ExecQueryResult*);
 
