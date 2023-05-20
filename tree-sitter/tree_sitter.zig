@@ -65,7 +65,7 @@ pub const Node = struct {
 
     // TODO: maybe wrap all ts.Node usage in optionals and hide the concept of the invalid raw c struct?
     // or just use another zig tree-sitter binding
-    pub fn @"null"(self: @This()) bool {
+    pub fn is_null(self: @This()) bool {
         return c_api.ts_node_is_null(self._c);
     }
 
@@ -418,7 +418,7 @@ pub const TreeCursor = struct {
         return Self{ ._c = c_api.ts_tree_cursor_new(node._c) };
     }
 
-    pub inline fn free(self: Self) void {
+    pub inline fn free(self: *Self) void {
         c_api.ts_tree_cursor_delete(&self._c);
     }
 

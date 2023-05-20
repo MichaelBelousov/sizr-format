@@ -31,7 +31,10 @@
        ;; need get all text between the captured nodes
        (transform_ExecQueryResult r (quote to))))))
 
-; (define q (exec_query "((function_definition) @func)" '("/home/mike/test.cpp")))
+(define q (exec_query "((function_definition) @func)" '("/home/mike/test.cpp")))
+(define my-node (node (captures (car (matches_ExecQueryResult q)))))
+(display (node_to_ast my-node))
+
 ; (display (ts_node_string (node (captures (car (matches_ExecQueryResult q))))))
 ; (display "\n")
 ; (display (node_source (node (captures (list-ref (matches_ExecQueryResult q) 0))) q))
@@ -46,7 +49,8 @@
 
 (display
   (transform
-    (((function_definition) name: (identifier) @name) @func)
+    ;(((function_definition) name: (identifier) @name) @func)
+    ((function_definition) @func)
     ;; ; TODO: make this work
     ;; NOTE: an alternative that might integrate better, would be use the tree-sitter field and node
     ;; data to define all the node type symbols (e.g. (function_definition)) in this scope, so that

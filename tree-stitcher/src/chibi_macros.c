@@ -14,4 +14,8 @@ int _sexp_pairp(sexp s) { return sexp_pairp(s); }
 int _sexp_symbolp(sexp s) { return sexp_symbolp(s); }
 int _sexp_nullp(sexp s) { return sexp_nullp(s); }
 sexp _sexp_cons(sexp ctx, sexp a, sexp b) { return sexp_cons(ctx, a, b); }
+sexp _sexp_nreverse(sexp ctx, sexp ls) { return sexp_reverse(ctx, ls); }
+
+// non-macro translation helpers
+void _set_sexp_car(sexp ls, sexp in_car) { sexp_car(ls) = in_car; }
 

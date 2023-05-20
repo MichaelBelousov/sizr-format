@@ -35,6 +35,8 @@
 
 (define-c string transform_ExecQueryResult (ExecQueryResult sexp (value ctx sexp)))
 
+(define-c sexp node_to_ast ((value ctx sexp) (struct TSNode) ExecQueryResult))
+
 (define-c
   ;; FIXME: leaking!
   ;; (free (array (pointer (const query_match)) null))
