@@ -19,7 +19,13 @@ const NodeToAstImpl = struct {
         const root_node_sym = chibi.sexp_intern(ctx, root_node_type.?.ptr, -1);
         _sexp_prepend(ctx, &ast, root_node_sym);
 
-        if (!cursor.goto_first_child()) return ast;
+        if (!cursor.goto_first_child()) {
+            const slice = root_node.in_source(&parse_ctx.buff);
+            const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
+            _sexp_prepend(ctx, &ast, str);
+            ast = chibi._sexp_nreverse(ctx, ast);
+            return ast;
+        }
 
         var hasSibling = true;
         while (true) : (hasSibling = cursor.goto_next_sibling()) {
@@ -39,7 +45,6 @@ const NodeToAstImpl = struct {
         }
 
         ast = chibi._sexp_nreverse(ctx, ast);
-
         return ast;
     }
 
