@@ -422,7 +422,7 @@ pub const TreeCursor = struct {
         c_api.ts_tree_cursor_delete(&self._c);
     }
 
-    pub inline fn reset(self: Self, node: Node) void {
+    pub inline fn reset(self: *Self, node: Node) void {
         c_api.ts_tree_cursor_reset(&self._c, node._c);
     }
 

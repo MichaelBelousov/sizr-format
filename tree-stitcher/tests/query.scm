@@ -33,7 +33,9 @@
 
 (define q (exec_query "((function_definition) @func)" '("/home/mike/test.cpp")))
 (define my-node (node (captures (car (matches_ExecQueryResult q)))))
+(display "first capture ast: \n")
 (display (node_to_ast my-node q))
+(display "\n")
 
 ; (display (ts_node_string (node (captures (car (matches_ExecQueryResult q))))))
 ; (display "\n")
@@ -62,9 +64,9 @@
         (get-output-string out))
       (func ast))))
 
-(display "\n")
-(display (ast->string '(function_definition (identifier "hello"))))
-(display "\n")
+;(display "\n")
+;(display (ast->string '(function_definition (identifier "hello"))))
+;(display "\n")
 
 (display
   (transform

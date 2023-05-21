@@ -10,37 +10,56 @@ fn _sexp_prepend(ctx: chibi.sexp, list: *chibi.sexp, exp: chibi.sexp) void {
 }
 
 const NodeToAstImpl = struct {
-    fn node_to_ast_impl(ctx: chibi.sexp, cursor: *ts.TreeCursor, parse_ctx: *const bindings.ExecQueryResult) chibi.sexp {
+    fn node_to_ast_impl(
+        ctx: chibi.sexp,
+        cursor: *ts.TreeCursor,
+        parse_ctx: *const bindings.ExecQueryResult,
+    ) chibi.sexp {
         var ast = chibi.SEXP_NULL;
         const root_node = cursor.current_node();
         const root_node_type = root_node.@"type"();
         std.debug.assert(root_node_type != null);
-        // ZIGBUG: this should be an implicit conversion
-        const root_node_sym = chibi.sexp_intern(ctx, root_node_type.?.ptr, -1);
-        _sexp_prepend(ctx, &ast, root_node_sym);
 
-        if (!cursor.goto_first_child()) {
-            const slice = root_node.in_source(&parse_ctx.buff);
-            const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
-            _sexp_prepend(ctx, &ast, str);
-            ast = chibi._sexp_nreverse(ctx, ast);
-            return ast;
-        }
+        var sexp_stack = std.SegmentedList(chibi.sexp, 64){};
+        defer sexp_stack.deinit(std.heap.c_allocator);
+        sexp_stack.append(std.heap.c_allocator, ast) catch unreachable;
+        var top: chibi.sexp = ast;
 
-        var hasSibling = true;
-        while (true) : (hasSibling = cursor.goto_next_sibling()) {
-            if (!hasSibling) break;
-            const child = cursor.current_node();
-            if (child.is_null()) {
-                @panic("child was null, not possible with tree cursor");
-            } else if (child.is_missing()) {
-                continue;
-            } else if (child.is_named()) {
-                _sexp_prepend(ctx, &ast, node_to_ast_impl(ctx, cursor, parse_ctx));
+        outer: while (true) {
+            if (cursor.current_node().is_null()) {
+                @panic("cursor node was null, not possible with tree cursor");
+            } else if (cursor.current_node().is_missing()) {
+                // ignore
+            } else if (cursor.current_node().is_named()) {
+                // ZIGBUG: this should be an implicit conversion
+                const sym = chibi.sexp_intern(ctx, root_node_type.?.ptr, -1);
+                _sexp_prepend(ctx, &top, sym);
+                //_sexp_prepend(ctx, &ast, node_to_ast_impl(ctx, cursor, parse_ctx));
+                const sublist = chibi.SEXP_NULL;
+                _sexp_prepend(ctx, &top, sublist);
+                sexp_stack.append(std.heap.c_allocator, sublist) catch unreachable;
+                top = sublist;
             } else { // is anonymous
-                const slice = child.in_source(&parse_ctx.buff);
+                const slice = cursor.current_node().in_source(&parse_ctx.buff);
+                const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
+                _sexp_prepend(ctx, &top, str);
+            }
+
+            // this is kind of pyramind of doom-y :/
+            if (!cursor.goto_first_child()) {
+                const slice = cursor.current_node().in_source(&parse_ctx.buff);
                 const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
                 _sexp_prepend(ctx, &ast, str);
+
+                if (!cursor.goto_next_sibling()) {
+                    // keep going up and right to find the next AST node
+                    while (true) {
+                        if (!cursor.goto_parent()) break :outer;
+                        _ = chibi._sexp_nreverse(ctx, top);
+                        top = sexp_stack.pop().?;
+                        if (cursor.goto_next_sibling()) break;
+                    }
+                }
             }
         }
 
@@ -74,7 +93,6 @@ const MatchTransformer = struct {
     pub fn transform_match(self: @This(), match: ts._c.TSQueryMatch) chibi.sexp {
         var index: usize = 0;
         const result = self.transform_match_impl(match, self.transform, &index);
-        //chibi._sexp_debug(self.ctx, "transform_match result:", result);
         return result;
     }
 
@@ -137,8 +155,6 @@ const MatchTransformer = struct {
 export fn transform_ExecQueryResult(r: *bindings.ExecQueryResult, transform: chibi.sexp, ctx: chibi.sexp) [*c]const u8 {
     var result = std.heap.c_allocator.allocSentinel(u8, 8192, 0) catch unreachable;
     var writer = std.io.fixedBufferStream(result);
-    chibi._sexp_debug(ctx, "transform arg:", transform);
-    std.debug.print("length: {any}\n", .{ chibi._sexp_length_unboxed(transform) });
 
     const match_count = std.mem.len(r.matches);
     var i: usize = 0;
@@ -148,19 +164,16 @@ export fn transform_ExecQueryResult(r: *bindings.ExecQueryResult, transform: chi
             _ = outer_capture.node;
             const start = ts._c.ts_node_start_byte(outer_capture.node);
             const end = ts._c.ts_node_end_byte(outer_capture.node);
-            std.debug.print("chunk: {d}:{d}\n", .{i, start});
             _ = writer.write(r.buff[i..start]) catch unreachable;
             i = end;
 
-            chibi._sexp_debug(ctx, "transform arg1:", chibi._sexp_car(transform));
+            // OLD:
             // evaluate the functionized transform body into a full tree-sitter node tree
             // then serialize that back into the source language
+
             const match_transformer = MatchTransformer { .r = r, .ctx = ctx, .transform = transform, };
-            // TODO: (quote ...) transformed ast?
             const transformed_ast = match_transformer.transform_match(match.*);
-            chibi._sexp_debug(ctx, "transformed_ast:", transformed_ast);
             const transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
-            chibi._sexp_debug(ctx, "transform_result:", transform_result);
             // TODO: implicit ast->string?
             const transform_as_str = chibi._sexp_string_data(transform_result);
             const transform_as_str_len = chibi._sexp_string_size(transform_result);
