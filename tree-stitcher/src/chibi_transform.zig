@@ -48,6 +48,7 @@ const NodeToAstImpl = struct {
         return ast;
     }
 
+    // ZIGBUG even with pub on the struct, this doesn't make it into the bundled library when marked `export`
     fn node_to_ast(ctx: chibi.sexp, in_node: ts._c.TSNode, parse_ctx: *const bindings.ExecQueryResult) chibi.sexp {
         const node = ts.Node{._c = in_node};
         var cursor = ts.TreeCursor.new(node);
@@ -59,7 +60,7 @@ const NodeToAstImpl = struct {
 };
 
 export fn node_to_ast(ctx: chibi.sexp, in_node: ts._c.TSNode, parse_ctx: *const bindings.ExecQueryResult) chibi.sexp {
-     return NodeToAstImpl.node_to_ast(ctx, in_node, parse_ctx);
+    return NodeToAstImpl.node_to_ast(ctx, in_node, parse_ctx);
 }
 
 const MatchTransformer = struct {
