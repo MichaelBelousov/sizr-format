@@ -54,7 +54,6 @@ const NodeToAstImpl = struct {
         var cursor = ts.TreeCursor.new(node);
         defer cursor.free();
         const ast = node_to_ast_impl(ctx, &cursor, parse_ctx);
-        chibi._sexp_debug(ctx, "node_to_ast done:", ast);
         return ast;
     }
 };
@@ -74,7 +73,9 @@ const MatchTransformer = struct {
     /// - collapse all tree-sitter query field syntax `field: (expr)` into operations on that node
     pub fn transform_match(self: @This(), match: ts._c.TSQueryMatch) chibi.sexp {
         var index: usize = 0;
-        return self.transform_match_impl(match, self.transform, &index);
+        const result = self.transform_match_impl(match, self.transform, &index);
+        //chibi._sexp_debug(self.ctx, "transform_match result:", result);
+        return result;
     }
 
     fn transform_match_impl(self: @This(), match: ts._c.TSQueryMatch, expr: chibi.sexp, capture_index: *usize) chibi.sexp {
@@ -94,16 +95,12 @@ const MatchTransformer = struct {
                 if (std.mem.startsWith(u8, symbol_slice, "@")) {
                     if (capture_index.* >= match.capture_count)
                         std.debug.panic("capture list overflowed (capture_index={d})", .{capture_index.*});
-                    capture_index.* += 1;
                     const capture = match.captures[capture_index.*];
-                    const capture_node = ts.Node { ._c = capture.node };
-                    const capture_sexp_string = capture_node.string();
-                    defer capture_sexp_string.free();
-                    const string_to_expr = chibi.sexp_env_ref(self.ctx, env, chibi.sexp_intern(self.ctx, "string->expr", -1), none);
-                    if (sexp_self == none) @panic("could not find 'string->expr' in environment");
-                    const capture_sexp_string_sexp = chibi.sexp_c_string(self.ctx, capture_sexp_string.ptr, -1);
-                    const capture_sexp = chibi.sexp_apply(self.ctx, string_to_expr, capture_sexp_string_sexp);
-                    return capture_sexp;
+                    capture_index.* += 1;
+                    const ast = node_to_ast(self.ctx, capture.node, self.r);
+                    const quote_sym = chibi.sexp_intern(self.ctx, "quote", -1);
+                    const ast_list = chibi.sexp_list2(self.ctx, quote_sym, ast);
+                    return ast_list;
                 } if (std.mem.endsWith(u8, symbol_slice, ":")) {
                     // to do this, need to know the current level of the ast we're in...
                     const capture = match.captures[capture_index.*];
@@ -111,7 +108,7 @@ const MatchTransformer = struct {
                     const capture_sexp_string = capture_node.string();
                     defer capture_sexp_string.free();
                     const string_to_expr = chibi.sexp_env_ref(self.ctx, env, chibi.sexp_intern(self.ctx, "string->expr", -1), none);
-                    if (sexp_self == none) @panic("could not find 'string->expr' in environment");
+                    if (string_to_expr == none) @panic("could not find 'string->expr' in environment");
                     const capture_sexp_string_sexp = chibi.sexp_c_string(self.ctx, capture_sexp_string.ptr, -1);
                     const capture_sexp = chibi.sexp_apply(self.ctx, string_to_expr, capture_sexp_string_sexp);
                     return capture_sexp;
@@ -131,18 +128,9 @@ const MatchTransformer = struct {
             const new_cdr =
                 if (chibi._sexp_nullp(cdr) == 0)
                     self.transform_match_impl(match, cdr, capture_index)
-                else null;
+                else chibi.SEXP_NULL;
             return chibi._sexp_cons(self.ctx, new_car, new_cdr);
         }
-
-        //const symbol = chibi.sexp_env_define(
-            //self.ctx, env, chibi.sexp_intern(ctx, t.name, -1),
-        //);
-
-        //chibi.sexp_define_foreign(self.ctx, env, t.name, 1, sexp_proc);
-        //const symbol = chibi.sexp_env_define(
-            //self.ctx, env, chibi.sexp_intern(ctx, t.name, -1),
-        //);
     }
 };
 
@@ -168,9 +156,15 @@ export fn transform_ExecQueryResult(r: *bindings.ExecQueryResult, transform: chi
             // evaluate the functionized transform body into a full tree-sitter node tree
             // then serialize that back into the source language
             const match_transformer = MatchTransformer { .r = r, .ctx = ctx, .transform = transform, };
-            const functionized_transform = match_transformer.transform_match(match.*);
-            const transform_result = chibi._sexp_eval(ctx, functionized_transform, null);
-            chibi._sexp_debug(ctx, "transform result:", transform_result);
+            // TODO: (quote ...) transformed ast?
+            const transformed_ast = match_transformer.transform_match(match.*);
+            chibi._sexp_debug(ctx, "transformed_ast:", transformed_ast);
+            const transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
+            chibi._sexp_debug(ctx, "transform_result:", transform_result);
+            // TODO: implicit ast->string?
+            const transform_as_str = chibi._sexp_string_data(transform_result);
+            const transform_as_str_len = chibi._sexp_string_size(transform_result);
+            _ = writer.write(transform_as_str[0..transform_as_str_len]) catch unreachable;
         }
     }
     _ = writer.write(r.buff[i..]) catch unreachable;

@@ -6,6 +6,7 @@ sexp _sexp_car(sexp s) { return sexp_car(s); }
 sexp _sexp_cdr(sexp s) { return sexp_cdr(s); }
 long _sexp_length_unboxed(sexp s) { return sexp_length_unboxed(s); }
 char* _sexp_string_data(sexp s) { return sexp_string_data(s); }
+unsigned _sexp_string_size(sexp s) { return sexp_string_size(s); }
 sexp _sexp_symbol_to_string(sexp ctx, sexp s) { return sexp_symbol_to_string(ctx, s); }
 void _sexp_debug(sexp ctx, const char* message, sexp s) { sexp_debug(ctx, message, s); }
 sexp _sexp_eval(sexp ctx, sexp s, sexp env) { return sexp_eval(ctx, s, env); }

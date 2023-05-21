@@ -47,6 +47,14 @@
 
 (define starts-with-in_ (regexp '(: "in_" (* any))))
 
+;; FIXME: DO REAL SERIALIZATION
+(define (ast->string ast)
+  (call-with-port
+    (open-output-string)
+    (lambda (out)
+      (write ast out)
+      (get-output-string out))))
+
 (display
   (transform
     ;(((function_definition) name: (identifier) @name) @func)
@@ -59,14 +67,10 @@
     ;;     ; functions must be replaced with wildcard and checked later
     ;;     name: (lambda (identifier) (regexp-matches? starts-with-in identifier)) @name)
     ;;    @func)
-    (@func name: (string-upcase (serialize @name)))
-    ;(@func name: (string-upcase @name))
+
+    ;(@func name: (string-upcase (serialize @name)))
+
+    (string-upcase (ast->string @func))
     '("/home/mike/test.cpp")))
 (display "\n")
-
-
-(function_definition
-  (primitive_type)
-    (function_declarator (identifier) (parameter_list "(" ")")))
-
 
