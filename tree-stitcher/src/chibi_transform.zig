@@ -23,7 +23,8 @@ const NodeToAstImpl = struct {
         var sexp_stack = std.SegmentedList(chibi.sexp, 64){};
         defer sexp_stack.deinit(std.heap.c_allocator);
         sexp_stack.append(std.heap.c_allocator, ast) catch unreachable;
-        var top: chibi.sexp = ast;
+        var top = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
+        top = &ast;
 
         outer: while (true) {
             if (cursor.current_node().is_null()) {
@@ -33,30 +34,41 @@ const NodeToAstImpl = struct {
             } else if (cursor.current_node().is_named()) {
                 // ZIGBUG: this should be an implicit conversion
                 const sym = chibi.sexp_intern(ctx, root_node_type.?.ptr, -1);
-                _sexp_prepend(ctx, &top, sym);
-                //_sexp_prepend(ctx, &ast, node_to_ast_impl(ctx, cursor, parse_ctx));
-                const sublist = chibi.SEXP_NULL;
-                _sexp_prepend(ctx, &top, sublist);
-                sexp_stack.append(std.heap.c_allocator, sublist) catch unreachable;
+                _sexp_prepend(ctx, top, sym);
+                var sublist = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
+                sublist.* = chibi.SEXP_NULL;
+                _sexp_prepend(ctx, top, sublist.*);
                 top = sublist;
             } else { // is anonymous
                 const slice = cursor.current_node().in_source(&parse_ctx.buff);
                 const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
-                _sexp_prepend(ctx, &top, str);
+                _sexp_prepend(ctx, top, str);
             }
 
             // this is kind of pyramind of doom-y :/
             if (!cursor.goto_first_child()) {
                 const slice = cursor.current_node().in_source(&parse_ctx.buff);
                 const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
-                _sexp_prepend(ctx, &ast, str);
+                _sexp_prepend(ctx, top, str);
 
                 if (!cursor.goto_next_sibling()) {
                     // keep going up and right to find the next AST node
                     while (true) {
                         if (!cursor.goto_parent()) break :outer;
-                        _ = chibi._sexp_nreverse(ctx, top);
-                        top = sexp_stack.pop().?;
+                        _ = chibi._sexp_nreverse(ctx, top.*);
+
+                        chibi._sexp_debug(ctx, "AST: ", ast);
+                        var stack_iter = sexp_stack.constIterator(0);
+                        var i: u32 = 0;
+                        while (stack_iter.next()) |val| {
+                            std.debug.print("stack {d}:\n", .{i});
+                            chibi._sexp_debug(ctx, " ", val.*);
+                            i += 1;
+                        }
+
+                        _ = sexp_stack.pop();
+                        // FIXME: expensive check of end!
+                        top = sexp_stack.uncheckedAt(sexp_stack.count() - 1);
                         if (cursor.goto_next_sibling()) break;
                     }
                 }
