@@ -47,13 +47,24 @@
 
 (define starts-with-in_ (regexp '(: "in_" (* any))))
 
-;; FIXME: DO REAL SERIALIZATION
+;; FIXME: do this in the bindings
 (define (ast->string ast)
   (call-with-port
     (open-output-string)
     (lambda (out)
-      (write ast out)
-      (get-output-string out))))
+      (define (func node)
+        (if (string? node)
+            (begin (write-string node out)
+                   (write-char #\space out)))
+        (if (and (pair? node) (not (null? node)))
+          (begin (func (car node))
+                 (func (cdr node))))
+        (get-output-string out))
+      (func ast))))
+
+(display "\n")
+(display (ast->string '(function_definition (identifier "hello"))))
+(display "\n")
 
 (display
   (transform
