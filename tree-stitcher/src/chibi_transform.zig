@@ -15,70 +15,103 @@ const NodeToAstImpl = struct {
         cursor: *ts.TreeCursor,
         parse_ctx: *const bindings.ExecQueryResult,
     ) chibi.sexp {
-        var ast = chibi.SEXP_NULL;
-        const root_node = cursor.current_node();
-        const root_node_type = root_node.@"type"();
-        std.debug.assert(root_node_type != null);
-
         var sexp_stack = std.SegmentedList(chibi.sexp, 64){};
         defer sexp_stack.deinit(std.heap.c_allocator);
-        sexp_stack.append(std.heap.c_allocator, ast) catch unreachable;
         var top = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
-        top = &ast;
+        top.* = chibi.SEXP_NULL;
+        //var top: *chibi.sexp = undefined;
+        // FIXME: handle anonymous root node
 
+        // for each node
+        // - 
         outer: while (true) {
+            const str1 = cursor.current_node().string();
+            defer str1.free();
+            std.debug.print("CURR: {s}\n", .{str1.ptr});
+
+            var stack_iter = sexp_stack.constIterator(0);
+            var i: u32 = 0;
+            while (stack_iter.next()) |val| {
+                std.debug.print("stack {d}:\n", .{i});
+                chibi._sexp_debug(ctx, " ", val.*);
+                i += 1;
+            }
+
             if (cursor.current_node().is_null()) {
                 @panic("cursor node was null, not possible with tree cursor");
             } else if (cursor.current_node().is_missing()) {
                 // ignore
             } else if (cursor.current_node().is_named()) {
-                // ZIGBUG: this should be an implicit conversion
-                const sym = chibi.sexp_intern(ctx, root_node_type.?.ptr, -1);
+                // var sublist = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
+                // sublist.* = chibi.SEXP_NULL;
+                // top = sublist;
+                // ZIGBUG?: why isn't this an implicit conversion?
+                const sym = chibi.sexp_intern(ctx, cursor.current_node().@"type"().?.ptr, -1);
                 _sexp_prepend(ctx, top, sym);
-                var sublist = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
-                sublist.* = chibi.SEXP_NULL;
-                _sexp_prepend(ctx, top, sublist.*);
-                top = sublist;
-            } else { // is anonymous
-                const slice = cursor.current_node().in_source(&parse_ctx.buff);
-                const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
-                _sexp_prepend(ctx, top, str);
             }
+
+            //const sym = chibi.sexp_intern(ctx, cursor.current_node().@"type"().?.ptr, -1);
+            //_sexp_prepend(ctx, top, sym);
 
             // this is kind of pyramind of doom-y :/
             if (!cursor.goto_first_child()) {
+                std.debug.print("no children\n", .{});
                 const slice = cursor.current_node().in_source(&parse_ctx.buff);
                 const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
                 _sexp_prepend(ctx, top, str);
 
                 if (!cursor.goto_next_sibling()) {
+                    std.debug.print("no siblings\n", .{});
                     // keep going up and right to find the next AST node
                     while (true) {
-                        if (!cursor.goto_parent()) break :outer;
+                        if (!cursor.goto_parent()) {
+                            std.debug.print("no parent?\n", .{});
+                            break :outer;
+                        }
+                        const str3 = cursor.current_node().@"type"();
+                        std.debug.print("moved to parent '{s}', popping\n", .{str3.?});
                         _ = chibi._sexp_nreverse(ctx, top.*);
 
-                        chibi._sexp_debug(ctx, "AST: ", ast);
-                        var stack_iter = sexp_stack.constIterator(0);
-                        var i: u32 = 0;
-                        while (stack_iter.next()) |val| {
-                            std.debug.print("stack {d}:\n", .{i});
-                            chibi._sexp_debug(ctx, " ", val.*);
-                            i += 1;
+                        // should only pop if node was named
+                        if (true or cursor.current_node().is_named()) {
+                            var old_top = sexp_stack.pop();
+                            // FIXME: expensive check of end! (mabye double pop instead?)
+                            top = sexp_stack.uncheckedAt(sexp_stack.count() - 1);
+                            old_top = chibi._sexp_nreverse(ctx, old_top.?);
+                            _sexp_prepend(ctx, top, old_top.?);
+                            const wasNamed = cursor.current_node().is_named();
+                            if (cursor.goto_next_sibling()) {
+                                const str4 = cursor.current_node().@"type"();
+                                std.debug.print("moved to sibling '{s}'\n", .{str4.?});
+                                continue :outer;
+                            } else {
+                                std.debug.print("no siblings\n", .{});
+                            }
                         }
-
-                        _ = sexp_stack.pop();
-                        // FIXME: expensive check of end!
-                        top = sexp_stack.uncheckedAt(sexp_stack.count() - 1);
-                        if (cursor.goto_next_sibling()) break;
                     }
+                }
+
+                const str3 = cursor.current_node().@"type"();
+                std.debug.print("moved to sibling {s}\n", .{str3.?});
+            } else {
+                const str3 = cursor.current_node().@"type"();
+                std.debug.print("moved to child '{s}', pushing empty list\n", .{str3.?});
+                // should only push if child is named?
+                if (true or cursor.current_node().is_named()) {
+                    var sublist = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
+                    sublist.* = chibi.SEXP_NULL;
+                    top = sublist;
                 }
             }
         }
 
+        var ast = sexp_stack.pop().?;
         ast = chibi._sexp_nreverse(ctx, ast);
+        chibi._sexp_debug(ctx, "RESULT AST:", ast);
         return ast;
     }
 
+    // NOTE: not sure I need this thunk anymore since there is no longer recursion in the impl
     // ZIGBUG even with pub on the struct, this doesn't make it into the bundled library when marked `export`
     fn node_to_ast(ctx: chibi.sexp, in_node: ts._c.TSNode, parse_ctx: *const bindings.ExecQueryResult) chibi.sexp {
         const node = ts.Node{._c = in_node};

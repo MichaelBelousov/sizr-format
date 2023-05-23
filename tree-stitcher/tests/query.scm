@@ -31,7 +31,7 @@
        ;; need get all text between the captured nodes
        (transform_ExecQueryResult r (quote to))))))
 
-(define q (exec_query "((function_definition) @func)" '("/home/mike/test.cpp")))
+(define q (exec_query "((function_definition) @func)" '("/home/mike/test1.cpp")))
 (define my-node (node (captures (car (matches_ExecQueryResult q)))))
 (display "first capture ast: \n")
 (display (node_to_ast my-node q))
@@ -84,6 +84,6 @@
     ;(@func name: (string-upcase (serialize @name)))
 
     (string-upcase (ast->string @func))
-    '("/home/mike/test.cpp")))
+    '("/home/mike/test1.cpp")))
 (display "\n")
 
