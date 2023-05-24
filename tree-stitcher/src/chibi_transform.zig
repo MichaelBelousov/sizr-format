@@ -19,15 +19,39 @@ const NodeToAstImpl = struct {
         defer sexp_stack.deinit(std.heap.c_allocator);
         var top = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
         top.* = chibi.SEXP_NULL;
-        //var top: *chibi.sexp = undefined;
-        // FIXME: handle anonymous root node
 
-        // for each node
-        // - 
+        // FIXME?: handle anonymous root node
+
+        // 1. if N.is_named, add it name as a symbol to the list at the top of the stack
+        // 2. try to go down
+        //   # maybe shouldn't add an empty list if new node is named?
+        //   2a. if we can (there are children), do, push an empty list to the stack, and restart
+        //   2b. if the node has no children, append the source string to the list at the top of the stack, and proceed (to 3)
+        // 3. try to go up until we can go right or hit the root
+        //   3a. each time we go up, pop
+        //   3b. if we hit the root node, we are finished
+        //   3c. if we can move right
+        //     - do so
+        //     - if the node was named
+        //       - pop the stack,
+        //     - if the post-move new node is named:
+        //       - push an empty list to the stack
+        //     - restart
         outer: while (true) {
             const str1 = cursor.current_node().string();
             defer str1.free();
             std.debug.print("CURR: {s}\n", .{str1.ptr});
+
+            const debug = struct {
+                _cursor: ts.TreeCursor,
+                pub fn print_moved(self: @This(), moved_to_label: []const u8) void {
+                    const maybe_node_type = self._cursor.current_node().@"type"();
+                    std.debug.print("moved to {s} '{s}'\n", .{
+                        moved_to_label,
+                        if (maybe_node_type) |node_type| node_type else "UNKNOWN"
+                    });
+                }
+            }{ ._cursor = cursor.* };
 
             var stack_iter = sexp_stack.constIterator(0);
             var i: u32 = 0;
@@ -37,71 +61,61 @@ const NodeToAstImpl = struct {
                 i += 1;
             }
 
-            if (cursor.current_node().is_null()) {
-                @panic("cursor node was null, not possible with tree cursor");
-            } else if (cursor.current_node().is_missing()) {
-                // ignore
-            } else if (cursor.current_node().is_named()) {
-                // var sublist = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
-                // sublist.* = chibi.SEXP_NULL;
-                // top = sublist;
+            if (cursor.current_node().is_null())
+                @panic("current node was null, not possible with tree cursor");
+
+            // TODO:
+            // if (cursor.current_node().is_missing())
+
+            if (cursor.current_node().is_named()) {
                 // ZIGBUG?: why isn't this an implicit conversion?
                 const sym = chibi.sexp_intern(ctx, cursor.current_node().@"type"().?.ptr, -1);
                 _sexp_prepend(ctx, top, sym);
             }
 
-            //const sym = chibi.sexp_intern(ctx, cursor.current_node().@"type"().?.ptr, -1);
-            //_sexp_prepend(ctx, top, sym);
-
-            // this is kind of pyramind of doom-y :/
-            if (!cursor.goto_first_child()) {
+            if (cursor.goto_first_child()) {
+                debug.print_moved("first child");
+                if (cursor.current_node().is_named()) {
+                    var next = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
+                    next.* = chibi.SEXP_NULL;
+                    top = next;
+                }
+            } else {
                 std.debug.print("no children\n", .{});
                 const slice = cursor.current_node().in_source(&parse_ctx.buff);
                 const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
                 _sexp_prepend(ctx, top, str);
+            }
 
-                if (!cursor.goto_next_sibling()) {
-                    std.debug.print("no siblings\n", .{});
-                    // keep going up and right to find the next AST node
-                    while (true) {
-                        if (!cursor.goto_parent()) {
-                            std.debug.print("no parent?\n", .{});
-                            break :outer;
-                        }
-                        const str3 = cursor.current_node().@"type"();
-                        std.debug.print("moved to parent '{s}', popping\n", .{str3.?});
-                        _ = chibi._sexp_nreverse(ctx, top.*);
+            const wasNamed = cursor.current_node().is_named();
 
-                        // should only pop if node was named
-                        if (true or cursor.current_node().is_named()) {
-                            var old_top = sexp_stack.pop();
-                            // FIXME: expensive check of end! (mabye double pop instead?)
-                            top = sexp_stack.uncheckedAt(sexp_stack.count() - 1);
-                            old_top = chibi._sexp_nreverse(ctx, old_top.?);
-                            _sexp_prepend(ctx, top, old_top.?);
-                            const wasNamed = cursor.current_node().is_named();
-                            if (cursor.goto_next_sibling()) {
-                                const str4 = cursor.current_node().@"type"();
-                                std.debug.print("moved to sibling '{s}'\n", .{str4.?});
-                                continue :outer;
-                            } else {
-                                std.debug.print("no siblings\n", .{});
-                            }
-                        }
-                    }
+            if (wasNamed) {
+                var old_top = sexp_stack.pop();
+                // FIXME: expensive check of end! (maybe double pop instead?)
+                top = sexp_stack.uncheckedAt(sexp_stack.count() - 1);
+                old_top = chibi._sexp_nreverse(ctx, old_top.?);
+                _sexp_prepend(ctx, top, old_top.?);
+            }
+
+            while (true) {
+                if (cursor.goto_next_sibling()) {
+                    debug.print_moved("next sibling");
+                    break;
                 }
-
-                const str3 = cursor.current_node().@"type"();
-                std.debug.print("moved to sibling {s}\n", .{str3.?});
-            } else {
-                const str3 = cursor.current_node().@"type"();
-                std.debug.print("moved to child '{s}', pushing empty list\n", .{str3.?});
-                // should only push if child is named?
-                if (true or cursor.current_node().is_named()) {
-                    var sublist = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
-                    sublist.* = chibi.SEXP_NULL;
-                    top = sublist;
+                const foundRoot = !cursor.goto_parent();
+                if (foundRoot) {
+                    std.debug.print("found root\n", .{});
+                    break :outer;
                 }
+                debug.print_moved("parent");
+            }
+
+            const nowNamed = cursor.current_node().is_named();
+
+            if (nowNamed) {
+                var next = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
+                next.* = chibi.SEXP_NULL;
+                top = next;
             }
         }
 
