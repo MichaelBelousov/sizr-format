@@ -15,10 +15,42 @@ const NodeToAstImpl = struct {
         cursor: *ts.TreeCursor,
         parse_ctx: *const bindings.ExecQueryResult,
     ) chibi.sexp {
-        var sexp_stack = std.SegmentedList(chibi.sexp, 64){};
-        defer sexp_stack.deinit(std.heap.c_allocator);
+        var _stack = std.SegmentedList(chibi.sexp, 64){};
+        defer _stack.deinit(std.heap.c_allocator);
         var top = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
-        top.* = chibi.SEXP_NULL;
+        //top.* = chibi.SEXP_NULL;
+
+        const state = struct {
+            _cursor: *ts.TreeCursor,
+            top: *chibi.sexp,
+            stack: std.SegmentedList(chibi.sexp, 64),
+
+            pub fn print_moved(self: @This(), moved_to_label: []const u8) void {
+                const maybe_node_type = self._cursor.current_node().@"type"();
+                std.debug.print("moved to {s} '{s}'\n", .{
+                    moved_to_label,
+                    if (maybe_node_type) |node_type| node_type else "UNKNOWN"
+                });
+            }
+
+            pub fn pop(self: @This()) void {
+                var old_top = sexp_stack.pop();
+                // FIXME: expensive check of end! (maybe double pop and repush instead?)
+                // (or use a different stack data structure)
+                self.top = sexp_stack.uncheckedAt(sexp_stack.count() - 1);
+                old_top = chibi._sexp_nreverse(ctx, old_top.?);
+                _sexp_prepend(ctx, self.top, old_top.?);
+            }
+
+            pub fn push(self: @This()) void {
+
+            }
+        }{
+            ._cursor = cursor,
+            .stack = std.SegmentedList(chibi.sexp, 64){},
+            .top = state.stack.addOne(std.heap.c_allocator) catch unreachable,
+        };
+
 
         // FIXME?: handle anonymous root node
 
@@ -42,17 +74,6 @@ const NodeToAstImpl = struct {
             defer str1.free();
             std.debug.print("CURR: {s}\n", .{str1.ptr});
 
-            const debug = struct {
-                _cursor: ts.TreeCursor,
-                pub fn print_moved(self: @This(), moved_to_label: []const u8) void {
-                    const maybe_node_type = self._cursor.current_node().@"type"();
-                    std.debug.print("moved to {s} '{s}'\n", .{
-                        moved_to_label,
-                        if (maybe_node_type) |node_type| node_type else "UNKNOWN"
-                    });
-                }
-            }{ ._cursor = cursor.* };
-
             var stack_iter = sexp_stack.constIterator(0);
             var i: u32 = 0;
             while (stack_iter.next()) |val| {
@@ -74,7 +95,6 @@ const NodeToAstImpl = struct {
             }
 
             if (cursor.goto_first_child()) {
-                debug.print_moved("first child");
                 if (cursor.current_node().is_named()) {
                     var next = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
                     next.* = chibi.SEXP_NULL;
@@ -98,16 +118,11 @@ const NodeToAstImpl = struct {
             }
 
             while (true) {
-                if (cursor.goto_next_sibling()) {
-                    debug.print_moved("next sibling");
+                if (cursor.goto_next_sibling())
                     break;
-                }
                 const foundRoot = !cursor.goto_parent();
-                if (foundRoot) {
-                    std.debug.print("found root\n", .{});
+                if (foundRoot)
                     break :outer;
-                }
-                debug.print_moved("parent");
             }
 
             const nowNamed = cursor.current_node().is_named();
