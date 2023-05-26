@@ -49,15 +49,34 @@
 
 (define starts-with-in_ (regexp '(: "in_" (* any))))
 
+(define s-indent "  ")
+
 ;; FIXME: do this in the bindings
 (define (ast->string ast)
   (call-with-port
     (open-output-string)
     (lambda (out)
+      (define indent "")
       (define (func node)
+
         (if (string? node)
-            (begin (write-string node out)
-                   (write-char #\space out)))
+          (begin
+            (write-string node out)
+            (write-char #\space out)
+            (cond
+              ((string=? node "{")
+               (begin (set! indent (string-append indent s-indent))
+                      (write-char #\newline out)
+                      (write-string indent out)))
+              ((string=? node ";")
+               (begin (write-char #\newline out)
+                      (write-string indent out)))
+              ((string=? node "}")
+               (begin (set! indent (substring indent (string-length s-indent)))
+                      (write-char #\newline out)
+                      (write-string indent out))))))
+
+
         (if (and (pair? node) (not (null? node)))
           (begin (func (car node))
                  (func (cdr node))))
@@ -84,6 +103,6 @@
     ;(@func name: (string-upcase (serialize @name)))
 
     (string-upcase (ast->string @func))
-    '("/home/mike/test1.cpp")))
+    '("/home/mike/test.cpp")))
 (display "\n")
 
