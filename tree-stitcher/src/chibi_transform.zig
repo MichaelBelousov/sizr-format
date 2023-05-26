@@ -15,15 +15,16 @@ const NodeToAstImpl = struct {
         cursor: *ts.TreeCursor,
         parse_ctx: *const bindings.ExecQueryResult,
     ) chibi.sexp {
-        var _stack = std.SegmentedList(chibi.sexp, 64){};
-        defer _stack.deinit(std.heap.c_allocator);
+        var sexp_stack = std.SegmentedList(chibi.sexp, 64){};
+        defer sexp_stack.deinit(std.heap.c_allocator);
         var top = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
-        //top.* = chibi.SEXP_NULL;
+        top.* = chibi.SEXP_NULL;
 
         const state = struct {
-            _cursor: *ts.TreeCursor,
-            top: *chibi.sexp,
-            stack: std.SegmentedList(chibi.sexp, 64),
+            cursor: *ts.TreeCursor,
+            top: **chibi.sexp,
+            sexp_stack: *std.SegmentedList(chibi.sexp, 64),
+            ctx: chibi.sexp,
 
             pub fn print_moved(self: @This(), moved_to_label: []const u8) void {
                 const maybe_node_type = self._cursor.current_node().@"type"();
@@ -33,42 +34,61 @@ const NodeToAstImpl = struct {
                 });
             }
 
-            pub fn pop(self: @This()) void {
-                var old_top = sexp_stack.pop();
+            pub fn popMergeUp(self: @This()) void {
+                // FIXME: do I need var, can I reverse without setting?
+                var old_top = self.sexp_stack.pop();
                 // FIXME: expensive check of end! (maybe double pop and repush instead?)
                 // (or use a different stack data structure)
-                self.top = sexp_stack.uncheckedAt(sexp_stack.count() - 1);
-                old_top = chibi._sexp_nreverse(ctx, old_top.?);
-                _sexp_prepend(ctx, self.top, old_top.?);
+                // FIXME ugly double pointers... just initialize it in the state
+                self.top.* = self.sexp_stack.uncheckedAt(self.sexp_stack.count() - 1);
+                old_top = chibi._sexp_nreverse(self.ctx, old_top.?);
+                _sexp_prepend(self.ctx, self.top.*, old_top.?);
             }
 
-            pub fn push(self: @This()) void {
+            pub fn pushEmpty(self: @This()) void {
+                var next = self.sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
+                next.* = chibi.SEXP_NULL;
+                self.top.* = next;
+            }
 
+            const CursorGotoResult = struct {
+                did_move: bool,
+                was_named: bool,
+                is_named: bool,
+            };
+
+            pub fn goto_parent(self: @This()) ?CursorGotoResult {
+                const was_named = self.cursor.current_node().is_named();
+                const did_move = self.cursor.goto_parent();
+                const is_named = if (did_move) self.cursor.current_node().is_named() else was_named;
+                return if (!did_move) null
+                    else .{ .was_named = was_named, .did_move = did_move, .is_named = is_named };
+            }
+
+            pub fn goto_next_sibling(self: @This()) ?CursorGotoResult {
+                const was_named = self.cursor.current_node().is_named();
+                const did_move = self.cursor.goto_next_sibling();
+                const is_named = if (did_move) self.cursor.current_node().is_named() else was_named;
+                return if (!did_move) null
+                    else .{ .was_named = was_named, .did_move = did_move, .is_named = is_named };
+            }
+
+            pub fn goto_first_child(self: @This()) ?CursorGotoResult {
+                const was_named = self.cursor.current_node().is_named();
+                const did_move = self.cursor.goto_first_child();
+                const is_named = if (did_move) self.cursor.current_node().is_named() else was_named;
+                return if (!did_move) null
+                    else .{ .was_named = was_named, .did_move = did_move, .is_named = is_named };
             }
         }{
-            ._cursor = cursor,
-            .stack = std.SegmentedList(chibi.sexp, 64){},
-            .top = state.stack.addOne(std.heap.c_allocator) catch unreachable,
+            .cursor = cursor,
+            .top = &top,
+            .sexp_stack = &sexp_stack,
+            .ctx = ctx,
         };
-
 
         // FIXME?: handle anonymous root node
 
-        // 1. if N.is_named, add it name as a symbol to the list at the top of the stack
-        // 2. try to go down
-        //   # maybe shouldn't add an empty list if new node is named?
-        //   2a. if we can (there are children), do, push an empty list to the stack, and restart
-        //   2b. if the node has no children, append the source string to the list at the top of the stack, and proceed (to 3)
-        // 3. try to go up until we can go right or hit the root
-        //   3a. each time we go up, pop
-        //   3b. if we hit the root node, we are finished
-        //   3c. if we can move right
-        //     - do so
-        //     - if the node was named
-        //       - pop the stack,
-        //     - if the post-move new node is named:
-        //       - push an empty list to the stack
-        //     - restart
         outer: while (true) {
             const str1 = cursor.current_node().string();
             defer str1.free();
@@ -94,43 +114,24 @@ const NodeToAstImpl = struct {
                 _sexp_prepend(ctx, top, sym);
             }
 
-            if (cursor.goto_first_child()) {
-                if (cursor.current_node().is_named()) {
-                    var next = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
-                    next.* = chibi.SEXP_NULL;
-                    top = next;
-                }
+            if (state.goto_first_child()) |goto_result| {
+                if (goto_result.is_named) state.pushEmpty();
+                continue;
             } else {
-                std.debug.print("no children\n", .{});
                 const slice = cursor.current_node().in_source(&parse_ctx.buff);
                 const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
                 _sexp_prepend(ctx, top, str);
             }
 
-            const wasNamed = cursor.current_node().is_named();
-
-            if (wasNamed) {
-                var old_top = sexp_stack.pop();
-                // FIXME: expensive check of end! (maybe double pop instead?)
-                top = sexp_stack.uncheckedAt(sexp_stack.count() - 1);
-                old_top = chibi._sexp_nreverse(ctx, old_top.?);
-                _sexp_prepend(ctx, top, old_top.?);
-            }
-
             while (true) {
-                if (cursor.goto_next_sibling())
+                if (state.goto_next_sibling()) |goto_result| {
+                    if (goto_result.was_named) state.popMergeUp();
+                    if (goto_result.is_named) state.pushEmpty();
                     break;
-                const foundRoot = !cursor.goto_parent();
-                if (foundRoot)
-                    break :outer;
-            }
-
-            const nowNamed = cursor.current_node().is_named();
-
-            if (nowNamed) {
-                var next = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
-                next.* = chibi.SEXP_NULL;
-                top = next;
+                }
+                if (state.goto_parent()) |goto_result| {
+                    if (goto_result.was_named) state.popMergeUp();
+                } else break :outer;
             }
         }
 
