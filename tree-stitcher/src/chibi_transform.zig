@@ -90,18 +90,6 @@ const NodeToAstImpl = struct {
         // FIXME?: handle anonymous root node
 
         outer: while (true) {
-            const str1 = cursor.current_node().string();
-            defer str1.free();
-            std.debug.print("CURR: {s}\n", .{str1.ptr});
-
-            var stack_iter = sexp_stack.constIterator(0);
-            var i: u32 = 0;
-            while (stack_iter.next()) |val| {
-                std.debug.print("stack {d}:\n", .{i});
-                chibi._sexp_debug(ctx, " ", val.*);
-                i += 1;
-            }
-
             if (cursor.current_node().is_null())
                 @panic("current node was null, not possible with tree cursor");
 
@@ -137,7 +125,6 @@ const NodeToAstImpl = struct {
 
         var ast = sexp_stack.pop().?;
         ast = chibi._sexp_nreverse(ctx, ast);
-        chibi._sexp_debug(ctx, "RESULT AST:", ast);
         return ast;
     }
 
