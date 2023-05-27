@@ -16,7 +16,7 @@ pub fn build(b: *std.build.Builder) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
 
-    var tests = b.addTest("src/main.zig");
+    var tests = b.addTest("src/bindings.zig");
     // use `-Dtest-filter=x` to filter on tests
     const maybe_test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match the filter");
     if (maybe_test_filter) |test_filter| { tests.setFilter(test_filter); }

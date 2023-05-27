@@ -229,10 +229,6 @@ export fn transform_ExecQueryResult(r: *bindings.ExecQueryResult, transform: chi
             _ = writer.write(r.buff[i..start]) catch unreachable;
             i = end;
 
-            // OLD:
-            // evaluate the functionized transform body into a full tree-sitter node tree
-            // then serialize that back into the source language
-
             const match_transformer = MatchTransformer { .r = r, .ctx = ctx, .transform = transform, };
             const transformed_ast = match_transformer.transform_match(match.*);
 

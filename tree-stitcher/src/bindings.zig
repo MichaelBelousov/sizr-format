@@ -7,10 +7,21 @@ pub const ExecQueryResult = struct {
     query_match_iter: ts.QueryMatchesIterator,
     matches: [*:null]?*const ts._c.TSQueryMatch,
     buff: []const u8,
+    /// map of captures to their index within capture list,
+    /// which is also their depth first traversal order
+    capture_name_to_index: std.StringHashMap(u32),
 };
+
+test "check deinit capture_name_to_index" {
+    var str_map = std.StringHashMap(u32).init(std.testing.allocator);
+    defer str_map.deinit();
+    try str_map.put("test", 50);
+    try std.testing.expectEqual(str_map.get("test").?, 50);
+}
 
 /// free a malloc'ed ExecQueryResult
 export fn free_ExecQueryResult(r: *ExecQueryResult) void {
+    r.capture_name_to_index.deinit();
     r.parse_tree.delete();
     r.query_match_iter.free();
     const match_count = std.mem.len(r.matches);
