@@ -22,7 +22,7 @@ export fn free_ExecQueryResult(r: *ExecQueryResult) void {
 
     var munmap_result = std.c.getErrno(std.c.munmap(@alignCast(std.mem.page_size, r.buff.ptr), r.buff.len));
     if (munmap_result != .SUCCESS)
-        std.debug.print("munmap errno: {any}", .{ munmap_result });
+        std.log.err("munmap errno: {any}", .{ munmap_result });
 }
 
 export fn matches_ExecQueryResult(r: *ExecQueryResult) [*:null]?*const ts._c.TSQueryMatch {
@@ -67,7 +67,7 @@ export fn exec_query(
     if (src_ptr == mman.MAP_FAILED) {
         var mmap_result = std.c.getErrno(@ptrToInt(src_ptr));
         if (mmap_result != .SUCCESS) {
-            std.debug.print("munmap errno: {any}\n", .{ mmap_result });
+            std.debug.print("mmap errno: {any}\n", .{ mmap_result });
             @panic("mmap failed");
         }
     }
