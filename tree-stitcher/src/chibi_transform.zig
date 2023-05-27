@@ -106,7 +106,7 @@ const NodeToAstImpl = struct {
                 if (goto_result.is_named) state.pushEmpty();
                 continue;
             } else {
-                const slice = cursor.current_node().in_source(&parse_ctx.buff);
+                const slice = cursor.current_node().in_source(parse_ctx.buff);
                 const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
                 _sexp_prepend(ctx, top, str);
             }
@@ -235,6 +235,7 @@ export fn transform_ExecQueryResult(r: *bindings.ExecQueryResult, transform: chi
 
             const match_transformer = MatchTransformer { .r = r, .ctx = ctx, .transform = transform, };
             const transformed_ast = match_transformer.transform_match(match.*);
+            chibi._sexp_debug(ctx, "transform ast:", transformed_ast);
             const transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
             // TODO: implicit ast->string?
             const transform_as_str = chibi._sexp_string_data(transform_result);

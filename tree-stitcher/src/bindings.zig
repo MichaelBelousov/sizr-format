@@ -6,7 +6,7 @@ pub const ExecQueryResult = struct {
     parse_tree: ts.Tree,
     query_match_iter: ts.QueryMatchesIterator,
     matches: [*:null]?*const ts._c.TSQueryMatch,
-    buff: [8192]u8,
+    buff: []const u8,
 };
 
 /// free a malloc'ed ExecQueryResult
@@ -19,6 +19,10 @@ export fn free_ExecQueryResult(r: *ExecQueryResult) void {
     }
     // NOTE: maybe should use actual std.c.free (and malloc)?
     std.heap.c_allocator.destroy(r);
+
+    var munmap_result = std.c.getErrno(std.c.munmap(@alignCast(std.mem.page_size, r.buff.ptr), r.buff.len));
+    if (munmap_result != .SUCCESS)
+        std.debug.print("munmap errno: {any}", .{ munmap_result });
 }
 
 export fn matches_ExecQueryResult(r: *ExecQueryResult) [*:null]?*const ts._c.TSQueryMatch {
@@ -28,7 +32,7 @@ export fn matches_ExecQueryResult(r: *ExecQueryResult) [*:null]?*const ts._c.TSQ
 /// Caller is responsible for std.c.free'ing the result
 export fn node_source(_node: ts._c.TSNode, ctx: *const ExecQueryResult) [*c]const u8 {
     const node = ts.Node { ._c = _node };
-    const source = node.in_source(&ctx.buff);
+    const source = node.in_source(ctx.buff);
     const result = std.heap.c_allocator.allocSentinel(u8, source.len, 0) catch |err| {
         std.debug.print("node_source allocSentinel err {any}", .{err});
         return null;
@@ -52,31 +56,30 @@ export fn exec_query(
     defer file.close();
 
     var file_len = (file.stat() catch unreachable).size;
-    _ = file_len;
 
     var result = std.heap.c_allocator.create(ExecQueryResult) catch unreachable;
 
-    _ = file.readAll(&result.buff) catch unreachable;
+    var src_ptr = @alignCast(
+        std.mem.page_size,
+        std.c.mmap(null, file_len, mman.PROT_READ, mman.MAP_FILE | mman.MAP_SHARED, file.handle, 0)
+    );
 
-    const src = &result.buff;
+    if (src_ptr == mman.MAP_FAILED) {
+        var mmap_result = std.c.getErrno(@ptrToInt(src_ptr));
+        if (mmap_result != .SUCCESS) {
+            std.debug.print("munmap errno: {any}\n", .{ mmap_result });
+            @panic("mmap failed");
+        }
+    }
 
-    // var src_ptr = @alignCast(
-    //     std.mem.page_size,
-    //     std.c.mmap(null, file_len, mman.PROT_READ, mman.MAP_FILE, file.handle, 0)
-    // );
-    //var src = @ptrCast([*]const u8, src_ptr)[0..file_len];
-    // defer {
-    //     var result = std.c.getErrno(std.c.munmap(src_ptr, file_len));
-    //     if (result != .SUCCESS)
-    //         std.debug.print("munmap errno: {any}", .{ result });
-    // }
+    result.buff = @ptrCast([*]const u8, src_ptr)[0..file_len];
 
     const parser = ts.Parser.new();
     defer parser.free();
     if (!parser.set_language(ts.cpp()))
         @panic("couldn't set cpp lang");
 
-    result.parse_tree = parser.parse_string(null, src);
+    result.parse_tree = parser.parse_string(null, result.buff);
     const root = result.parse_tree.root_node();
     const syntax_tree_str = root.string();
     defer syntax_tree_str.free();

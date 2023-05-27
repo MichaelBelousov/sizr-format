@@ -89,7 +89,7 @@
 
 (display
   (transform
-    ((function_definition declarator: (_ (identifier) @name) ) @func)
+    ((function_definition declarator: (_ (identifier) @name)) @func)
 
     ;; ; TODO: make this work
     ;; NOTE: an alternative that might integrate better, would be use the tree-sitter field and node
@@ -102,7 +102,7 @@
 
     ;(@func name: (string-upcase (serialize @name)))
 
-    (string-upcase (ast->string @func))
+    (string-upcase (string-append (ast->string @name) (ast->string @name)))
     '("/home/mike/test.cpp")))
 (display "\n")
 
