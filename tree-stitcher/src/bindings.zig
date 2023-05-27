@@ -1,3 +1,5 @@
+// TODO: rename to exec_query or something
+
 const std = @import("std");
 const ts = @import("tree-sitter");
 const mman = @cImport({ @cInclude("sys/mman.h"); });
@@ -53,13 +55,88 @@ export fn node_source(_node: ts._c.TSNode, ctx: *const ExecQueryResult) [*c]cons
     return @as([*:0]const u8, result);
 }
 
+const chibi = @cImport({ @cInclude("./chibi_macros.h"); });
+
+fn query_to_str(ctx: chibi.sexp, query: chibi.sexp) []u8 {
+    var str_port = chibi.sexp_open_output_string(ctx);
+    chibi.sexp_write(ctx, query, str_port);
+    return chibi.sexp_get_output_string(ctx, str_port);
+    //var str = std.heap.c_allocator.alloc(u8, n) catch unreachable;
+}
+
+/// populates the query_ctx with analysis from the query, like capture indices
+fn analyzeQuery(
+    ctx: chibi.sexp,
+    query: chibi.sexp,
+    query_ctx: *ExecQueryResult
+) void  {
+    //var result = std.heap.c_allocator.create(ExecQueryResult) catch unreachable;
+    query_ctx.capture_name_to_index = std.StringHashMap(u32).init(std.heap.c_allocator);
+
+    const Impl = struct {
+        ctx: chibi.sexp,
+        query_ctx: *ExecQueryResult,
+        i: u32,
+
+        fn impl(self: *@This(), expr: chibi.sexp) void {
+            if (chibi._sexp_symbolp(expr) != 0) {
+                const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(self.ctx, expr));
+                const symbol_slice = symbol_str[0..std.mem.len(symbol_str)];
+                if (std.mem.startsWith(u8, symbol_slice, "@")) {
+                    self.query_ctx.capture_name_to_index.put(symbol_slice, self.i) catch unreachable;
+                    self.i += 1;
+                }
+            }
+            if (chibi._sexp_pairp(expr) == 0) return;
+            self.impl(chibi._sexp_car(expr));
+            self.impl(chibi._sexp_cdr(expr));
+        }
+    };
+    //const str = query_to_str(ctx, query);
+    (Impl{.ctx = ctx, .query_ctx = query_ctx, .i = 0}).impl(query);
+}
+
+// NOTE: this of course doesn't work if someone does something like `(define my@thing 2)`, and we should use
+// real traversal as implemented above, just need to figure out how to best decouple the string based query API
+// and the chibi-scheme specific stuff
+fn captureIndicesFromQueryStr(query: []const u8, map: *std.StringHashMap(u32)) void {
+    var capture_index: u32 = 0;
+    var i: usize = 0;
+    const State = enum { InCapture, Out };
+    var capture_start_index: usize = undefined;
+    var state: State = .Out;
+    for (query) |c| {
+        switch (state) {
+            .InCapture => {
+                if (std.ascii.isWhitespace(c) or c == '(' or c == ')') {
+                    map.put(query[capture_start_index..i], capture_index) catch unreachable;
+                    capture_index += 1;
+                    state = .Out;
+                }
+            },
+            .Out => if (c == '@') {
+                capture_start_index = i;
+                state = .InCapture;
+            }
+        }
+        i += 1;
+    }
+}
+
+pub const Workspace = extern struct {
+    // context
+    files: [][]const u8,
+};
 
 /// Caller must use libc free to free each object pointed to by the returned list,
 /// as well as the returned list itself
 export fn exec_query(
-    query: [*:0]const u8,
+    in_query: [*:0]const u8,
     srcs: [*c][*:0]const u8
 ) ?*ExecQueryResult {
+    const query_len = std.mem.len(in_query);
+    const query = in_query[0..query_len];
+
     // FIXME: replace these catches
     const file = std.fs.cwd().openFileZ(srcs[0], .{}) catch unreachable;
     // compiler error
@@ -69,6 +146,9 @@ export fn exec_query(
     var file_len = (file.stat() catch unreachable).size;
 
     var result = std.heap.c_allocator.create(ExecQueryResult) catch unreachable;
+
+    result.capture_name_to_index = std.StringHashMap(u32).init(std.heap.c_allocator);
+    captureIndicesFromQueryStr(query, &result.capture_name_to_index);
 
     var src_ptr = @alignCast(
         std.mem.page_size,
@@ -95,8 +175,7 @@ export fn exec_query(
     const syntax_tree_str = root.string();
     defer syntax_tree_str.free();
 
-    const query_len = std.mem.len(query);
-    result.query_match_iter = root.exec_query(query[0..query_len]) catch unreachable;
+    result.query_match_iter = root.exec_query(query) catch unreachable;
 
     var list = std.SegmentedList(*ts._c.TSQueryMatch, 16){};
     defer list.deinit(std.heap.c_allocator);

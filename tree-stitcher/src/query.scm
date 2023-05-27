@@ -26,8 +26,8 @@
     ; is this hygienic?
     ((transform from to paths)
        (let* ((query-str (expr->string (quote from)))
-              (query-str-outer-capture (string-append "(" query-str " @__OUTER)"))
-              (r (exec_query query-str-outer-capture paths)))
+              (query-str-rooted (string-append "(" query-str " @__root)"))
+              (r (exec_query query-str-rooted paths)))
        ;; need get all text between the captured nodes
        (transform_ExecQueryResult r (quote to))))))
 
@@ -47,7 +47,7 @@
 ; (display (exec_query2 ((function_definition) @func) "/home/mike/test.cpp"))
 ; (display "\n")
 
-(define starts-with-in_ (regexp '(: "in_" (* any))))
+(define starts-with-in_? (regexp '(: "in_" (* any))))
 
 (define s-indent "  ")
 
@@ -91,18 +91,14 @@
   (transform
     ((function_definition declarator: (_ (identifier) @name)) @func)
 
-    ;; ; TODO: make this work
-    ;; NOTE: an alternative that might integrate better, would be use the tree-sitter field and node
-    ;; data to define all the node type symbols (e.g. (function_definition)) in this scope, so that
-    ;; native filtering and building of them could be easier?
-    ;; (((function_definition)
-    ;;     ; functions must be replaced with wildcard and checked later
-    ;;     name: (lambda (identifier) (regexp-matches? starts-with-in identifier)) @name)
-    ;;    @func)
+    ; TODO: add # to use outer symbols in a tree-sitter query
+    ; (((function_definition declarator: (_ (identifier) @name)) @func)
+    ;   (#starts-with-in_? @name))
 
-    ;(@func name: (string-upcase (serialize @name)))
 
-    (string-upcase (string-append (ast->string @name) (ast->string @name)))
+    ;(ast->string (@func declarator: (string-upcase (serialize @name))))
+    (string-upcase (ast->string @name))
+
     '("/home/mike/test.cpp")))
 (display "\n")
 

@@ -1,17 +1,22 @@
 
 # Stupid name, TreeStitcher
 
-extension of tree-sitter query feature to allow transformations between queries
+Scheme bindings for tree-sitter with an extension that enables transforming the AST of files in 
+a "workspace" using embedded tree-sitter queries and real lisp code.
 
 ## TODO:
 
-1. use [tree-sitter-query](https://github.com/nvim-treesitter/tree-sitter-query) parser to
-   write a parser of transform queries
-2. write a routine that reads the capture query (the first argument to the `!transform` function)
-   and replaces each capture's range in the source text with the expansion of the substitution.
-
+- add filtering to transformation API
+- better define workspaces for a sample language (e.g. TypeScript package.json + tsconfig.json)
+- create a REPL for interactively performing transformations across a "workspace", viewing transform
+  patches, and confirming them, `git checkout --patch` style.
+- prototype reference detection and renaming for a sample language
+- lower dependency on tree-sitter to the point that it can be replaced with a shared library
+  of known ABI subset, specifically to enable a clang-based parser and query context for C++
 
 ## Examples
+
+***OUT OF DATE***, see [the current in-development test](./src/query.scm).
 
 ```sexp
 ; rename all snake_case functions to SCREAMING_SNAKE_CASE
@@ -25,15 +30,4 @@ extension of tree-sitter query feature to allow transformations between queries
   (@func name: (upper_case! @name)) ; I would need to embed a real lisp with an stdlib to do this...
 )
 ```
-
-Now the real hard part is. How the @#$% do I detect renames when I capture.
-
-## Possible embeddable lisps
-
-- racket
-- tinyscheme (does it have an stdlib?)
-- [embeddable common-lisp](http://sdf.org/?tutorials/ecl_tutorial)
-- [s7](https://ccrma.stanford.edu/software/snd/snd/s7.html)
-- guile
-- [chibi-scheme](https://github.com/ashinn/chibi-scheme)
 

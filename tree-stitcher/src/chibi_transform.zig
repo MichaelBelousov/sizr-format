@@ -143,73 +143,125 @@ export fn node_to_ast(ctx: chibi.sexp, in_node: ts._c.TSNode, parse_ctx: *const 
     return NodeToAstImpl.node_to_ast(ctx, in_node, parse_ctx);
 }
 
+const none: chibi.sexp = null;
+
 const MatchTransformer = struct {
     r: *bindings.ExecQueryResult,
     ctx: chibi.sexp,
     transform: chibi.sexp,
 
-    /// make a copy of the given transform sexp with the following changes:
-    /// - replace all tree-sitter query capture syntax `@symbol` with the tree-sitter s-exp for that capture
-    /// - replace all naked tree-sitter query field syntax `field:` with tree-sitter s-exp for that field
-    /// - collapse all tree-sitter query field syntax `field: (expr)` into operations on that node
-    pub fn transform_match(self: @This(), match: ts._c.TSQueryMatch) chibi.sexp {
-        var index: usize = 0;
-        const result = self.transform_match_impl(match, self.transform, &index);
+    env: chibi.sexp,
+    sexp_self: chibi.sexp, // for exceptions
+
+    fn new(r: *bindings.ExecQueryResult, ctx: chibi.sexp, transform: chibi.sexp) @This() {
+        const env = chibi._sexp_context_env(ctx);
+        const sexp_self = chibi.sexp_env_ref(
+            ctx, env,
+            chibi.sexp_intern(ctx, "transform_ExecQueryResult", -1), none
+        );
+        if (sexp_self == none) @panic("could not find owning function bindings in environment");
+
+        return @This(){
+            .r = r,
+            .ctx = ctx,
+            .transform = transform,
+            .env = env,
+            .sexp_self = sexp_self,
+        };
+    }
+
+    pub fn transform_match(
+        query_ctx: *bindings.ExecQueryResult,
+        chibi_ctx: chibi.sexp,
+        match: ts._c.TSQueryMatch,
+        transform: chibi.sexp,
+    ) chibi.sexp {
+        // TODO: document better that we always add a root capture to the end of the query
+        const root_node = match.captures[match.capture_count - 1].node;
+        const result = MatchTransformer
+            .new(query_ctx, chibi_ctx, transform)
+            .transform_match_impl(match, transform, root_node);
         return result;
     }
 
-    fn transform_match_impl(self: @This(), match: ts._c.TSQueryMatch, expr: chibi.sexp, capture_index: *usize) chibi.sexp {
-        const env = chibi._sexp_context_env(self.ctx);
+    const InnerTransformResult = struct {
+        sexp: chibi.sexp,
+        node: ts.Node,
+    };
 
-        const none: chibi.sexp = null;
-        // TODO: only needed in an error situation
-        const sexp_self = chibi.sexp_env_ref(self.ctx, env, chibi.sexp_intern(self.ctx, "transform_ExecQueryResult", -1), none);
-        if (sexp_self == none)
-            @panic("could not find owning function bindings in environment");
+    /// Given "match", a query matching context, a "transform" s-exp, and a root node, "node"
+    /// - traverse the transform and each time we find an s-exp list starting with a `@capture`,
+    ///   skip its subtree replace it with:
+    ///   - the extended tree-sitter s-exp representation (defined by node_to_ast above)
+    ///     of that capture's node in the match, except
+    ///   - read through the "arguments" of the caller (list elements following that first one)
+    ///     - if they are a `field:` identifier, replace that field's representation in the caller's expansion
+    ///       with transform_match_impl(match, sibling_after_field:_in_transform, field_node)
+    ///     - otherwise append to the caller's expansion:
+    ///       transform_match_impl(match_ctx, the_non_field_transform_subexpr, node)
+    fn transform_match_impl(
+        self: @This(),
+        match: ts._c.TSQueryMatch,
+        transform_expr: chibi.sexp,
+        node: ts.Node,
+    ) chibi.sexp {
+        const isPair = chibi._sexp_pairp(transform_expr) != 0;
 
-        if (chibi._sexp_pairp(expr) == 0) {
-            if (chibi._sexp_symbolp(expr) != 0) {
+        if (isPair) {
+            const car = chibi._sexp_car(transform_expr);
+            const cdr = chibi._sexp_cdr(transform_expr);
+            const new_car = self.transform_match_impl(match, car, node);
+            const cdr_not_null = chibi._sexp_nullp(cdr) == 0;
+            const new_cdr =
+                if (cdr_not_null) self.transform_match_impl(match, cdr, node)
+                else chibi.SEXP_NULL;
+            return chibi._sexp_cons(self.ctx, new_car, new_cdr);
+
+        } else {
+            const isSymbol = chibi._sexp_symbolp(transform_expr) != 0; 
+            if (isSymbol) {
                 // TODO: add util func for this
-                const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(self.ctx, expr));
+                const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(self.ctx, transform_expr));
                 const symbol_slice = symbol_str[0..std.mem.len(symbol_str)];
-                if (std.mem.startsWith(u8, symbol_slice, "@")) {
-                    if (capture_index.* >= match.capture_count)
-                        std.debug.panic("capture list overflowed (capture_index={d})", .{capture_index.*});
-                    const capture = match.captures[capture_index.*];
-                    capture_index.* += 1;
+
+                // TODO: check if in map instead of fail
+                const isCaptureRef = std.mem.startsWith(u8, symbol_slice, "@");
+                if (isCaptureRef) {
+                    // FIXME: instead propagate return some kind of parse error
+                    const capture_index = self.r.capture_name_to_index.get(symbol_slice)
+                        orelse std.debug.panic("couldn't find capture {s}", .{symbol_slice});
+                    const capture = match.captures[capture_index];
                     const ast = node_to_ast(self.ctx, capture.node, self.r);
                     const quote_sym = chibi.sexp_intern(self.ctx, "quote", -1);
                     const ast_list = chibi.sexp_list2(self.ctx, quote_sym, ast);
                     return ast_list;
-                } if (std.mem.endsWith(u8, symbol_slice, ":")) {
+                }
+
+                const isFieldRef = std.mem.endsWith(u8, symbol_slice, ":");
+                if (isFieldRef) {
+                    // FIXME:
                     // to do this, need to know the current level of the ast we're in...
                     const capture = match.captures[capture_index.*];
                     const capture_node = ts.Node { ._c = capture.node };
                     const capture_sexp_string = capture_node.string();
                     defer capture_sexp_string.free();
-                    const string_to_expr = chibi.sexp_env_ref(self.ctx, env, chibi.sexp_intern(self.ctx, "string->expr", -1), none);
+                    const string_to_expr = chibi.sexp_env_ref(
+                        self.ctx, env,
+                        chibi.sexp_intern(self.ctx, "string->expr", -1), none
+                    );
                     if (string_to_expr == none) @panic("could not find 'string->expr' in environment");
                     const capture_sexp_string_sexp = chibi.sexp_c_string(self.ctx, capture_sexp_string.ptr, -1);
                     const capture_sexp = chibi.sexp_apply(self.ctx, string_to_expr, capture_sexp_string_sexp);
                     return capture_sexp;
-                } else {
-                    // just an ast function name
-                    // NEXT
-
                 }
-                return expr;
+
+                // just an ast function name, ignore and let it do what it wants later
+                // NEXT
+
+                return transform_expr;
             } else {
-                return expr;
+                return transform_expr;
             }
-        } else {
-            const car = chibi._sexp_car(expr);
-            const cdr = chibi._sexp_cdr(expr);
-            const new_car = self.transform_match_impl(match, car, capture_index);
-            const new_cdr =
-                if (chibi._sexp_nullp(cdr) == 0)
-                    self.transform_match_impl(match, cdr, capture_index)
-                else chibi.SEXP_NULL;
-            return chibi._sexp_cons(self.ctx, new_car, new_cdr);
         }
     }
 };
@@ -229,8 +281,7 @@ export fn transform_ExecQueryResult(r: *bindings.ExecQueryResult, transform: chi
             _ = writer.write(r.buff[i..start]) catch unreachable;
             i = end;
 
-            const match_transformer = MatchTransformer { .r = r, .ctx = ctx, .transform = transform, };
-            const transformed_ast = match_transformer.transform_match(match.*);
+            const transformed_ast = MatchTransformer.transform_match(r, ctx, transform, match.*);
 
             if (std.os.getenv("DEBUG")) |_| chibi._sexp_debug(ctx, "transform ast:", transformed_ast);
             const transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
