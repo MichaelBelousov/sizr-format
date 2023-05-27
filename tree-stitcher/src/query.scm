@@ -89,8 +89,8 @@
 
 (display
   (transform
-    ;(((function_definition) name: (identifier) @name) @func)
-    ((function_definition) @func)
+    ((function_definition declarator: (_ (identifier) @name) ) @func)
+
     ;; ; TODO: make this work
     ;; NOTE: an alternative that might integrate better, would be use the tree-sitter field and node
     ;; data to define all the node type symbols (e.g. (function_definition)) in this scope, so that
