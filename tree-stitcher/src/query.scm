@@ -98,7 +98,7 @@
     ; (string-append "// deleted: " (string-upcase (ast->string (@name))))
 
     ;; time to add real repl level tests
-    (ast->string (@func body: (@name "hello")))
+    (ast->string (@func body: (@name)))
 
     '("/home/mike/test.cpp")))
 (display "\n")

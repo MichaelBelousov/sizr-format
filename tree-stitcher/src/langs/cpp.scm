@@ -9,18 +9,21 @@
 ; nodes
 ;; FIXME: generate these with macros
 ;; FIXME: children should be applied the same way as in the transform expander
-(define (primitive_type . children) `(primitive_type "void")) ; allow specifying type
-(define (identifier . children) `(identifier "foo")) ; switch to requiring the name
+(define (primitive_type name) `(primitive_type ,name))
+(define (number_literal number) `(number_literal ,number))
+(define (identifier name) `(identifier ,name)) ; switch to requiring the name
 (define (parameter_list . children) `(parameter_list "(" ,@children ")")) ; switch to requiring the name
 (define (compound_statement . children) `(compound_statement "{" ,@children "}")) ; switch to requiring the name
+(define (return_statement . children) `(return_statement ,@children))
+
 (define (function_declarator . children)
     `(function_declarator
-        declarator: ,(identifier)
+        declarator: ,(identifier "foo") ;; TODO: implement required children
         parameters: ,(parameter_list)))
 
 (define (function_definition . children)
   `(function_definition
-      type: ,(primitive_type)
+      type: ,(primitive_type "void")
       declarator: ,(function_declarator)
       body: ,(compound_statement)))
 

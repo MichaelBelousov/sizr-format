@@ -199,7 +199,7 @@ const MatchTransformer = struct {
         const root_node = ts.Node{._c = match.captures[match.capture_count - 1].node};
         const result = MatchTransformer
             .new(query_ctx, chibi_ctx, transform)
-            .transform_match_impl(match, transform, root_node, true);
+            .transform_match_impl(match, transform, root_node, false);
         return result;
     }
 
@@ -219,7 +219,7 @@ const MatchTransformer = struct {
         match: ts._c.TSQueryMatch,
         transform_expr: chibi.sexp,
         node: ts.Node,
-        root: bool,
+        in_ast_expansion: bool,
     ) chibi.sexp {
         if (chibi._sexp_pairp(transform_expr) == 0)
             return transform_expr;
@@ -268,14 +268,14 @@ const MatchTransformer = struct {
                             // FIXME: error handling
                             const field_node = node.child_by_field_name(field_name)
                                 orelse std.debug.panic("bad field name {s}\n", .{field_name});
-                            fields.put(field_name, self.transform_match_impl(match, child, field_node, false)) catch @panic("put field failed");
+                            fields.put(field_name, self.transform_match_impl(match, child, field_node, true)) catch @panic("put field failed");
                             continue; // refactor
                         }
                     } else {
                         done_with_fields = true;
                         const to_append = to_append_list.addOne(std.heap.c_allocator) catch unreachable;
                         // FIXME: returning a symbol won't work here...
-                        to_append.* = self.transform_match_impl(match, child, node, false);
+                        to_append.* = self.transform_match_impl(match, child, node, true);
                     }
 
                     child_list = chibi._sexp_cdr(child_list);
@@ -291,7 +291,8 @@ const MatchTransformer = struct {
                     );
                 }
 
-                if (root) {
+                // TODO: remove nested quoting!
+                if (!in_ast_expansion) {
                     const quote_sym = chibi.sexp_intern(self.ctx, "quote", -1);
                     ast = chibi.sexp_list2(self.ctx, quote_sym, ast);
                 }
@@ -301,11 +302,11 @@ const MatchTransformer = struct {
         }
 
         // not a list starting with a capture
-        const new_car = self.transform_match_impl(match, car, node, false);
+        const new_car = self.transform_match_impl(match, car, node, in_ast_expansion);
         const cdr = chibi._sexp_cdr(transform_expr);
         const cdr_not_null = chibi._sexp_nullp(cdr) == 0;
         const new_cdr =
-            if (cdr_not_null) self.transform_match_impl(match, cdr, node, false)
+            if (cdr_not_null) self.transform_match_impl(match, cdr, node, in_ast_expansion)
             else chibi.SEXP_NULL;
         return chibi._sexp_cons(self.ctx, new_car, new_cdr);
     }
