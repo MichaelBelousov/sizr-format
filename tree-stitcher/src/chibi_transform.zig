@@ -241,39 +241,51 @@ const MatchTransformer = struct {
                 var fields = std.StringArrayHashMap(chibi.sexp).init(std.heap.c_allocator);
                 defer fields.deinit();
                 // go through children, determining fields
-                var child = chibi._sexp_cdr(transform_expr);
+                var child_list = chibi._sexp_cdr(transform_expr);
                 var done_with_fields = false;
                 var to_append_list = std.SegmentedList(chibi.sexp, 16){};
                 defer to_append_list.deinit(std.heap.c_allocator);
-                while (chibi._sexp_nullp(child) == 0) {
-                    const child_symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(self.ctx, child));
-                    const child_symbol_slice = child_symbol_str[0..std.mem.len(child_symbol_str)];
-                    const is_field_ref = std.mem.endsWith(u8, child_symbol_slice, ":");
+                while (chibi._sexp_nullp(child_list) == 0) {
+                    const child = chibi._sexp_car(child_list);
+                    const is_symbol = chibi._sexp_symbolp(child) != 0;
 
-                    if (is_field_ref) {
-                        if (done_with_fields) @panic("fields are illegal after non-fields");
-                        child = chibi._sexp_cdr(child);
-                        // FIXME: error handling
-                        if (chibi._sexp_nullp(child) != 0) @panic("field without replacement");
-                        const field_name = child_symbol_slice[0..child_symbol_slice.len - 1];
-                        // FIXME: error handling
-                        const field_node = node.child_by_field_name(field_name)
-                            orelse std.debug.panic("bad field name {s}\n", .{field_name});
-                        fields.put(field_name, self.transform_match_impl(match, child, field_node)) catch @panic("put field failed");
+                    if (is_symbol) {
+                        const child_symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(self.ctx, child));
+                        const child_symbol_slice = child_symbol_str[0..std.mem.len(child_symbol_str)];
+                        const is_field_ref = std.mem.endsWith(u8, child_symbol_slice, ":");
+                        if (is_field_ref) {
+                            if (done_with_fields) @panic("fields are illegal after non-fields");
+                            child_list = chibi._sexp_cdr(child_list);
+                            // FIXME: error handling
+                            if (chibi._sexp_nullp(child) != 0) @panic("field without replacement");
+                            const field_name = child_symbol_slice[0..child_symbol_slice.len - 1];
+                            // FIXME: error handling
+                            const field_node = node.child_by_field_name(field_name)
+                                orelse std.debug.panic("bad field name {s}\n", .{field_name});
+                            fields.put(field_name, self.transform_match_impl(match, child, field_node)) catch @panic("put field failed");
+                            continue; // refactor
+                        }
                     } else {
+                        chibi._sexp_debug(self.ctx, "append child: ", child);
                         done_with_fields = true;
                         const to_append = to_append_list.addOne(std.heap.c_allocator) catch unreachable;
+                        // FIXME: returning a symbol won't work here...
                         to_append.* = self.transform_match_impl(match, child, node);
                     }
 
-                    child = chibi._sexp_cdr(child);
+                    child_list = chibi._sexp_cdr(child_list);
                 }
 
                 var ast = node_to_ast(self.ctx, capture.node, self.query_ctx);
 
+                chibi._sexp_debug(self.ctx, "pre-append ast: ", ast);
                 var to_append_iter = to_append_list.constIterator(0);
                 while (to_append_iter.next()) |to_append| {
-                    ast = chibi._sexp_append2(self.ctx, ast, to_append.*);
+                    ast = chibi._sexp_append2(
+                        self.ctx, ast,
+                        chibi._sexp_cons(self.ctx, to_append.*, chibi.SEXP_NULL)
+                    );
+                    chibi._sexp_debug(self.ctx, "append child ast: ", ast);
                 }
 
                 // FIXME: is this necessary when recurring? Do we need a separate top-level call?
@@ -310,7 +322,7 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
 
             const transformed_ast = MatchTransformer.transform_match(query_ctx, ctx, match.*, transform);
 
-            if (std.os.getenv("DEBUG")) |_| chibi._sexp_debug(ctx, "transform ast:", transformed_ast);
+            if (std.os.getenv("DEBUG") != null) chibi._sexp_debug(ctx, "transform ast:", transformed_ast);
             const transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
             if (chibi._sexp_exceptionp(transform_result) != 0) {
                 chibi._sexp_debug(ctx, "obj: ", transform_result);

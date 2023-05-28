@@ -97,7 +97,7 @@
 
 
     ;(ast->string (@func declarator: (string-upcase (serialize @name))))
-    (string-upcase (ast->string (@name)))
+    (string-append "// deleted: " (string-upcase (ast->string (@name))))
 
     '("/home/mike/test.cpp")))
 (display "\n")
