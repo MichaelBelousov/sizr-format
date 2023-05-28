@@ -65,6 +65,12 @@ pub const Node = struct {
 
     // TODO: maybe wrap all ts.Node usage in optionals and hide the concept of the invalid raw c struct?
     // or just use another zig tree-sitter binding
+    pub fn from_c(c: c_api.TSNode) @This() {
+        return @This(){ ._c = c };
+    }
+
+    // TODO: maybe wrap all ts.Node usage in optionals and hide the concept of the invalid raw c struct?
+    // or just use another zig tree-sitter binding
     pub fn is_null(self: @This()) bool {
         return c_api.ts_node_is_null(self._c);
     }

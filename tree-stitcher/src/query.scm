@@ -84,7 +84,7 @@
 ;(display (ast->string '(function_definition (identifier "hello"))))
 ;(display "\n")
 
-(load "./src/cpp.scm")
+(load "./src/langs/cpp.scm")
 
 (display
   (transform
@@ -102,4 +102,20 @@
 
     '("/home/mike/test.cpp")))
 (display "\n")
+
+;; ;;; pre-append ast:
+;; (function_definition ()
+;;   (function_declarator ()
+;;     (parameter_list ")"))
+;;     (body: (return_statement (number_literal "5") ";") "}"))
+;; ;;; append child ast:
+;; (function_definition ()
+;;   (function_declarator ()
+;;     (parameter_list ")"))
+;;     (body:
+;;       (return_statement (number_literal "5") ";")
+;;       "}")
+;;     (quote (identifier "f" "hello")))
+;; ;;;transform ast:
+;; (ast->string (quote (function_definition () (function_declarator () (parameter_list ")")) (body: (return_statement (number_literal "5") ";") "}") (quote (identifier "f" "hello")))))
 

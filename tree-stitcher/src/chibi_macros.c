@@ -19,6 +19,8 @@ int _sexp_stringp(sexp s) { return sexp_stringp(s); }
 sexp _sexp_cons(sexp ctx, sexp a, sexp b) { return sexp_cons(ctx, a, b); }
 sexp _sexp_nreverse(sexp ctx, sexp ls) { return sexp_reverse(ctx, ls); }
 sexp _sexp_append2(sexp ctx, sexp a, sexp b) { return sexp_append2(ctx, a, b); }
+void _sexp_print_exception(sexp ctx, sexp exn, sexp out_port) { sexp_print_exception(ctx, exn, out_port); }
+sexp _sexp_current_error_port(sexp ctx) { return sexp_current_error_port(ctx); }
 
 // non-macro translation helpers
 void _set_sexp_car(sexp ls, sexp in_car) { sexp_car(ls) = in_car; }
