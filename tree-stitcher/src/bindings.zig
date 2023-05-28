@@ -103,14 +103,14 @@ fn analyzeQuery(
 fn captureIndicesFromQueryStr(query: []const u8, map: *std.StringHashMap(u32)) void {
     var capture_index: u32 = 0;
     var i: usize = 0;
-    const State = enum { InCapture, Out };
     var capture_start_index: usize = undefined;
-    var state: State = .Out;
+    var state: enum { InCapture, Out } = .Out;
     for (query) |c| {
         switch (state) {
             .InCapture => {
                 if (std.ascii.isWhitespace(c) or c == '(' or c == ')') {
-                    map.put(query[capture_start_index..i], capture_index) catch unreachable;
+                    const capture_text = query[capture_start_index..i];
+                    map.put(capture_text, capture_index) catch unreachable;
                     capture_index += 1;
                     state = .Out;
                 }

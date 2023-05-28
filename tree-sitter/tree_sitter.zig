@@ -224,10 +224,11 @@ pub const QueryMatch = struct {
     _c: c_api.TSQueryMatch,
 };
 
-// TODO: what is zig's agreed upon iterator interface?
 pub const QueryMatchesIterator = struct {
     _cursor: *c_api.TSQueryCursor,
     _query: *c_api.TSQuery,
+
+    // FIXME: see ts_query_cursor_next_capture, might fix bugs I encounter elsewhere
 
     const Self = @This();
 

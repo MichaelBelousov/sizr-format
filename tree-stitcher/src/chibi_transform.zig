@@ -186,7 +186,7 @@ const MatchTransformer = struct {
         transform: chibi.sexp,
     ) chibi.sexp {
         // TODO: document better that we always add a root capture to the end of the query
-        const root_node = ts.Node{._c = match.captures[match.capture_count - 1].node };
+        const root_node = ts.Node{._c = match.captures[match.capture_count - 1].node};
         const result = MatchTransformer
             .new(query_ctx, chibi_ctx, transform)
             .transform_match_impl(match, transform, root_node);
@@ -229,8 +229,12 @@ const MatchTransformer = struct {
             const list_starts_with_capture_ref = std.mem.startsWith(u8, symbol_slice, "@");
 
             if (list_starts_with_capture_ref) {
-                const capture_index = self.query_ctx.capture_name_to_index.get(symbol_slice)
-                    orelse std.debug.panic("couldn't find capture {s}", .{symbol_slice});
+                // FIXME: the capture order is in captured node source order, so this naive analysis is probably wrong
+                const capture_index = match.capture_count - 1 - (
+                    self.query_ctx.capture_name_to_index.get(symbol_slice)
+                    orelse std.debug.panic("couldn't find capture {s}", .{symbol_slice})
+                  );
+
                 const capture = match.captures[capture_index];
 
                 // FIXME: shouldn't the query context also use a StringArrayHashMap?
@@ -298,8 +302,7 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
     var i: usize = 0;
     for (query_ctx.matches[0..match_count]) |maybe_match| {
         if (maybe_match) |match| {
-            const outer_capture = match.captures[match.capture_count - 1];
-            _ = outer_capture.node;
+            const outer_capture = match.captures[0];
             const start = ts._c.ts_node_start_byte(outer_capture.node);
             const end = ts._c.ts_node_end_byte(outer_capture.node);
             _ = writer.write(query_ctx.buff[i..start]) catch unreachable;
