@@ -104,19 +104,22 @@ const NodeToAstImpl = struct {
             const maybe_replacement = if (curr_field_name) |field| field_replacements.get(field) else null;
             if (maybe_replacement) |replacement| {
                 _sexp_prepend(ctx, top, replacement);
-            } else if (cursor.current_node().is_named()) {
-                // ZIGBUG?: why isn't this an implicit conversion?
-                const sym = chibi.sexp_intern(ctx, cursor.current_node().@"type"().?.ptr, -1);
-                _sexp_prepend(ctx, top, sym);
-            }
 
-            if (state.goto_first_child()) |goto_result| {
-                if (goto_result.is_named) state.pushEmpty();
-                continue;
             } else {
-                const slice = cursor.current_node().in_source(parse_ctx.buff);
-                const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
-                _sexp_prepend(ctx, top, str);
+                if (cursor.current_node().is_named()) {
+                    // ZIGBUG?: why isn't this an implicit conversion?
+                    const sym = chibi.sexp_intern(ctx, cursor.current_node().@"type"().?.ptr, -1);
+                    _sexp_prepend(ctx, top, sym);
+                }
+
+                if (state.goto_first_child()) |goto_result| {
+                    if (goto_result.is_named) state.pushEmpty();
+                    continue;
+                } else {
+                    const slice = cursor.current_node().in_source(parse_ctx.buff);
+                    const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
+                    _sexp_prepend(ctx, top, str);
+                }
             }
 
             while (true) {
@@ -251,7 +254,7 @@ const MatchTransformer = struct {
                 var done_with_fields = false;
                 var to_append_list = std.SegmentedList(chibi.sexp, 16){};
                 defer to_append_list.deinit(std.heap.c_allocator);
-                while (chibi._sexp_nullp(child_list) == 0) {
+                while (chibi._sexp_nullp(child_list) == 0) : (child_list = chibi._sexp_cdr(child_list)) {
                     const child = chibi._sexp_car(child_list);
                     const is_symbol = chibi._sexp_symbolp(child) != 0;
 
@@ -263,13 +266,16 @@ const MatchTransformer = struct {
                             if (done_with_fields) @panic("fields are illegal after non-fields");
                             child_list = chibi._sexp_cdr(child_list);
                             // FIXME: error handling
-                            if (chibi._sexp_nullp(child) != 0) @panic("field without replacement");
+                            if (chibi._sexp_nullp(child_list) != 0) @panic("field without replacement");
                             const field_name = child_symbol_slice[0..child_symbol_slice.len - 1];
+                            const field_replacement = chibi._sexp_car(child_list);
                             // FIXME: error handling
                             const field_node = node.child_by_field_name(field_name)
                                 orelse std.debug.panic("bad field name {s}\n", .{field_name});
-                            fields.put(field_name, self.transform_match_impl(match, child, field_node, true)) catch @panic("put field failed");
-                            continue; // refactor
+                            const transformed_field_replacement =
+                                self.transform_match_impl(match, field_replacement, field_node, true);
+                            fields.put(field_name, transformed_field_replacement) catch @panic("put field failed");
+                            continue;
                         }
                     } else {
                         done_with_fields = true;
@@ -277,8 +283,6 @@ const MatchTransformer = struct {
                         // FIXME: returning a symbol won't work here...
                         to_append.* = self.transform_match_impl(match, child, node, true);
                     }
-
-                    child_list = chibi._sexp_cdr(child_list);
                 }
 
                 var ast = node_to_ast(self.ctx, capture.node, self.query_ctx, fields);
@@ -292,9 +296,11 @@ const MatchTransformer = struct {
                 }
 
                 // TODO: remove nested quoting!
+                // FIXME: maybe I can just replace all quoting with implementing the tree-sitter
+                // nodes as forms in the lang namespace
                 if (!in_ast_expansion) {
-                    const quote_sym = chibi.sexp_intern(self.ctx, "quote", -1);
-                    ast = chibi.sexp_list2(self.ctx, quote_sym, ast);
+                    const quasiquote_sym = chibi.sexp_intern(self.ctx, "quasiquote", -1);
+                    ast = chibi.sexp_list2(self.ctx, quasiquote_sym, ast);
                 }
 
                 return ast;

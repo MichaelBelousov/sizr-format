@@ -98,24 +98,8 @@
     ; (string-append "// deleted: " (string-upcase (ast->string (@name))))
 
     ;; time to add real repl level tests
-    (ast->string (@func body: (@name)))
+    (ast->string (@func body: (@name "hello")))
 
     '("/home/mike/test.cpp")))
-(display "\n")
-
-;; ;;; pre-append ast:
-;; (function_definition ()
-;;   (function_declarator ()
-;;     (parameter_list ")"))
-;;     (body: (return_statement (number_literal "5") ";") "}"))
-;; ;;; append child ast:
-;; (function_definition ()
-;;   (function_declarator ()
-;;     (parameter_list ")"))
-;;     (body:
-;;       (return_statement (number_literal "5") ";")
-;;       "}")
-;;     (quote (identifier "f" "hello")))
-;; ;;;transform ast:
-;; (ast->string (quote (function_definition () (function_declarator () (parameter_list ")")) (body: (return_statement (number_literal "5") ";") "}") (quote (identifier "f" "hello")))))
+(newline)
 
