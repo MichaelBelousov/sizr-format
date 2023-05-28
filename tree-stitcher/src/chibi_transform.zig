@@ -20,6 +20,7 @@ const NodeToAstImpl = struct {
         var top = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
         top.* = chibi.SEXP_NULL;
 
+        // TODO: move to internal state of NodeToAstImpl?
         const state = struct {
             cursor: *ts.TreeCursor,
             top: **chibi.sexp,
@@ -130,7 +131,11 @@ const NodeToAstImpl = struct {
 
     // NOTE: not sure I need this thunk anymore since there is no longer recursion in the impl
     // ZIGBUG even with pub on the struct, this doesn't make it into the bundled library when marked `export`
-    fn node_to_ast(ctx: chibi.sexp, in_node: ts._c.TSNode, parse_ctx: *const bindings.ExecQueryResult) chibi.sexp {
+    fn node_to_ast(
+        ctx: chibi.sexp,
+        in_node: ts._c.TSNode,
+        parse_ctx: *const bindings.ExecQueryResult,
+    ) chibi.sexp {
         const node = ts.Node{._c = in_node};
         var cursor = ts.TreeCursor.new(node);
         defer cursor.free();
@@ -139,21 +144,25 @@ const NodeToAstImpl = struct {
     }
 };
 
-export fn node_to_ast(ctx: chibi.sexp, in_node: ts._c.TSNode, parse_ctx: *const bindings.ExecQueryResult) chibi.sexp {
+export fn node_to_ast(
+    ctx: chibi.sexp,
+    in_node: ts._c.TSNode,
+    parse_ctx: *const bindings.ExecQueryResult,
+) chibi.sexp {
     return NodeToAstImpl.node_to_ast(ctx, in_node, parse_ctx);
 }
 
 const none: chibi.sexp = null;
 
 const MatchTransformer = struct {
-    r: *bindings.ExecQueryResult,
+    query_ctx: *bindings.ExecQueryResult,
     ctx: chibi.sexp,
     transform: chibi.sexp,
 
     env: chibi.sexp,
     sexp_self: chibi.sexp, // for exceptions
 
-    fn new(r: *bindings.ExecQueryResult, ctx: chibi.sexp, transform: chibi.sexp) @This() {
+    fn new(query_ctx: *bindings.ExecQueryResult, ctx: chibi.sexp, transform: chibi.sexp) @This() {
         const env = chibi._sexp_context_env(ctx);
         const sexp_self = chibi.sexp_env_ref(
             ctx, env,
@@ -162,7 +171,7 @@ const MatchTransformer = struct {
         if (sexp_self == none) @panic("could not find owning function bindings in environment");
 
         return @This(){
-            .r = r,
+            .query_ctx = query_ctx,
             .ctx = ctx,
             .transform = transform,
             .env = env,
@@ -177,7 +186,7 @@ const MatchTransformer = struct {
         transform: chibi.sexp,
     ) chibi.sexp {
         // TODO: document better that we always add a root capture to the end of the query
-        const root_node = match.captures[match.capture_count - 1].node;
+        const root_node = ts.Node{._c = match.captures[match.capture_count - 1].node };
         const result = MatchTransformer
             .new(query_ctx, chibi_ctx, transform)
             .transform_match_impl(match, transform, root_node);
@@ -197,6 +206,7 @@ const MatchTransformer = struct {
     ///   - read through the "arguments" of the caller (list elements following that first one)
     ///     - if they are a `field:` identifier, replace that field's representation in the caller's expansion
     ///       with transform_match_impl(match, sibling_after_field:_in_transform, field_node)
+    ///       // FIXME: field order could matter, should be illegal to have a non-field before a field
     ///     - otherwise append to the caller's expansion:
     ///       transform_match_impl(match_ctx, the_non_field_transform_subexpr, node)
     fn transform_match_impl(
@@ -205,9 +215,70 @@ const MatchTransformer = struct {
         transform_expr: chibi.sexp,
         node: ts.Node,
     ) chibi.sexp {
-        const isPair = chibi._sexp_pairp(transform_expr) != 0;
 
-        if (isPair) {
+        const list_starts_with_symbol = chibi._sexp_symbolp(chibi._sexp_car(transform_expr)) != 0; 
+
+        if (list_starts_with_symbol) {
+            // TODO: add util func for this
+            const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(self.ctx, transform_expr));
+            const symbol_slice = symbol_str[0..std.mem.len(symbol_str)];
+            // TODO: check if in map instead of assume and fail
+            const list_starts_with_capture_ref = std.mem.startsWith(u8, symbol_slice, "@");
+
+            if (list_starts_with_capture_ref) {
+                const capture_index = self.query_ctx.capture_name_to_index.get(symbol_slice)
+                    orelse std.debug.panic("couldn't find capture {s}", .{symbol_slice});
+                const capture = match.captures[capture_index];
+
+                // FIXME: shouldn't the query context also use a StringArrayHashMap?
+                var fields = std.StringArrayHashMap(chibi.sexp).init(std.heap.c_allocator);
+                defer fields.deinit();
+                // go through children, determining fields
+                var child = chibi._sexp_cdr(transform_expr);
+                var done_with_fields = false;
+                var to_append_list = std.SegmentedList(chibi.sexp, 16){};
+                defer to_append_list.deinit(std.heap.c_allocator);
+                while (chibi._sexp_nullp(child) == 0) {
+                    const child_symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(self.ctx, child));
+                    const child_symbol_slice = child_symbol_str[0..std.mem.len(child_symbol_str)];
+                    const is_field_ref = std.mem.endsWith(u8, child_symbol_slice, ":");
+
+                    if (is_field_ref) {
+                        if (done_with_fields) @panic("fields are illegal after non-fields");
+                        child = chibi._sexp_cdr(child);
+                        // FIXME: error handling
+                        if (chibi._sexp_nullp(child) != 0) @panic("field without replacement");
+                        const field_name = child_symbol_slice[0..child_symbol_slice.len - 1];
+                        // FIXME: error handling
+                        const field_node = node.child_by_field_name(field_name)
+                            orelse std.debug.panic("bad field name {s}\n", .{field_name});
+                        fields.put(field_name, self.transform_match_impl(match, child, field_node)) catch @panic("put field failed");
+                    } else {
+                        done_with_fields = true;
+                        const to_append = to_append_list.addOne(std.heap.c_allocator) catch unreachable;
+                        to_append.* = self.transform_match_impl(match, child, node);
+                    }
+
+                    child = chibi._sexp_cdr(child);
+                }
+
+                var ast = node_to_ast(self.ctx, capture.node, self.query_ctx);
+
+                var to_append_iter = to_append_list.constIterator(0);
+                while (to_append_iter.next()) |to_append| {
+                    ast = chibi._sexp_append2(self.ctx, ast, to_append.*);
+                }
+
+                // FIXME: is this necessary when recurring? Do we need a separate top-level call?
+                const quote_sym = chibi.sexp_intern(self.ctx, "quote", -1);
+                const ast_list = chibi.sexp_list2(self.ctx, quote_sym, ast);
+                return ast_list;
+            }
+        }
+
+        const is_pair = chibi._sexp_pairp(transform_expr) != 0;
+
+        if (is_pair) {
             const car = chibi._sexp_car(transform_expr);
             const cdr = chibi._sexp_cdr(transform_expr);
             const new_car = self.transform_match_impl(match, car, node);
@@ -218,70 +289,27 @@ const MatchTransformer = struct {
             return chibi._sexp_cons(self.ctx, new_car, new_cdr);
 
         } else {
-            const isSymbol = chibi._sexp_symbolp(transform_expr) != 0; 
-            if (isSymbol) {
-                // TODO: add util func for this
-                const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(self.ctx, transform_expr));
-                const symbol_slice = symbol_str[0..std.mem.len(symbol_str)];
-
-                // TODO: check if in map instead of fail
-                const isCaptureRef = std.mem.startsWith(u8, symbol_slice, "@");
-                if (isCaptureRef) {
-                    // FIXME: instead propagate return some kind of parse error
-                    const capture_index = self.r.capture_name_to_index.get(symbol_slice)
-                        orelse std.debug.panic("couldn't find capture {s}", .{symbol_slice});
-                    const capture = match.captures[capture_index];
-                    const ast = node_to_ast(self.ctx, capture.node, self.r);
-                    const quote_sym = chibi.sexp_intern(self.ctx, "quote", -1);
-                    const ast_list = chibi.sexp_list2(self.ctx, quote_sym, ast);
-                    return ast_list;
-                }
-
-                const isFieldRef = std.mem.endsWith(u8, symbol_slice, ":");
-                if (isFieldRef) {
-                    // FIXME:
-                    // to do this, need to know the current level of the ast we're in...
-                    const capture = match.captures[capture_index.*];
-                    const capture_node = ts.Node { ._c = capture.node };
-                    const capture_sexp_string = capture_node.string();
-                    defer capture_sexp_string.free();
-                    const string_to_expr = chibi.sexp_env_ref(
-                        self.ctx, env,
-                        chibi.sexp_intern(self.ctx, "string->expr", -1), none
-                    );
-                    if (string_to_expr == none) @panic("could not find 'string->expr' in environment");
-                    const capture_sexp_string_sexp = chibi.sexp_c_string(self.ctx, capture_sexp_string.ptr, -1);
-                    const capture_sexp = chibi.sexp_apply(self.ctx, string_to_expr, capture_sexp_string_sexp);
-                    return capture_sexp;
-                }
-
-                // just an ast function name, ignore and let it do what it wants later
-                // NEXT
-
-                return transform_expr;
-            } else {
-                return transform_expr;
-            }
+            return transform_expr;
         }
     }
 };
 
-export fn transform_ExecQueryResult(r: *bindings.ExecQueryResult, transform: chibi.sexp, ctx: chibi.sexp) [*c]const u8 {
+export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transform: chibi.sexp, ctx: chibi.sexp) [*c]const u8 {
     var result = std.heap.c_allocator.allocSentinel(u8, 8192, 0) catch unreachable;
     var writer = std.io.fixedBufferStream(result);
 
-    const match_count = std.mem.len(r.matches);
+    const match_count = std.mem.len(query_ctx.matches);
     var i: usize = 0;
-    for (r.matches[0..match_count]) |maybe_match| {
+    for (query_ctx.matches[0..match_count]) |maybe_match| {
         if (maybe_match) |match| {
             const outer_capture = match.captures[match.capture_count - 1];
             _ = outer_capture.node;
             const start = ts._c.ts_node_start_byte(outer_capture.node);
             const end = ts._c.ts_node_end_byte(outer_capture.node);
-            _ = writer.write(r.buff[i..start]) catch unreachable;
+            _ = writer.write(query_ctx.buff[i..start]) catch unreachable;
             i = end;
 
-            const transformed_ast = MatchTransformer.transform_match(r, ctx, transform, match.*);
+            const transformed_ast = MatchTransformer.transform_match(query_ctx, ctx, match.*, transform);
 
             if (std.os.getenv("DEBUG")) |_| chibi._sexp_debug(ctx, "transform ast:", transformed_ast);
             const transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
@@ -291,7 +319,7 @@ export fn transform_ExecQueryResult(r: *bindings.ExecQueryResult, transform: chi
             _ = writer.write(transform_as_str[0..transform_as_str_len]) catch unreachable;
         }
     }
-    _ = writer.write(r.buff[i..]) catch unreachable;
+    _ = writer.write(query_ctx.buff[i..]) catch unreachable;
     
     return &result[0];
 }

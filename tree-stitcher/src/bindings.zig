@@ -9,6 +9,7 @@ pub const ExecQueryResult = struct {
     query_match_iter: ts.QueryMatchesIterator,
     matches: [*:null]?*const ts._c.TSQueryMatch,
     buff: []const u8,
+    // FIXME: use StringArrayHashMap?
     /// map of captures to their index within capture list,
     /// which is also their depth first traversal order
     capture_name_to_index: std.StringHashMap(u32),

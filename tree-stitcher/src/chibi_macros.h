@@ -15,6 +15,7 @@ int _sexp_symbolp(sexp s);
 int _sexp_nullp(sexp s);
 sexp _sexp_cons(sexp ctx, sexp a, sexp b);
 sexp _sexp_nreverse(sexp ctx, sexp ls);
+sexp _sexp_append2(sexp ctx, sexp a, sexp b);
 
 // non-macro translation helpers
 void _set_sexp_car(sexp ls, sexp in_car);

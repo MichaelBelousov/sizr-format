@@ -95,8 +95,8 @@ pub const Node = struct {
         return c_api.ts_node_has_error(self._c);
     }
 
-    pub fn child_by_field_name(self: @This(), field_name: []const u8) Node {
-        if (self.is_null()) return self; // HACK
+    pub fn child_by_field_name(self: @This(), field_name: []const u8) ?Node {
+        if (self.is_null()) return null;
         return Node {._c = c_api.ts_node_child_by_field_name(self._c, field_name.ptr, @truncate(u32, field_name.len)) };
     }
 
