@@ -112,6 +112,7 @@ const NodeToAstImpl = struct {
 
             if (state.goto_first_child()) |goto_result| {
                 if (goto_result.is_named) state.pushEmpty();
+                continue;
             } else {
                 const slice = cursor.current_node().in_source(parse_ctx.buff);
                 const str = chibi.sexp_c_string(ctx, slice.ptr, @intCast(c_long, slice.len));
