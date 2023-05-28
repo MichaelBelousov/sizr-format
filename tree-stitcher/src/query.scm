@@ -33,9 +33,6 @@
 
 (define q (exec_query "((function_definition) @func)" '("/home/mike/test1.cpp")))
 (define my-node (node (captures (car (matches_ExecQueryResult q)))))
-(display "first capture ast: \n")
-(display (node_to_ast my-node q))
-(display "\n")
 
 ; (display (ts_node_string (node (captures (car (matches_ExecQueryResult q))))))
 ; (display "\n")
@@ -72,7 +69,7 @@
                (begin (write-char #\newline out)
                       (write-string indent out)))
               ((string=? node "}")
-               (begin (set! indent (substring indent (string-length s-indent)))
+               (begin ;(set! indent (substring indent (string-length s-indent)))
                       (write-char #\newline out)
                       (write-string indent out))))))
 
@@ -87,6 +84,8 @@
 ;(display (ast->string '(function_definition (identifier "hello"))))
 ;(display "\n")
 
+(load "./src/cpp.scm")
+
 (display
   (transform
     ((function_definition declarator: (_ (identifier) @name)) @func)
@@ -96,8 +95,10 @@
     ;   (#starts-with-in_? @name))
 
 
-    ;(ast->string (@func declarator: (string-upcase (serialize @name))))
-    (string-append "// deleted: " (string-upcase (ast->string (@name))))
+    ; (string-append "// deleted: " (string-upcase (ast->string (@name))))
+
+    ;; time to add real repl level tests
+    (ast->string (@func body: (@name "hello")))
 
     '("/home/mike/test.cpp")))
 (display "\n")
