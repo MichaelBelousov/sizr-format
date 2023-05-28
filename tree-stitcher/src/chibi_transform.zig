@@ -215,12 +215,15 @@ const MatchTransformer = struct {
         transform_expr: chibi.sexp,
         node: ts.Node,
     ) chibi.sexp {
+        if (chibi._sexp_pairp(transform_expr) == 0)
+            return transform_expr;
 
-        const list_starts_with_symbol = chibi._sexp_symbolp(chibi._sexp_car(transform_expr)) != 0; 
+        const car = chibi._sexp_car(transform_expr);
+        const list_starts_with_symbol = chibi._sexp_symbolp(car) != 0; 
 
         if (list_starts_with_symbol) {
             // TODO: add util func for this
-            const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(self.ctx, transform_expr));
+            const symbol_str = chibi._sexp_string_data(chibi._sexp_symbol_to_string(self.ctx, car));
             const symbol_slice = symbol_str[0..std.mem.len(symbol_str)];
             // TODO: check if in map instead of assume and fail
             const list_starts_with_capture_ref = std.mem.startsWith(u8, symbol_slice, "@");
@@ -276,21 +279,14 @@ const MatchTransformer = struct {
             }
         }
 
-        const is_pair = chibi._sexp_pairp(transform_expr) != 0;
-
-        if (is_pair) {
-            const car = chibi._sexp_car(transform_expr);
-            const cdr = chibi._sexp_cdr(transform_expr);
-            const new_car = self.transform_match_impl(match, car, node);
-            const cdr_not_null = chibi._sexp_nullp(cdr) == 0;
-            const new_cdr =
-                if (cdr_not_null) self.transform_match_impl(match, cdr, node)
-                else chibi.SEXP_NULL;
-            return chibi._sexp_cons(self.ctx, new_car, new_cdr);
-
-        } else {
-            return transform_expr;
-        }
+        // not a list starting with a capture
+        const new_car = self.transform_match_impl(match, car, node);
+        const cdr = chibi._sexp_cdr(transform_expr);
+        const cdr_not_null = chibi._sexp_nullp(cdr) == 0;
+        const new_cdr =
+            if (cdr_not_null) self.transform_match_impl(match, cdr, node)
+            else chibi.SEXP_NULL;
+        return chibi._sexp_cons(self.ctx, new_car, new_cdr);
     }
 };
 
@@ -313,7 +309,15 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
 
             if (std.os.getenv("DEBUG")) |_| chibi._sexp_debug(ctx, "transform ast:", transformed_ast);
             const transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
+            if (chibi._sexp_exceptionp(transform_result) != 0) {
+                chibi._sexp_debug(ctx, "obj: ", transform_result);
+                @panic("can't return exception with this signature yet so boom");
+            }
             // TODO: implicit ast->string?
+            if (chibi._sexp_stringp(transform_result) == 0) {
+                chibi._sexp_debug(ctx, "obj: ", transform_result);
+                @panic("don't have ast->string implemented in zig yet so haven't done this yet; boom");
+            }
             const transform_as_str = chibi._sexp_string_data(transform_result);
             const transform_as_str_len = chibi._sexp_string_size(transform_result);
             _ = writer.write(transform_as_str[0..transform_as_str_len]) catch unreachable;

@@ -14,6 +14,8 @@ sexp _sexp_context_env(sexp ctx) { return sexp_context_env(ctx); }
 int _sexp_pairp(sexp s) { return sexp_pairp(s); }
 int _sexp_symbolp(sexp s) { return sexp_symbolp(s); }
 int _sexp_nullp(sexp s) { return sexp_nullp(s); }
+int _sexp_exceptionp(sexp s) { return sexp_exceptionp(s); }
+int _sexp_stringp(sexp s) { return sexp_stringp(s); }
 sexp _sexp_cons(sexp ctx, sexp a, sexp b) { return sexp_cons(ctx, a, b); }
 sexp _sexp_nreverse(sexp ctx, sexp ls) { return sexp_reverse(ctx, ls); }
 sexp _sexp_append2(sexp ctx, sexp a, sexp b) { return sexp_append2(ctx, a, b); }
