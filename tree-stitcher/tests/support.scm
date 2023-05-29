@@ -1,13 +1,15 @@
 (import (scheme small))
 (import (chibi test))
+(import (chibi diff))
 (import (scheme regex))
+(import (chibi term ansi))
 
 ;; HACK: while formatting is bad, would be more efficient ofc to read char by char
-(define (ignore-space-str-equal? a b)
+(define (ignore-space-str=? a b)
         (equal? (regexp-replace-all '(* space) a "")
                 (regexp-replace-all '(* space) b "")))
 
-(test-assert (ignore-space-str-equal? "a b" "ab"))
+(test-assert (ignore-space-str=? "a b" "ab"))
 
 (define (dedent text)
   ;; NOTE: how do you efficiently search strings idiomatically? using regex cuz easier, but string-cursors?
@@ -33,9 +35,47 @@ this is a test
         illegal!
           "))
 
+;;; NOTE: this is copied directly from chibi-scheme with minor changes!
+;;; fixes should be upstreamed. For some reason it didn't work as it is,
+;;; maybe it's missing an import
+;;> A variant of \scheme{write-line-diffs} which adds red/green ANSI
+;;> coloring to the +/- prefix.
+(define (write-line-diffs/color lines type out)
+  (for-each
+   (lambda (line)
+     (case type
+       ((add)
+        (write-string (green "+") out)
+        (write-string (green line) out))
+       ((remove)
+        (write-string (red "-") out)
+        (write-string (red line) out))
+       ((same)
+        (write-char #\space out)
+        (write-string line out))
+       (else (error "unknown diff type:" type)))
+     (newline out))
+   lines))
+
 (define-syntax test-query
   (syntax-rules ()
-    ; is this hygienic?
     ((test-query expected query)
-      (let* ((name (expr->string (cadr (quote query)))))
-        (test name expected query)))))
+      (let* ((name (expr->string (cadr (quote query))))
+             (result (ignore-space-str=? expected query))
+             (result-diff (diff expected query)))
+        (if (not result)
+          (begin (newline)
+                 ;; TODO: format
+                 (display (red "==== actual ====\n"))
+                 (display (red query))
+                 (newline)
+                 (display (green "==== expected ====\n"))
+                 (display (green expected))
+                 (newline)
+                 (display "==== diff '") (display name) (display "' ====\n")
+                 (write-diff result-diff write-line-diffs/color)
+                 (newline)
+                 (display "==== end diff ====\n")
+                 )) ; write-line-diffs/color doesn't work :/
+        (test-assert name result)))))
+

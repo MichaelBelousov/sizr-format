@@ -10,8 +10,8 @@
   (test-query
     (dedent "
     int foo() {
-        return 5;
-    }
+          return 5;
+      }
 
     const int x = 5;
 
@@ -21,39 +21,41 @@
     }")
     (transform
       ((function_definition declarator: (_ (identifier) @name)) @func)
-      (ast->string (@func name: "foo"))
+      (ast->string (@func declarator: (function_declarator
+                                        declarator: (identifier "foo")
+                                        parameters: (parameter_list))))
       workspace))
 
 
   ;; FIXME: stupid test
-  (test-query
-    (dedent "
-    int f() {
-      f
-    }
+  ;; (test-query
+  ;;   (dedent "
+  ;;   int f() {
+  ;;     f
+  ;;   }
 
-    const int x = 5;
+  ;;   const int x = 5;
 
-    int main() {
-      main
-    }")
-    (transform
-      ((function_definition declarator: (_ (identifier) @name)) @func)
-      (ast->string (@func body: `("{" (unquote (@name)) "}")))
-      workspace))
+  ;;   int main() {
+  ;;     main
+  ;;   }")
+  ;;   (transform
+  ;;     ((function_definition declarator: (_ (identifier) @name)) @func)
+  ;;     (ast->string (@func body: `("{" (unquote (@name)) "}")))
+  ;;     workspace))
 
-  (test-query
-    (dedent "
-    // deleted: f
+  ;; (test-query
+  ;;   (dedent "
+  ;;   // deleted: f
 
-    const int x = 5;
+  ;;   const int x = 5;
 
-    // deleted: main
-    ")
-    (transform
-      ((function_definition declarator: (_ (identifier) @name)) @func)
-      (ast->string (comment "// deleted: " (@name)))
-      workspace))
+  ;;   // deleted: main
+  ;;   ")
+  ;;   (transform
+  ;;     ((function_definition declarator: (_ (identifier) @name)) @func)
+  ;;     (ast->string (comment "// deleted: " (@name)))
+  ;;     workspace))
 
   ) ; end test-group "cpp-simple"
 

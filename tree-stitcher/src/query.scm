@@ -67,4 +67,3 @@
                  (func (cdr node))))
         (get-output-string out))
       (func ast))))
-
