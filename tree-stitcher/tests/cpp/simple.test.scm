@@ -8,18 +8,17 @@
 
 (test-group "cpp-simple"
   (test-query
-"\
-int foo() {
-    return 5;
-}
+    (dedent "
+    int foo() {
+        return 5;
+    }
 
-const int x = 5;
+    const int x = 5;
 
-// FIXME: 
-int foo() {
-    int a = f();
-    return a;
-}"
+    int foo() {
+        int a = f();
+        return a;
+    }")
     (transform
       ((function_definition declarator: (_ (identifier) @name)) @func)
       (ast->string (@func name: "foo"))
@@ -28,29 +27,29 @@ int foo() {
 
   ;; FIXME: stupid test
   (test-query
-"\
-int f() {
-  f
-}
+    (dedent "
+    int f() {
+      f
+    }
 
-const int x = 5;
+    const int x = 5;
 
-int main() {
-  main
-}"
+    int main() {
+      main
+    }")
     (transform
       ((function_definition declarator: (_ (identifier) @name)) @func)
       (ast->string (@func body: `("{" (unquote (@name)) "}")))
       workspace))
 
   (test-query
-"\
-// deleted: f
+    (dedent "
+    // deleted: f
 
-const int x = 5;
+    const int x = 5;
 
-// deleted: main
-"
+    // deleted: main
+    ")
     (transform
       ((function_definition declarator: (_ (identifier) @name)) @func)
       (ast->string (comment "// deleted: " (@name)))
