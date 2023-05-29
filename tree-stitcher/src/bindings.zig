@@ -139,7 +139,14 @@ export fn exec_query(
     const query = in_query[0..query_len];
 
     // FIXME: replace these catches
-    const file = std.fs.cwd().openFileZ(srcs[0], .{}) catch unreachable;
+    const file = std.fs.cwd().openFileZ(srcs[0], .{}) catch |err| {
+      std.debug.print("error '{any}' opening file: '{s}'\n", .{err, srcs[0]});
+      const cwd = std.fs.cwd().realpathAlloc(std.heap.c_allocator, ".") catch return null;
+      defer std.heap.c_allocator.free(cwd);
+      std.debug.print("was in cwd: '{s}'\n", .{cwd});
+      return null;
+    };
+
     // compiler error
     //_ = std.mem.len(srcs);
     defer file.close();

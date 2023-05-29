@@ -71,8 +71,15 @@ pub fn build(b: *std.build.Builder) void {
     // exe.install();
     query_binding.install();
 
-    const test_step = b.step("test", "run tests");
+    var test_step = b.step("unit-test", "run unit tests");
     test_step.dependOn(&tests.step);
+
+    const e2e_test_step_impl = b.addSystemCommand(&[_][]const u8{
+        "/bin/bash", "./test.sh"
+    });
+    const e2e_test_step = b.step("test", "run tests");
+    e2e_test_step.dependOn(&e2e_test_step_impl.step);
+    e2e_test_step.dependOn(test_step); // TODO: fix spacing in report of merged tests
 
     const run_tsquery_cmd = exe.run();
     run_tsquery_cmd.step.dependOn(b.getInstallStep());

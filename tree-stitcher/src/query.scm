@@ -1,7 +1,7 @@
 ;#!r7rs
 (import (scheme small))
-(import (scheme regex))
 
+;; TODO: relative non-cwd load
 (load "zig-out/lib/libbindings.so")
 
 (define (expr->string e)
@@ -21,6 +21,9 @@
        (map (lambda (c) (string->expr (ts_node_string (node (captures c)))))
             (matches_ExecQueryResult (exec_query (expr->string (quote exp)) '(path)))))))
 
+; TODO: add # to use outer symbols in a tree-sitter query
+; (((function_definition declarator: (_ (identifier) @name)) @func)
+;   (#starts-with-in_? @name))
 (define-syntax transform
   (syntax-rules ()
     ; is this hygienic?
@@ -30,21 +33,6 @@
               (r (exec_query query-str-rooted paths)))
        ;; need get all text between the captured nodes
        (transform_ExecQueryResult r (quote to))))))
-
-(define q (exec_query "((function_definition) @func)" '("/home/mike/test1.cpp")))
-(define my-node (node (captures (car (matches_ExecQueryResult q)))))
-
-; (display (ts_node_string (node (captures (car (matches_ExecQueryResult q))))))
-; (display "\n")
-; (display (node_source (node (captures (list-ref (matches_ExecQueryResult q) 0))) q))
-; (display "\n")
-; (display (node_source (node (captures (list-ref (matches_ExecQueryResult q) 1))) q))
-; (display "\n")
-
-; (display (exec_query2 ((function_definition) @func) "/home/mike/test.cpp"))
-; (display "\n")
-
-(define starts-with-in_? (regexp '(: "in_" (* any))))
 
 (define s-indent "  ")
 
@@ -79,28 +67,4 @@
                  (func (cdr node))))
         (get-output-string out))
       (func ast))))
-
-;(display "\n")
-;(display (ast->string '(function_definition (identifier "hello"))))
-;(display "\n")
-
-(load "./src/langs/cpp.scm")
-
-(display
-  (transform
-    ((function_definition declarator: (_ (identifier) @name)) @func)
-
-    ; TODO: add # to use outer symbols in a tree-sitter query
-    ; (((function_definition declarator: (_ (identifier) @name)) @func)
-    ;   (#starts-with-in_? @name))
-
-
-    ; (string-append "// deleted: " (string-upcase (ast->string (@name))))
-
-    ;; time to add real repl level tests
-    ;(ast->string (@func body: `("{" (,@name) "}")))
-    (ast->string (@func body: (@name)))
-
-    '("/home/mike/test.cpp")))
-(newline)
 
