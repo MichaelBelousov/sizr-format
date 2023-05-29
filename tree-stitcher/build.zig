@@ -1,6 +1,18 @@
 // thank you https://zig.news/xq/zig-build-explained-part-1-59lf
-
 const std = @import("std");
+
+const tree_sitter_pkg = std.build.Pkg{
+    .name = "tree-sitter",
+    .source = std.build.FileSource.relative("../tree-sitter/tree_sitter.zig"),
+    .dependencies = null,
+};
+
+const zig_clap_package = std.build.Pkg{
+    .name = "zig-clap",
+    // do I need gyro or zigmod to let the package build itself?
+    .source = std.build.FileSource.relative("../thirdparty/zig-clap/clap.zig"),
+    .dependencies = null,
+};
 
 pub fn build(b: *std.build.Builder) void {
     // TODO: replace with .addSystemCommand
@@ -27,16 +39,11 @@ pub fn build(b: *std.build.Builder) void {
 
     const ast_helper_gen_exe = b.addExecutable("ast-helper-gen", "src/ast_helper_gen/main.zig");
     ast_helper_gen_exe.setTarget(target);
+    ast_helper_gen_exe.addPackage(zig_clap_package);
     ast_helper_gen_exe.install();
     const build_ast_helper_gen = b.step("ast-helper-gen", "Build the ast-helper-gen tool");
     build_ast_helper_gen.dependOn(&ast_helper_gen_exe.step);
 
-    const tree_sitter_pkg = std.build.Pkg{
-        .name = "tree-sitter",
-        .source = std.build.FileSource.relative("../tree-sitter/tree_sitter.zig"),
-        .dependencies = null,
-    };
-  
     const build_chibi_bindings_src = b.addSystemCommand(&.{ "chibi-ffi", "./tree-sitter-chibi-ffi.scm" });
     // TODO: ask tree-sitter to tag their struct typedefs
     const patch_chibi_bindings_src = b.addSystemCommand(&[_][]const u8{
