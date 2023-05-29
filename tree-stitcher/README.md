@@ -6,6 +6,12 @@ a "workspace" using embedded tree-sitter queries and real lisp code.
 
 ## Building
 
+Hopefully just
+
+```sh
+zig build
+```
+
 ## Potential Names
 
 - TreeStitcher

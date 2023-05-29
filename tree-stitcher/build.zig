@@ -23,8 +23,13 @@ pub fn build(b: *std.build.Builder) void {
 
     const exe = b.addExecutable("tsquery", "src/tsquery.zig");
     exe.step.dependOn(tree_sitter_step);
-
     exe.setTarget(target);
+
+    const ast_helper_gen_exe = b.addExecutable("ast-helper-gen", "src/ast_helper_gen/main.zig");
+    ast_helper_gen_exe.setTarget(target);
+    ast_helper_gen_exe.install();
+    const build_ast_helper_gen = b.step("ast-helper-gen", "Build the ast-helper-gen tool");
+    build_ast_helper_gen.dependOn(&ast_helper_gen_exe.step);
 
     const tree_sitter_pkg = std.build.Pkg{
         .name = "tree-sitter",
