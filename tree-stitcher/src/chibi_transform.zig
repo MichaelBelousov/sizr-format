@@ -16,6 +16,8 @@ const NodeToAstImpl = struct {
         parse_ctx: *const bindings.ExecQueryResult,
         field_replacements: std.StringArrayHashMap(chibi.sexp),
     ) chibi.sexp {
+        //const env = chibi._sexp_context_env(ctx);
+
         var sexp_stack = std.SegmentedList(chibi.sexp, 64){};
         defer sexp_stack.deinit(std.heap.c_allocator);
         var top = sexp_stack.addOne(std.heap.c_allocator) catch unreachable;
@@ -37,7 +39,7 @@ const NodeToAstImpl = struct {
             }
 
             pub fn popMergeUp(self: @This()) void {
-                // FIXME: do I need var, can I reverse without setting?
+                // FIXME: why do we need const if nreverse?
                 var old_top = self.sexp_stack.pop();
                 // FIXME: expensive check of end! (maybe double pop and repush instead?)
                 // (or use a different stack data structure)
@@ -103,12 +105,13 @@ const NodeToAstImpl = struct {
             const curr_field_name = cursor.current_field_name();
             const maybe_replacement = if (curr_field_name) |field| field_replacements.get(field) else null;
             if (maybe_replacement) |replacement| {
-                _sexp_prepend(ctx, top, replacement);
+                top.* = chibi._sexp_append2(ctx, chibi._sexp_reverse(ctx, replacement), top.*);
 
             } else {
                 if (cursor.current_node().is_named()) {
                     // ZIGBUG?: why isn't this an implicit conversion?
-                    const sym = chibi.sexp_intern(ctx, cursor.current_node().@"type"().?.ptr, -1);
+                    const node_type = cursor.current_node().@"type"().?;
+                    const sym = chibi.sexp_intern(ctx, node_type.ptr, @intCast(c_long, node_type.len));
                     _sexp_prepend(ctx, top, sym);
                 }
 
@@ -134,6 +137,7 @@ const NodeToAstImpl = struct {
             }
         }
 
+        // FIXME: why do we need var if nreverse
         var ast = sexp_stack.pop().?;
         ast = chibi._sexp_nreverse(ctx, ast);
         return ast;
@@ -295,13 +299,10 @@ const MatchTransformer = struct {
                     );
                 }
 
-                // TODO: remove nested quoting!
+                // TODO: remove
                 // FIXME: maybe I can just replace all quoting with implementing the tree-sitter
                 // nodes as forms in the lang namespace
-                if (!in_ast_expansion) {
-                    const quasiquote_sym = chibi.sexp_intern(self.ctx, "quasiquote", -1);
-                    ast = chibi.sexp_list2(self.ctx, quasiquote_sym, ast);
-                }
+                //_ = in_ast_expansion;
 
                 return ast;
             }

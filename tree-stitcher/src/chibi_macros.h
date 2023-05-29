@@ -17,6 +17,7 @@ int _sexp_exceptionp(sexp s);
 int _sexp_stringp(sexp s);
 sexp _sexp_cons(sexp ctx, sexp a, sexp b);
 sexp _sexp_nreverse(sexp ctx, sexp ls);
+sexp _sexp_reverse(sexp ctx, sexp ls);
 sexp _sexp_append2(sexp ctx, sexp a, sexp b);
 void _sexp_print_exception(sexp ctx, sexp exn, sexp out_port);
 sexp _sexp_current_error_port(sexp ctx);

@@ -11,7 +11,7 @@
 ;; FIXME: children should be applied the same way as in the transform expander
 (define (primitive_type name) `(primitive_type ,name))
 (define (number_literal number) `(number_literal ,number))
-(define (identifier name) `(identifier ,name)) ; switch to requiring the name
+(define (identifier name) `(identifier ,name))
 (define (parameter_list . children) `(parameter_list "(" ,@children ")")) ; switch to requiring the name
 (define (compound_statement . children) `(compound_statement "{" ,@children "}")) ; switch to requiring the name
 (define (return_statement . children) `(return_statement ,@children))
