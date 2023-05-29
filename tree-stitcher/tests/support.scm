@@ -12,7 +12,7 @@
 (test-assert (ignore-space-str=? "a b" "ab"))
 
 (define (dedent text)
-  ;; NOTE: how do you efficiently search strings idiomatically? using regex cuz easier, but string-cursors?
+  ;; use (chibi string) and string cursors instead (e.g. string-find)
   (let* ((first-nl-index (regexp-match-submatch-start (regexp-search "\n" text) 0))
          (second-nl-index (regexp-match-submatch-start (regexp-search "\n" text (+ first-nl-index 1)) 0))
          (second-line (substring text first-nl-index second-nl-index))

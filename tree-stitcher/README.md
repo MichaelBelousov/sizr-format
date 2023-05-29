@@ -4,13 +4,23 @@
 Scheme bindings for tree-sitter with an extension that enables transforming the AST of files in 
 a "workspace" using embedded tree-sitter queries and real lisp code.
 
+## Building
+
+## Potential Names
+
+- TreeStitcher
+- Trisp (tree-lisp)
+- Tisp
+- Sizr
+- Sizr-lisp (so that sizr isn't taken when introduce a non-lisp tool)
+
 ## TODO:
 
 - add filtering to transformation API
 - better define workspaces for a sample language (e.g. TypeScript package.json + tsconfig.json)
-- better decouple logic in zig from ffi bindings, because in retrospect chibi-scheme's lack of a debugger
-  makes it not the best option?
+- better decouple logic in zig from ffi bindings
 - generate/add per-named-node builder scheme functions, e.g. `(function_definition)`
+- create a playground webpage so people don't need to download it to run it
 - create an interpretter and a REPL for interactively performing transformations across a "workspace",
   viewing transform patches, and confirming them, `git checkout --patch` style.
 - prototype reference detection and renaming for a sample language
