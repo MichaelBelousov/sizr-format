@@ -1,0 +1,19 @@
+{
+  "name": "@trisp/grammar-bindgen",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.cjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "bin": {
+    "grammar-bindgen": "index.cjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^20.2.5",
+    "minimist": "^1.2.8"
+  }
+}
