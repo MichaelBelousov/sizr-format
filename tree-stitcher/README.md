@@ -8,6 +8,8 @@ a "workspace" using embedded tree-sitter queries and real lisp code.
 
 - add filtering to transformation API
 - better define workspaces for a sample language (e.g. TypeScript package.json + tsconfig.json)
+- better decouple logic in zig from ffi bindings, because in retrospect chibi-scheme's lack of a debugger
+  makes it not the best option?
 - generate/add per-named-node builder scheme functions, e.g. `(function_definition)`
 - create an interpretter and a REPL for interactively performing transformations across a "workspace",
   viewing transform patches, and confirming them, `git checkout --patch` style.
@@ -17,18 +19,5 @@ a "workspace" using embedded tree-sitter queries and real lisp code.
 
 ## Examples
 
-***OUT OF DATE***, see [the current in-development test](./src/query.scm).
-
-```sexp
-; rename all snake_case functions to SCREAMING_SNAKE_CASE
-(#transform!
-  ; CAPTURES
-  ; are all but the last argument to !transform captures? is multiple useful?
-  ((function_declaration (identifier) @name) @func
-    ; NOTE: should I make it possible to inline predicates?
-    (#match? @name "^[a-z][a-z_0-9]+"))
-  ; SUBSTITUTIONS
-  (@func name: (upper_case! @name)) ; I would need to embed a real lisp with an stdlib to do this...
-)
-```
+See [the current in-development tests](./tests/cpp/simple.test.scm).
 

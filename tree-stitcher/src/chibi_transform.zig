@@ -320,8 +320,8 @@ const MatchTransformer = struct {
 };
 
 export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transform: chibi.sexp, ctx: chibi.sexp) [*c]const u8 {
-    var result = std.heap.c_allocator.allocSentinel(u8, 8192, 0) catch unreachable;
-    var writer = std.io.fixedBufferStream(result);
+    var chunks = std.SegmentedList([]const u8, 64){};
+    defer chunks.deinit(std.heap.c_allocator);
 
     const match_count = std.mem.len(query_ctx.matches);
     var i: usize = 0;
@@ -330,7 +330,10 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
             const outer_capture = match.captures[0];
             const start = ts._c.ts_node_start_byte(outer_capture.node);
             const end = ts._c.ts_node_end_byte(outer_capture.node);
-            _ = writer.write(query_ctx.buff[i..start]) catch unreachable;
+            chunks.append(std.heap.c_allocator, query_ctx.buff[i..start]) catch |err| {
+                std.log.err("Error allocating output chunk: {any}\n", .{err});
+                return null;
+            };
             i = end;
 
             const transformed_ast = MatchTransformer.transform_match(query_ctx, ctx, match.*, transform);
@@ -350,13 +353,43 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
                 @panic("don't have ast->string implemented in zig yet so haven't done this yet; boom");
             }
 
+            // FIXME: when is transform_result garbage collected? need to valgrind...
             const transform_as_str = chibi._sexp_string_data(transform_result);
             const transform_as_str_len = chibi._sexp_string_size(transform_result);
-            _ = writer.write(transform_as_str[0..transform_as_str_len]) catch unreachable;
+            chunks.append(std.heap.c_allocator, transform_as_str[0..transform_as_str_len]) catch |err| {
+                std.log.err("Error allocating output chunk: {any}\n", .{err});
+                return null;
+            };
         }
     }
-    _ = writer.write(query_ctx.buff[i..]) catch unreachable;
+
+    // NOTE: can avoid appending this one...
+    chunks.append(std.heap.c_allocator, query_ctx.buff[i..]) catch |err| {
+        std.log.err("Error allocating output chunk: {any}\n", .{err});
+        return null;
+    };
+
+    // TODO: wrap chunks.append so this is recorded everytime we push instead of at the end in another pass here
+    const chunks_aggregate_len = _: {
+        var chunk_iter = chunks.constIterator(0);
+        var result: usize = 0;
+        while (chunk_iter.next()) |chunk| {
+            result += chunk.len;
+        }
+        break :_ result;
+    };
+
+    var result_buffer = std.heap.c_allocator.allocSentinel(u8, chunks_aggregate_len, 0) catch unreachable;
+
+    {
+        var chunk_iter = chunks.constIterator(0);
+        var byte_pos: usize = 0;
+        while (chunk_iter.next()) |chunk| {
+            std.mem.copy(u8, result_buffer[byte_pos..byte_pos+chunk.len], chunk.*);
+            byte_pos += chunk.len;
+        }
+    }
     
-    return &result[0];
+    return result_buffer.ptr;
 }
 
