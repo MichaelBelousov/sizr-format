@@ -9,12 +9,7 @@
 (test-group "cpp-simple"
   (test-query
     (dedent "
-    int f() {
-          return 5;
-      }
-
-    const int x = 5;
-
+    int f() { return 5; }
     int main() {
         int a = f();
         return a;
@@ -27,9 +22,6 @@
   (test-query
     (dedent "
     f
-
-    const int x = 5;
-
     main
     ")
     (transform
@@ -39,12 +31,7 @@
 
   (test-query
     (dedent "
-    int foo() {
-         return 5;
-    }
-
-    const int x = 5;
-
+    int foo() { return 5; }
     int foo() {
         int a = f();
         return a;
@@ -55,6 +42,20 @@
                         (function_declarator
                           declarator: (identifier "foo")
                           parameters: (parameter_list))))
+      workspace))
+
+  (test-query
+    (dedent "
+    int foo() { return 5; }
+    int foo() {
+        int a = f();
+        return a;
+    }")
+    (transform
+      ((function_definition declarator: (_ (identifier) @name)) @func)
+      (ast->string (@func declarator:
+                        (function_declarator
+                          declarator: (identifier "foo"))))
       workspace))
 
 
