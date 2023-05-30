@@ -9,6 +9,36 @@
 (test-group "cpp-simple"
   (test-query
     (dedent "
+    int f() {
+          return 5;
+      }
+
+    const int x = 5;
+
+    int main() {
+        int a = f();
+        return a;
+    }")
+    (transform
+      ((function_definition declarator: (_ (identifier) @name)) @func)
+      (ast->string (@func))
+      workspace))
+
+  (test-query
+    (dedent "
+    f
+
+    const int x = 5;
+
+    main
+    ")
+    (transform
+      ((function_definition declarator: (_ (identifier) @name)) @func)
+      (ast->string (@name))
+      workspace))
+
+  (test-query
+    (dedent "
     int foo() {
           return 5;
       }
