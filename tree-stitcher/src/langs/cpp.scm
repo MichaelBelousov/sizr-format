@@ -99,11 +99,11 @@
   (syntax-rules ()
     ((_ name ((field-args ...) ...))
      ;; FIXME: make syntax error if name is not symbol?
-     (define (name children)
+     (define (name . children)
        (let* ((fields (process-children children)))
          (if (equal? fields 'has-extra)
-           (cons 'name children)
-           `(name (define-field fields fields-args ...) ...)))))))
+             (cons 'name children)
+             `(name ,(define-field fields field-args ...) ...)))))))
 
 ;; ;; NEXT: The idea here, is that an invocation containing only field arguments
 ;; ;; should still be able to use a "default", even if some field arguments are required
@@ -119,10 +119,16 @@
 ;;             parameters: ,(hash-table-ref/default fields 'parameters: (parameter_list)))
 ;;         (cons 'function_declarator children))))
 
+(define-syntax define-complex-node
+  (syntax-rules ()
+    ((_ name ((_1 ...) ...))
+     ;; FIXME: make syntax error if name is not symbol?
+     `(name (_1 ...) ...))))
+
 
 ;; NEXT: The idea here, is that an invocation containing only field arguments
 ;; should still be able to use a "default", even if some field arguments are required
-(define-complex-node 'function_declarator
-    '((declarator)
-      (parameters (parameter_list))))
+(define-complex-node function_declarator
+  (declarator (identifier))
+  (parameters (parameter_list)))
 
