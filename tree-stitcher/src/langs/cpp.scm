@@ -14,7 +14,8 @@
 (define-defaultable-node primitive_type "void")
 ;(define-simple-node primitive_type)
 (define-simple-node number_literal)
-(define-simple-node identifier)
+(define (identifier name) `(identifier ,name))
+;(define-simple-node identifier)
 (define-defaultable-node parameter_list "(" ")")
 (define-simple-node compound_statement)
 (define-defaultable-node compound_statement "{" "}")
@@ -53,6 +54,9 @@
 ;;         declarator: ,(identifier "FOO") ;; TODO: implement required children
 ;;         parameters: ,(parameter_list)))
 
+
+;; ;; NEXT: The idea here, is that an invocation containing only field arguments
+;; ;; should have the default arguments for everything
 ;; (define (function_definition . children)
 ;;   ;; could define a record here for this node's allowed fields?
 ;;   (let* ((fields-and-extra (process-children children))
@@ -63,10 +67,23 @@
 ;;         declarator: ,(hash-table-ref/default fields 'declarator: (function_declarator))
 ;;         body: ,(hash-table-ref/default fields 'body: (compound_statement)))))
 
-;; (display (function_definition "{" body: (identifier "foor") "}"))
+;; (define (function_declarator . children)
+;;     `(function_declarator
+;;         declarator: ,(identifier "FOO") ;; TODO: implement required children
+;;         parameters: ,(parameter_list)))
 
-;;; example usage:
-;;; (function_definition body: test) ; error no name!
-;;; (function_definition body: test) ; error no name!
 
+;; NEXT: The idea here, is that an invocation containing only field arguments
+;; should still be able to use a "default", even if some field arguments are required
+(define (function_declarator . children)
+  ;; could define a record here for each node's allowed fields?
+  (let* ((fields-and-extra (process-children children))
+         (fields (car fields-and-extra))
+         (non-fields (cdr fields-and-extra)))
+    ;; FIXME: optimize, shouldn't need to collect all fields to ditch the field approach
+    (if (null? non-fields)
+        `(function_declarator
+            declarator: ,(hash-table-ref         fields 'declarator:)
+            parameters: ,(hash-table-ref/default fields 'parameters: (parameter_list)))
+        (cons 'function_declarator children))))
 
