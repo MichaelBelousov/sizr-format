@@ -34,7 +34,7 @@ export fn free_ExecQueryResult(r: *ExecQueryResult) void {
     // NOTE: maybe should use actual std.c.free (and malloc)?
     std.heap.c_allocator.destroy(r);
 
-    var munmap_result = std.c.getErrno(std.c.munmap(@alignCast(std.mem.page_size, r.buff.ptr), r.buff.len));
+    const munmap_result = std.c.getErrno(std.c.munmap(@alignCast(std.mem.page_size, r.buff.ptr), r.buff.len));
     if (munmap_result != .SUCCESS)
         std.log.err("munmap errno: {any}", .{ munmap_result });
 }

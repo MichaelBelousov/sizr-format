@@ -40,6 +40,7 @@ pub fn build(b: *std.build.Builder) void {
     const ast_helper_gen_exe = b.addExecutable("ast-helper-gen", "src/ast_helper_gen/main.zig");
     ast_helper_gen_exe.setTarget(target);
     ast_helper_gen_exe.addPackage(zig_clap_package);
+    ast_helper_gen_exe.linkLibC();
     ast_helper_gen_exe.install();
     const build_ast_helper_gen = b.step("ast-helper-gen", "Build the ast-helper-gen tool");
     build_ast_helper_gen.dependOn(&ast_helper_gen_exe.step);
