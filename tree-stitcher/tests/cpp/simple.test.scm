@@ -58,6 +58,15 @@
                           declarator: (identifier "foo"))))
       workspace))
 
+  (test-query
+    "int in_a, in_b"
+    (transform
+      ((function_definition declarator: (_ (identifier) @name)) @func)
+      (ast->string (@func declarator:
+                        (function_declarator
+                          declarator: (identifier "foo"))))
+      (string-workspace "int a, b;")))
+
 
   ;; FIXME: stupid test
   ;; (test-query

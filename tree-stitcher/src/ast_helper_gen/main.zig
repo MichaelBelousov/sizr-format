@@ -110,47 +110,8 @@ const Grammar = struct {
 };
 
 // high-level overview:
-// for each named grammar rule (not starting with a `_`), construct a scheme function definition
-// with default tokens between fields
-// like so:
-//
-// "system_lib_string": {
-//   "type": "TOKEN",
-//   "content": {
-//     "type": "SEQ",
-//     "members": [
-//       {
-//         "type": "STRING",
-//         "value": "<"
-//       },
-//       {
-//         "type": "REPEAT",
-//         "content": {
-//           "type": "CHOICE",
-//           "members": [
-//             {
-//               "type": "PATTERN",
-//               "value": "[^>\\n]"
-//             },
-//             {
-//               "type": "STRING",
-//               "value": "\\>"
-//             }
-//           ]
-//         }
-//       },
-//       {
-//         "type": "STRING",
-//         "value": ">"
-//       }
-//     ]
-//   }
-// },
-//
-// (define (system_lib_string token) (token))
-// 
-// this simple example demonstrates that this is too complicated and I will start with
-// hand writing it per language I guess...
+// see if we can use the node-types.json's fields property to generate the necessary
+// ast builders
 
 pub fn convertGrammars(allocator: std.mem.Allocator, grammar_paths: []const []const u8) !void {
     var parser = json.Parser.init(allocator, false);

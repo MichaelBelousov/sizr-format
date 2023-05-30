@@ -67,23 +67,62 @@
 ;;         declarator: ,(hash-table-ref/default fields 'declarator: (function_declarator))
 ;;         body: ,(hash-table-ref/default fields 'body: (compound_statement)))))
 
+;; FIXME: a hashtable doesn't actually work, because it's possible to have multiple nodes
+;; marked with the same field on one parent (e.g. multi-declarators in C)
+(define (process-children children)
+  ;; returns field-hash or 'has-extra
+  (define (impl field-hash args)
+    (cond ((null? args) field-hash)
+          ((and (field? (car args))
+                (null? (cdr args)))
+           (error "field argument not followed by node" (car args)))
+          ;; TODO: add nice error when field isn't followed by anything
+          ((field? (car args))
+           (hash-table-set! field-hash (car args) (cadr args))
+           (impl field-hash (cddr args)))
+          (else 'has-extra)))
+  ;; TODO: use tree-sitter symbols instead of strings?
+  (impl (make-hash-table string=?) children))
+
+(define-syntax define-field
+  (syntax-rules ()
+    ((define-field fields field-name)
+     ;; UNHYGIENIC
+     (field-name (hash-table-ref         fields field-name)))
+    ((define-field fields field-name default)
+     (field-name (hash-table-ref/default fields field-name default)))))
+
+;; NEXT: The idea here, is that an invocation containing only field arguments
+;; should still be able to use a "default", even if some field arguments are required
+;; NEXT: need fields to be unwrapped correctly even when empty
+(define-syntax define-complex-node
+  (syntax-rules ()
+    ((_ name ((field-args ...) ...))
+     ;; FIXME: make syntax error if name is not symbol?
+     (define (name children)
+       (let* ((fields (process-children children)))
+         (if (equal? fields 'has-extra)
+           (cons 'name children)
+           `(name (define-field fields fields-args ...) ...)))))))
+
+;; ;; NEXT: The idea here, is that an invocation containing only field arguments
+;; ;; should still be able to use a "default", even if some field arguments are required
 ;; (define (function_declarator . children)
-;;     `(function_declarator
-;;         declarator: ,(identifier "FOO") ;; TODO: implement required children
-;;         parameters: ,(parameter_list)))
+;;   ;; could define a record here for each node's allowed fields?
+;;   (let* ((fields-and-extra (process-children children))
+;;          (fields (car fields-and-extra))
+;;          (non-fields (cdr fields-and-extra)))
+;;     ;; FIXME: optimize, shouldn't need to collect all fields to ditch the field approach
+;;     (if (null? non-fields)
+;;         `(function_declarator
+;;             declarator: ,(hash-table-ref         fields 'declarator:)
+;;             parameters: ,(hash-table-ref/default fields 'parameters: (parameter_list)))
+;;         (cons 'function_declarator children))))
 
 
 ;; NEXT: The idea here, is that an invocation containing only field arguments
 ;; should still be able to use a "default", even if some field arguments are required
-(define (function_declarator . children)
-  ;; could define a record here for each node's allowed fields?
-  (let* ((fields-and-extra (process-children children))
-         (fields (car fields-and-extra))
-         (non-fields (cdr fields-and-extra)))
-    ;; FIXME: optimize, shouldn't need to collect all fields to ditch the field approach
-    (if (null? non-fields)
-        `(function_declarator
-            declarator: ,(hash-table-ref         fields 'declarator:)
-            parameters: ,(hash-table-ref/default fields 'parameters: (parameter_list)))
-        (cons 'function_declarator children))))
+(define-complex-node 'function_declarator
+    '((declarator)
+      (parameters (parameter_list))))
 
