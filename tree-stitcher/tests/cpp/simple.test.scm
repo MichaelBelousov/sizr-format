@@ -55,7 +55,6 @@
                         (function_declarator
                           declarator: (identifier "foo")
                           parameters: (parameter_list))))
-                          )))
       workspace))
 
 

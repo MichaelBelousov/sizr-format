@@ -50,9 +50,9 @@
 ;; can I make defaultable nodes support only fields?
 (define-syntax define-defaultable-node
   (syntax-rules ()
-    ((define-defaultable-node name . default-children)
+    ((define-defaultable-node name default-children ...)
       (define (name . children)
         (if (null? children)
-            (cons name default-children)
-            (cons name children))))))
+            '(name default-children ...)
+            (cons 'name children))))))
 
