@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const bindings = @import("./bindings.zig");
 const ts = @import("tree-sitter");
 const chibi = @cImport({ @cInclude("./chibi_macros.h"); });
@@ -103,8 +104,20 @@ const NodeToAstImpl = struct {
             // FIXME: instead of a string map, use the language to store in the field map the TSSymbol
             // for faster lookups
             const curr_field_name = cursor.current_field_name();
-            const maybe_replacement = if (curr_field_name) |field| field_replacements.get(field) else null;
+            const in_child_of_root = sexp_stack.count() == 2;
+            const maybe_replacement =
+                if (in_child_of_root and curr_field_name != null)
+                    field_replacements.get(curr_field_name.?)
+                else null;
             if (maybe_replacement) |replacement| {
+                if (std.os.getenv("DEBUG") != null) {
+                    std.debug.print("replacing field '{s}' with:\n", .{curr_field_name.?});
+                    chibi._sexp_debug(ctx, "", replacement);
+                    const node_str = cursor.current_node().string();
+                    defer node_str.free();
+                    std.debug.print("otherwise would be '{s}'\n", .{node_str.ptr});
+                    std.debug.print("source is '{s}'\n", .{cursor.current_node().in_source(parse_ctx.buff)});
+                }
                 top.* = chibi._sexp_append2(ctx, chibi._sexp_reverse(ctx, replacement), top.*);
 
             } else {

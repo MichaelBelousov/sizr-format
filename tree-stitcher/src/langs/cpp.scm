@@ -11,11 +11,13 @@
 (define value: 'value:)
 
 ;; ; nodes
-(define-simple-node primitive_type)
+(define-defaultable-node primitive_type "void")
+;(define-simple-node primitive_type)
 (define-simple-node number_literal)
 (define-simple-node identifier)
-(define-simple-node parameter_list)
+(define-defaultable-node parameter_list "(" ")")
 (define-simple-node compound_statement)
+(define-defaultable-node compound_statement "{" "}")
 (define-simple-node return_statement)
 (define-simple-node argument_list)
 (define-simple-node call_expression)

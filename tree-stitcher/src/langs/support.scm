@@ -3,16 +3,20 @@
 (import (chibi string))
 (import (srfi 125)) ;; hash tables
 
-;; TODO: move to support
 (define-syntax define-simple-node
   (syntax-rules ()
     ((define-simple-node name)
       (define (name . children)
-        ;; debug crap
-        ;;(display name)
-        ;;(display ":\n")
-        ;;(display children)
-        ;;(newline)
+        (cons name children)))))
+
+(define-syntax define-debug-node
+  (syntax-rules ()
+    ((define-simple-node name)
+      (define (name . children)
+        (display name)
+        (display ":\n")
+        (display children)
+        (newline)
         (cons name children)))))
 
 (define (field? x)
@@ -42,3 +46,13 @@
          (extra-children (cdr fields-and-extra)))
     ;; FIXME: comeback to this
     '()))
+
+;; can I make defaultable nodes support only fields?
+(define-syntax define-defaultable-node
+  (syntax-rules ()
+    ((define-defaultable-node name . default-children)
+      (define (name . children)
+        (if (null? children)
+            (cons name default-children)
+            (cons name children))))))
+

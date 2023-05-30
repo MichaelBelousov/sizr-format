@@ -169,8 +169,9 @@ pub fn convertGrammars(allocator: std.mem.Allocator, grammar_paths: []const []co
         const grammar = try parser.parse(grammar_file.buffer);
         //std.debug.print("grammar: {any}\n", .{grammar.root.get("name")});
         std.debug.print("{s}\n", .{grammar.root.Object.get("name").?.String});
-        const rules = grammar.root.Object.get("rules").?.Object.?;
+        const rules = grammar.root.Object.get("rules").?.Object;
         const top_level_rule = rules.keys()[0];
+        _ = top_level_rule;
         std.debug.print("{s}\n", .{grammar.root.Object.get("name").?.String});
     }
 }

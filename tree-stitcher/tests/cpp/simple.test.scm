@@ -40,8 +40,8 @@
   (test-query
     (dedent "
     int foo() {
-          return 5;
-      }
+         return 5;
+    }
 
     const int x = 5;
 
@@ -51,9 +51,11 @@
     }")
     (transform
       ((function_definition declarator: (_ (identifier) @name)) @func)
-      (ast->string (@func declarator: (function_declarator
-                                        declarator: (identifier "foo")
-                                        parameters: (parameter_list))))
+      (ast->string (@func declarator:
+                        (function_declarator
+                          declarator: (identifier "foo")
+                          parameters: (parameter_list))))
+                          )))
       workspace))
 
 
