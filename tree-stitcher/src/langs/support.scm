@@ -24,30 +24,6 @@
   (and (symbol? x)
        (string-suffix? ":" (symbol->string x))))
 
-(define (process-children children)
-  ;; returns (cons field-hash extra-children), maybe should use a record
-  (define (impl field-hash extra-children args)
-    (cond ((null? args) (cons field-hash extra-children))
-          ((and (field? (car args))
-                (null? (cdr args)))
-           (error "field argument not followed by node" (car args)))
-          ;; TODO: add nice error when field isn't followed by anything
-          ((field? (car args))
-           (hash-table-set! field-hash (car args) (cadr args))
-           (impl field-hash extra-children (cddr args)))
-          (else
-           (impl field-hash (cons (car args) extra-children) (cdr args)))))
-  ;; TODO: use tree-sitter symbols?
-  (impl (make-hash-table string=?) '() children))
-
-;; NOTE: assumes no duplicate fields, this is something we may wanna check
-(define (define-complex-node . children)
-  (let* ((fields-and-extra (process-children children))
-         (fields (car fields-and-extra))
-         (extra-children (cdr fields-and-extra)))
-    ;; FIXME: comeback to this
-    '()))
-
 ;; can I make defaultable nodes support only fields?
 (define-syntax define-defaultable-node
   (syntax-rules ()
@@ -56,4 +32,59 @@
         (if (null? children)
             '(name default-children ...)
             (cons 'name children))))))
+
+(define (asterisk-ize-symbol sym)
+  (string->symbol (string-append (symbol->string sym) "*")))
+
+;; can I make defaultable nodes support only fields?
+;; defines both name and name* functions, the latter being a short-hand
+(define-syntax define-surrounded-node
+  (syntax-rules ()
+    ((define-surrounded-node name (left ...) (right ...))
+      (begin
+        ;; (if (not (list-prefix? left children)) (error "invalid"))
+        ;; (if (not (list-suffix? right children)) (error "invalid children for this node"))
+        (define (name . children)
+          (cons 'name children))
+        ;; how is it that I can't find anyone describing how to do this?
+        ;; eval works for now to prevent manually needing to write it out...
+        (eval `(define (,(asterisk-ize-symbol 'name) . children)
+                 `(name left ... ,@children right ...)))))))
+
+;; FIXME: a hashtable doesn't actually work, because it's possible to have multiple nodes
+;; marked with the same field on one parent (e.g. multi-declarators in C)
+(define (process-children children)
+  ;; returns field-hash or 'has-extra
+  (define (impl field-hash args)
+    (cond ((null? args) field-hash)
+          ((and (field? (car args))
+                (null? (cdr args)))
+           (error "field argument not followed by node" (car args)))
+          ;; TODO: add nice error when field isn't followed by anything
+          ((field? (car args))
+           (hash-table-set! field-hash (car args) (cadr args))
+           (impl field-hash (cddr args)))
+          (else 'has-extra)))
+  ;; TODO: use tree-sitter symbols instead of strings?
+  (impl (make-hash-table string=?) children))
+
+(define-syntax define-field
+  (syntax-rules ()
+    ((define-field fields field-name)
+     ;; UNHYGIENIC
+     `(field-name ,(hash-table-ref         fields field-name)))
+    ((define-field fields field-name default)
+     `(field-name ,(hash-table-ref/default fields field-name default)))))
+
+;; NEXT: The idea here, is that an invocation containing only field arguments
+;; should still be able to use a "default", even if some field arguments are required
+(define-syntax define-complex-node
+  (syntax-rules ()
+    ((_ name ((field-args ...) ...))
+     ;; FIXME: make syntax error if name is not symbol?
+     (define (name . children)
+       (let* ((fields (process-children children)))
+         (if (equal? fields 'has-extra)
+             (cons 'name children)
+             `(name ,@(define-field fields field-args ...) ...)))))))
 
