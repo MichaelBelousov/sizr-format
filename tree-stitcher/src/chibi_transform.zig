@@ -349,10 +349,24 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
             };
             i = end;
 
-            const transformed_ast = MatchTransformer.transform_match(query_ctx, ctx, match.*, transform);
+            var transformed_ast = MatchTransformer.transform_match(query_ctx, ctx, match.*, transform);
+
+            const env = chibi._sexp_context_env(ctx);
+            const ast_to_string = chibi.sexp_env_ref(
+                ctx, env, chibi.sexp_intern(ctx, "ast->string", -1), none
+            );
+
+            // FIXME: instead eval twice if not a string, second time just with ast->string
+            const top_call_not_ast_to_expr =
+                chibi._sexp_equalp(ctx, chibi._sexp_car(transformed_ast), ast_to_string) == chibi.SEXP_FALSE;
+
+            if (top_call_not_ast_to_expr)
+                transformed_ast = chibi._sexp_list2(ctx, ast_to_string, transformed_ast);
 
             if (std.os.getenv("DEBUG") != null) chibi._sexp_debug(ctx, "transform expr:", transformed_ast);
+
             const transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
+
             if (std.os.getenv("DEBUG") != null) chibi._sexp_debug(ctx, "transform rslt:", transform_result);
 
             if (chibi._sexp_exceptionp(transform_result) != 0) {
@@ -361,10 +375,10 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
                 @panic("can't return exception with this signature yet so boom");
             }
 
-            // TODO: implicit ast->string?
+            // TODO: type check it's not a list
             if (chibi._sexp_stringp(transform_result) == 0) {
                 chibi._sexp_debug(ctx, "not a string: ", transform_result);
-                @panic("don't have ast->string implemented in zig yet so haven't done this yet; boom");
+                @panic("did implicit ast->string not work?");
             }
 
             // FIXME: when is transform_result garbage collected? need to valgrind...

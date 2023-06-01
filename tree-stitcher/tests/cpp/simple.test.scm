@@ -16,7 +16,7 @@
     }")
     (transform
       ((function_definition declarator: (_ (identifier) @name)) @func)
-      (ast->string (@func))
+      (@func)
       workspace))
 
   (test-query
@@ -26,7 +26,7 @@
     ")
     (transform
       ((function_definition declarator: (_ (identifier) @name)) @func)
-      (ast->string (@name))
+      (@name)
       workspace))
 
   (test-query
@@ -38,10 +38,10 @@
     }")
     (transform
       ((function_definition declarator: (_ (identifier) @name)) @func)
-      (ast->string (@func declarator:
-                        (function_declarator
-                          declarator: (identifier "foo")
-                          parameters: (parameter_list))))
+      (@func declarator:
+             (function_declarator
+               declarator: (identifier "foo")
+               parameters: (parameter_list)))
       workspace))
 
   (test-query
@@ -53,18 +53,18 @@
     }")
     (transform
       ((function_definition declarator: (_ (identifier) @name)) @func)
-      (ast->string (@func declarator:
-                        (function_declarator
-                          declarator: (identifier "foo"))))
+      (@func declarator:
+             (function_declarator
+               declarator: (identifier "foo")))
       workspace))
 
   (test-query
     "int in_a, in_b"
     (transform
       ((function_definition declarator: (_ (identifier) @name)) @func)
-      (ast->string (@func declarator:
-                        (function_declarator
-                          declarator: (identifier "foo"))))
+      (@func declarator:
+             (function_declarator
+               declarator: (identifier "foo")))
       (string-workspace "int a, b;")))
 
 
