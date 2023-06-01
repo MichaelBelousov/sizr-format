@@ -1,5 +1,6 @@
 ;; tree-sitter like lisp expressions for tree-stitcher augmentations
 
+(import (scheme small)) ;; for define-syntax/syntax-rules
 (import (chibi string))
 (import (srfi 125)) ;; hash tables
 
