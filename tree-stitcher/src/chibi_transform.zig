@@ -351,8 +351,9 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
 
             const transformed_ast = MatchTransformer.transform_match(query_ctx, ctx, match.*, transform);
 
-            if (std.os.getenv("DEBUG") != null) chibi._sexp_debug(ctx, "transform ast:", transformed_ast);
+            if (std.os.getenv("DEBUG") != null) chibi._sexp_debug(ctx, "transform expr:", transformed_ast);
             const transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
+            if (std.os.getenv("DEBUG") != null) chibi._sexp_debug(ctx, "transform rslt:", transform_result);
 
             if (chibi._sexp_exceptionp(transform_result) != 0) {
                 chibi._sexp_debug(ctx, "exception: ", transform_result);

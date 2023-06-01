@@ -60,7 +60,7 @@ this is a test
 (define-syntax test-query
   (syntax-rules ()
     ((test-query expected query)
-      (let* ((name (expr->string (cadr (quote query))))
+      (let* ((name (expr->string (quote query)))
              (result (ignore-space-str=? expected query))
              (result-diff (diff expected query)))
         (if (not result)

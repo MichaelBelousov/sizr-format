@@ -17,15 +17,22 @@
 (define-simple-node number_literal)
 (define (identifier name) `(identifier ,name))
 ;(define-simple-node identifier)
-(define-defaultable-node parameter_list "(" ")")
+(define-defaultable-surrounded-node parameter_list ("(") (")"))
 (define-simple-node compound_statement)
-(define-defaultable-node compound_statement "{" "}")
-(define (return_statement expr) `(return_statement ,expr))
-(define-simple-node argument_list)
-(define-simple-node call_expression)
+(define-defaultable-surrounded-node compound_statement ("{") ("}"))
+(define-surrounded-node return_statement ("return") (";"))
+(define-defaultable-surrounded-node argument_list ("(") (")"))
+(define-complex-node call_expression
+  ((function:)
+   (arguments: (argument_list))
+   (body: (compound_statement))))
 (define-simple-node init_declarator)
 (define-simple-node declaration)
-(define-simple-node function_declarator)
+(define-complex-node function_declarator
+  ((declarator:)
+   (parameters: (parameter_list))
+   (body: (compound_statement))))
+
 (define-simple-node function_definition)
 (define-simple-node comment) ;; hmmmm
 
@@ -50,10 +57,6 @@
 ;;     `(declaration
 ;;         type: ,(identifier "DECL_NAME") ;; TODO: implement required children
 ;;         declarator: ,(parameter_list)))
-(define (declaration . children)
-    `(declaration
-        type: ,(identifier "DECL_NAME") ;; TODO: implement required children
-        declarator: ,(parameter_list)))
 
 
 (define-complex-node function_declarator

@@ -36,7 +36,6 @@
 (define (asterisk-ize-symbol sym)
   (string->symbol (string-append (symbol->string sym) "*")))
 
-;; can I make defaultable nodes support only fields?
 ;; defines both name and name* functions, the latter being a short-hand
 (define-syntax define-surrounded-node
   (syntax-rules ()
@@ -46,6 +45,23 @@
         ;; (if (not (list-suffix? right children)) (error "invalid children for this node"))
         (define (name . children)
           (cons 'name children))
+        ;; how is it that I can't find anyone describing how to do this?
+        ;; eval works for now to prevent manually needing to write it out...
+        (eval `(define (,(asterisk-ize-symbol 'name) . children)
+                 `(name left ... ,@children right ...)))))))
+
+;; like define-surrounded-node, but no children for the non-special
+;; function defaults to the left and right tokens
+(define-syntax define-defaultable-surrounded-node
+  (syntax-rules ()
+    ((define-defaultable-surrounded-node name (left ...) (right ...))
+      (begin
+        ;; (if (not (list-prefix? left children)) (error "invalid"))
+        ;; (if (not (list-suffix? right children)) (error "invalid children for this node"))
+        (define (name . children)
+          (if (null? children)
+              '(name left ... right ...)
+              (cons 'name children)))
         ;; how is it that I can't find anyone describing how to do this?
         ;; eval works for now to prevent manually needing to write it out...
         (eval `(define (,(asterisk-ize-symbol 'name) . children)
