@@ -10,6 +10,8 @@
 (define parameters: 'parameters:)
 (define body: 'body:)
 (define value: 'value:)
+(define arguments: 'arguments:)
+(define function: 'function:)
 
 ;; ; nodes
 (define-defaultable-node primitive_type "void")
@@ -30,7 +32,10 @@
 (define-simple-node declaration)
 (define-complex-node function_declarator
   ((declarator:)
-   (parameters: (parameter_list))
+   (parameters: (parameter_list))))
+(define-complex-node function_definition
+  ((type: (primitive_type))
+   (declarator:)
    (body: (compound_statement))))
 
 (define-simple-node function_definition)
@@ -59,8 +64,7 @@
 ;;         declarator: ,(parameter_list)))
 
 
-(define-complex-node function_declarator
-  ((declarator:)
-   (parameters: (parameter_list))
-   (body: (compound_statement))))
-
+(display
+  (eval (function_declarator
+    declarator: (identifier "foo"))))
+(newline)

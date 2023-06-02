@@ -332,7 +332,9 @@ const MatchTransformer = struct {
     }
 };
 
+// FIXME: completely ignoring the garbage collector all over the place... going to be bad
 export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transform: chibi.sexp, ctx: chibi.sexp) [*c]const u8 {
+    const env = chibi._sexp_context_env(ctx);
     var chunks = std.SegmentedList([]const u8, 64){};
     defer chunks.deinit(std.heap.c_allocator);
 
@@ -349,25 +351,41 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
             };
             i = end;
 
-            var transformed_ast = MatchTransformer.transform_match(query_ctx, ctx, match.*, transform);
+            const transformed_ast = MatchTransformer.transform_match(query_ctx, ctx, match.*, transform);
 
-            const env = chibi._sexp_context_env(ctx);
-            const ast_to_string = chibi.sexp_env_ref(
-                ctx, env, chibi.sexp_intern(ctx, "ast->string", -1), none
-            );
+            // if I do it this way, then @capture must be a function that merges its arguments into
+            // its value, which is basically what I already have in lisp with make-complex-node, no?
+            // but it also must use node_to_ast to produce the stringified ast...
+            // {
+            //     const transform_ctx = chibi.sexp_make_eval_context(ctx, null, null, 0, 0);
+            //     // FIXME: destroying this derived context destroys the parent? maybe because
+            //     // the stack and env are null?
+            //     //defer _ = chibi.sexp_destroy_context(transform_ctx);
+            //     var capture_iter = query_ctx.capture_name_to_index.iterator();
+            //     while (capture_iter.next()) |capture| {
+            //         const name = std.heap.c_allocator.alloc(u8, capture.key_ptr.*.len + 1)
+            //             catch @panic("couldn't allocate capture name");
+            //         const capture_index = capture.value_ptr.*;
+            //         defer std.heap.c_allocator.free(name);
+            //         const node = ts.Node.from_c(match.captures[capture_index].node);
+            //         const node_str = node.string();
+            //         defer node_str.free();
+            //         const result = chibi.sexp_eval_string(ctx, node_str.ptr, -1, null);
+            //         const symbol = chibi.sexp_intern(ctx, name.ptr, @intCast(c_long, name.len));
+            //         _ = chibi.sexp_env_define(transform_ctx, env, symbol, result);
+            //     }
 
-            // FIXME: instead eval twice if not a string, second time just with ast->string
-            const top_call_not_ast_to_expr =
-                chibi._sexp_equalp(ctx, chibi._sexp_car(transformed_ast), ast_to_string) == chibi.SEXP_FALSE;
+            //     const test_result = chibi._sexp_eval(transform_ctx, transformed_ast, null);
+            //     chibi._sexp_debug(ctx, "test eval:", test_result);
+            // }
 
-            if (top_call_not_ast_to_expr)
-                transformed_ast = chibi._sexp_list2(ctx, ast_to_string, transformed_ast);
+            if (std.os.getenv("DEBUG") != null)
+                chibi._sexp_debug(ctx, "before eval:", transformed_ast);
 
-            if (std.os.getenv("DEBUG") != null) chibi._sexp_debug(ctx, "transform expr:", transformed_ast);
+            var transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
 
-            const transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
-
-            if (std.os.getenv("DEBUG") != null) chibi._sexp_debug(ctx, "transform rslt:", transform_result);
+            if (std.os.getenv("DEBUG") != null)
+                chibi._sexp_debug(ctx, "after eval:", transformed_ast);
 
             if (chibi._sexp_exceptionp(transform_result) != 0) {
                 chibi._sexp_debug(ctx, "exception: ", transform_result);
@@ -377,8 +395,21 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
 
             // TODO: type check it's not a list
             if (chibi._sexp_stringp(transform_result) == 0) {
-                chibi._sexp_debug(ctx, "not a string: ", transform_result);
-                @panic("did implicit ast->string not work?");
+                const ast_to_string = chibi.sexp_env_ref(
+                    ctx, env, chibi.sexp_intern(ctx, "ast->string", -1), none
+                );
+                if (ast_to_string == none)
+                    @panic("could not find owning function bindings in environment");
+                transform_result = chibi._sexp_list2(ctx, ast_to_string, transform_result);
+                transform_result = chibi._sexp_eval(ctx, transform_result, null);
+                if (std.os.getenv("DEBUG") != null)
+                    chibi._sexp_debug(ctx, "after stringify:", transform_result);
+            }
+
+            if (chibi._sexp_exceptionp(transform_result) != 0) {
+                chibi._sexp_debug(ctx, "exception: ", transform_result);
+                chibi._sexp_print_exception(ctx, transform_result, chibi._sexp_current_error_port(ctx));
+                @panic("can't return exception with this signature yet so boom");
             }
 
             // FIXME: when is transform_result garbage collected? need to valgrind...

@@ -7,6 +7,7 @@
 (define workspace '("./tests/cpp/simple1.cpp"))
 
 (test-group "cpp-simple"
+
   (test-query
     (dedent "
     int f() { return 5; }
