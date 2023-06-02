@@ -25,11 +25,11 @@ zig build
 
 - add filtering to transformation API
 - better define workspaces for a sample language (e.g. TypeScript package.json + tsconfig.json)
-- better decouple logic in zig from ffi bindings
-- generate/add ast builder scheme functions, e.g. `(function_definition)`
+- better decouple logic in zig from ffi bindings to allow porting to other lisps
+- generate AST builder scheme functions from `src/node_types.json`
 - create a playground webpage so people don't need to download it to run it (would be great to use
-  monaco editor with LSP)
-- create an interpretter and a REPL for interactively performing transformations across a "workspace",
+  Monaco editor with LSP)
+- create an interpreter and a REPL for interactively performing transformations across a "workspace",
   viewing transform patches, and confirming them, `git checkout --patch` style.
 - prototype reference detection and renaming for a sample language
 - see if it's possible to create an ABI-compatible tree-sitter fork that when loading a C++ language

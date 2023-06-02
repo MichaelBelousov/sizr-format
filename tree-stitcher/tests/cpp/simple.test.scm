@@ -68,7 +68,6 @@
                declarator: (identifier "foo")))
       (string-workspace "int a, b;")))
 
-
   ;; FIXME: stupid test
   ;; (test-query
   ;;   (dedent "
