@@ -78,7 +78,7 @@ Module['ready'] = new Promise(function(resolve, reject) {
         PACKAGE_PATH = encodeURIComponent(location.pathname.toString().substring(0, location.pathname.toString().lastIndexOf('/')) + '/');
       }
       var PACKAGE_NAME = 'js/chibi.data';
-      var REMOTE_PACKAGE_BASE = 'chibi.data';
+      var REMOTE_PACKAGE_BASE = 'chibi/chibi.data';
       if (typeof Module['locateFilePackage'] === 'function' && !Module['locateFile']) {
         Module['locateFile'] = Module['locateFilePackage'];
         err('warning: you defined Module.locateFilePackage, that has been renamed to Module.locateFile (using your locateFilePackage for now)');

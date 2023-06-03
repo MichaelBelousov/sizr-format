@@ -34,10 +34,10 @@ let sessionTargetType = sessionStorage.getItem('target-type')
 sessionTargetType = targetInSessionStorageIsValid ? 'python' : sessionTargetType
 
 const programEditor = /** @type {HTMLTextAreaElement} */ (document.querySelector('#program-editor'))
-programEditor.textContent = sessionProgram
+programEditor.value = sessionProgram
 
 const targetEditor = /** @type {HTMLTextAreaElement} */ (document.querySelector('#target-editor'))
-targetEditor.textContent = sessionTarget
+targetEditor.value = sessionTarget
 
 const langSelect = /** @type {HTMLSelectElement} */ (document.querySelector('#lang-select'))
 langSelect.value = sessionTargetType || 'python'
@@ -51,11 +51,15 @@ targetEditor.addEventListener('change', (e) => {
 })
 
 programEditor.addEventListener('change', (e) => {
-  sessionProgram = e.currentProgram.value
+  sessionProgram = e.currentTarget.value
   sessionStorage.setItem('program', sessionProgram)
 })
 
-
+programEditor.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === "Enter") {
+    runButton.click();
+  }
+})
 
 
 /** @type {typeof import('web-tree-sitter')} */
@@ -95,19 +99,22 @@ langSelect.addEventListener('change', (e) => {
 const Chibi = window.Chibi
 assert(Parser, 'Chibi was not already loaded')
 
+
+// TODO: disable run when already running
 runButton.addEventListener('click', () => {
   Chibi({
     /** @param {string} text */
     print(text) {
-      output.textContent += text + '\n'
+      output.value += text + '\n'
     },
     /** @param {string} text */
     printErr(text) {
-      output.textContent += 'ERROR\n:' + text + '\n'
+      output.value += 'ERROR\n:' + text + '\n'
     },
-    program: programEditor.textContent,
+    // HACK
+    program: programEditor.value + "(wait-on-event!)",
     // NOTE: can I use this to send the target text?
-    arguments: [],
+    arguments: [targetEditor.value],
   })
 })
 
