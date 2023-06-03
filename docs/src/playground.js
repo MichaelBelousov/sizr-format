@@ -6,31 +6,77 @@
  * @returns {asserts cond}
  */
 function assert(cond, msg) {
-  if (!cond) throw Error(msg || "assertion failed")
+  if (!cond) {
+    alert(Error(msg || 'assertion failed'))
+  }
 }
 
+const defaultProgram = `\
+(transform
+  ((function_definition body: (_) @body))
+  (@body )
+  (playground-workspace))
+`
 
-/** @type {typeof import("web-tree-sitter")} */
+const defaultTarget = `\
+def myfunc(a, b):
+  return a + b
+`
+
+let sessionProgram = sessionStorage.getItem('program')
+sessionProgram = sessionProgram && sessionProgram.trim() === '' ? defaultProgram : sessionProgram
+
+let sessionTarget = sessionStorage.getItem('target')
+const targetInSessionStorageIsValid = sessionTarget && sessionTarget.trim() === ''
+sessionTarget = targetInSessionStorageIsValid ? defaultTarget : sessionTarget
+
+let sessionTargetType = sessionStorage.getItem('target-type')
+sessionTargetType = targetInSessionStorageIsValid ? 'python' : sessionTargetType
+
+const programEditor = /** @type {HTMLTextAreaElement} */ (document.querySelector('#program-editor'))
+programEditor.textContent = sessionProgram
+
+const targetEditor = /** @type {HTMLTextAreaElement} */ (document.querySelector('#target-editor'))
+targetEditor.textContent = sessionTarget
+
+const langSelect = /** @type {HTMLSelectElement} */ (document.querySelector('#lang-select'))
+langSelect.value = sessionTargetType || 'python'
+
+const output = /** @type {HTMLPreElement} */ (document.querySelector('#output'))
+const runButton = /** @type {HTMLButtonElement} */ (document.querySelector('#run-btn'))
+
+targetEditor.addEventListener('change', (e) => {
+  sessionTarget = e.currentTarget.value
+  sessionStorage.setItem('target', sessionTarget)
+})
+
+programEditor.addEventListener('change', (e) => {
+  sessionProgram = e.currentProgram.value
+  sessionStorage.setItem('program', sessionProgram)
+})
+
+
+
+
+/** @type {typeof import('web-tree-sitter')} */
 // @ts-ignore
 const Parser = window.TreeSitter
-assert(Parser, "tree-sitter was not already loaded")
+assert(Parser, 'tree-sitter was not already loaded')
 
 const parserInit = Parser.init({
   locateFile() {
     // NOTE: these url's are no where guaranteed to be stable, but something tells me it
     // won't break for a while, and then I can switch to a cdn
-    return "https://tree-sitter.github.io/tree-sitter.js"
+    return 'https://tree-sitter.github.io/tree-sitter.wasm'
   },
 })
-
-const options = /** @type {HTMLSelectElement | null} */ (document.querySelector("#lang-select"))
-assert(options)
 
 /** @type {{[lang: string]: Promise<any>}} */
 const languages = {}
 
-options.addEventListener("change", (e) => {
+langSelect.addEventListener('change', (e) => {
   const langTag = e.currentTarget.value
+  sessionStorage.setItem('target-type', langTag)
   let langParser = languages[langTag]
 
   if (langParser === undefined) {
@@ -43,5 +89,25 @@ options.addEventListener("change", (e) => {
         return langParser
       })
   }
+})
+
+// @ts-ignore
+const Chibi = window.Chibi
+assert(Parser, 'Chibi was not already loaded')
+
+runButton.addEventListener('click', () => {
+  Chibi({
+    /** @param {string} text */
+    print(text) {
+      output.textContent += text + '\n'
+    },
+    /** @param {string} text */
+    printErr(text) {
+      output.textContent += 'ERROR\n:' + text + '\n'
+    },
+    program: programEditor.textContent,
+    // NOTE: can I use this to send the target text?
+    arguments: [],
+  })
 })
 
