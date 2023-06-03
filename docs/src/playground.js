@@ -28,10 +28,10 @@ sessionProgram = sessionProgram && sessionProgram.trim() === '' ? defaultProgram
 
 let sessionTarget = sessionStorage.getItem('target')
 const targetInSessionStorageIsValid = sessionTarget && sessionTarget.trim() === ''
-sessionTarget = targetInSessionStorageIsValid ? defaultTarget : sessionTarget
+sessionTarget = targetInSessionStorageIsValid ? sessionTarget : defaultTarget
 
 let sessionTargetType = sessionStorage.getItem('target-type')
-sessionTargetType = targetInSessionStorageIsValid ? 'python' : sessionTargetType
+sessionTargetType = targetInSessionStorageIsValid ? sessionTargetType : 'python'
 
 const programEditor = /** @type {HTMLTextAreaElement} */ (document.querySelector('#program-editor'))
 programEditor.value = sessionProgram
