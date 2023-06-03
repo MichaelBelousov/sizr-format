@@ -5,6 +5,11 @@
   overflow: auto;
 }
 
+* {
+  color: #fafafa;
+  background-color: #1b1b1b;
+}
+
 body {
   margin: 0;
   display: grid;
@@ -31,8 +36,6 @@ body {
   grid-area: program;
 }
 
-#program-editor { }
-
 .editor {
   width: 100%;
   height: calc(100% - 90px);
@@ -48,6 +51,6 @@ body {
 
 #output-pane {
   grid-area: output;
-  border: 1px solid rgba(0, 0, 0, 0.5);
+  border: 1px solid #fafafa;
   border-radius: 2px;
 }
