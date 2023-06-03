@@ -70,6 +70,7 @@ pub fn build(b: *std.build.Builder) void {
     driver_exe.install();
     driver_exe.addIncludePath("./src/driver");
     driver_exe.linkSystemLibrary("chibi-scheme");
+    driver_exe.addCSourceFile("src/chibi_macros.c", &.{"-std=c99", "-fPIC"});
     const driver = b.step("driver", "Build the driver");
     driver.dependOn(&driver_exe.step);
 
