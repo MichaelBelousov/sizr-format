@@ -1,0 +1,16 @@
+{
+  "name": "sizr-lisp-playground",
+  "version": "0.1.0",
+  "description": "web playground for sizr-lisp",
+  "main": "index.html",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.1.3",
+    "web-tree-sitter": "^0.20.8"
+  }
+}
