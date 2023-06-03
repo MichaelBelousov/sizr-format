@@ -83,10 +83,6 @@
           (else 'has-extra)))
   (impl (make-hash-table symbol=?) children))
 
-(define (ast-replace ast . replacements)
-  '())
-
-
 (define-syntax define-field
   (syntax-rules ()
     ((define-field fields field-name)
@@ -97,6 +93,7 @@
 
 ;; NEXT: The idea here, is that an invocation containing only field arguments
 ;; should still be able to use a "default", even if some field arguments are required
+;; NOTE: these are not exactly like tree-sitter ASTs, you can't have multiple field arguments
 (define-syntax define-complex-node
   (syntax-rules ()
     ((_ name ((field-args ...) ...))
@@ -106,4 +103,12 @@
          (if (equal? fields 'has-extra)
              (cons 'name children)
              `(name ,@(define-field fields field-args ...) ...)))))))
+
+;;; technically there is no well-defined way to specify merge points of trees
+;;; in tree-sitter ASTs, even `field: (blah)` doesn't work because a grammar
+;;; may contain arbitrarily placed fields on the same node
+;;; so this is restricted to bailing out if it encounters the same field not in
+;;; sequence, and replaces all of that field in sequence when a field is encountered
+(define (ast-replace ast . replacements)
+  '())
 

@@ -62,8 +62,16 @@ pub fn build(b: *std.build.Builder) void {
     query_binding.addCSourceFile("src/chibi_macros.c", &.{"-std=c99", "-fPIC"});
     query_binding.linkSystemLibrary("chibi-scheme");
     query_binding.addIncludePath("src");
-
     query_binding.step.dependOn(&patch_chibi_bindings_src.step);
+
+    const driver_exe = b.addExecutable("driver", "src/driver/main.zig");
+    driver_exe.setTarget(target);
+    driver_exe.linkLibC();
+    driver_exe.install();
+    driver_exe.addIncludePath("./src/driver");
+    driver_exe.linkSystemLibrary("chibi-scheme");
+    const driver = b.step("driver", "Build the driver");
+    driver.dependOn(&driver_exe.step);
 
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig
