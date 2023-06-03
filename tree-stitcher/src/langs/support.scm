@@ -81,8 +81,11 @@
            (hash-table-set! field-hash (car args) (cadr args))
            (impl field-hash (cddr args)))
           (else 'has-extra)))
-  ;; TODO: use tree-sitter symbols instead of strings?
-  (impl (make-hash-table string=?) children))
+  (impl (make-hash-table symbol=?) children))
+
+(define (ast-replace ast . replacements)
+  '())
+
 
 (define-syntax define-field
   (syntax-rules ()

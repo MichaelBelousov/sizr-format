@@ -382,6 +382,8 @@ export fn transform_ExecQueryResult(query_ctx: *bindings.ExecQueryResult, transf
             if (std.os.getenv("DEBUG") != null)
                 chibi._sexp_debug(ctx, "before eval:", transformed_ast);
 
+            // FIXME: eval doesn't portably operate on procedures, but on symbols, so may need to
+            // quote the ast or something
             var transform_result = chibi._sexp_eval(ctx, transformed_ast, null);
 
             if (std.os.getenv("DEBUG") != null)
