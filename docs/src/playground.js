@@ -24,10 +24,10 @@ def myfunc(a, b):
 `
 
 let sessionProgram = sessionStorage.getItem('program')
-sessionProgram = sessionProgram && sessionProgram.trim() === '' ? defaultProgram : sessionProgram
+sessionProgram = sessionProgram && sessionProgram.trim() !== '' ? sessionProgram : defaultProgram
 
 let sessionTarget = sessionStorage.getItem('target')
-const targetInSessionStorageIsValid = sessionTarget && sessionTarget.trim() === ''
+const targetInSessionStorageIsValid = sessionTarget && sessionTarget.trim() !== ''
 sessionTarget = targetInSessionStorageIsValid ? sessionTarget : defaultTarget
 
 let sessionTargetType = sessionStorage.getItem('target-type')
@@ -57,7 +57,7 @@ programEditor.addEventListener('change', (e) => {
 
 programEditor.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key === "Enter") {
-    runButton.click();
+    runButton.click()
   }
 })
 
@@ -78,12 +78,13 @@ const parserInit = Parser.init({
 /** @type {{[lang: string]: Promise<any>}} */
 const languages = {}
 
-langSelect.addEventListener('change', (e) => {
+langSelect.addEventListener('change', async (e) => {
   const langTag = e.currentTarget.value
   sessionStorage.setItem('target-type', langTag)
   let langParser = languages[langTag]
 
   if (langParser === undefined) {
+    await parserInit
     languages[langTag] = Parser.Language
       .load(`https://tree-sitter.github.io/tree-sitter-${langTag}.wasm`)
       .then((lang) => {
@@ -95,26 +96,25 @@ langSelect.addEventListener('change', (e) => {
   }
 })
 
-// @ts-ignore
-const Chibi = window.Chibi
-assert(Parser, 'Chibi was not already loaded')
+import * as _wasmer from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@1.2.2/+esm'
+/** @type {typeof import("@wasmer/wasi")} */
+const wasmer = _wasmer;
 
 
-// TODO: disable run when already running
-runButton.addEventListener('click', () => {
-  Chibi({
-    /** @param {string} text */
-    print(text) {
-      output.value += text + '\n'
-    },
-    /** @param {string} text */
-    printErr(text) {
-      output.value += 'ERROR\n:' + text + '\n'
-    },
-    // HACK
-    program: programEditor.value + "(wait-on-event!)",
-    // NOTE: can I use this to send the target text?
-    arguments: [targetEditor.value],
+async function main() {
+  await wasmer.init()
+  const wasi = new wasmer.WASI({
+    env: {},
+    args: [],
   })
-})
+  const moduleBlob = fetch("webdriver.wasm")
+  const module = await WebAssembly.compileStreaming(moduleBlob)
+  await wasi.instantiate(module, {})
+  const exitCode = wasi.start()
+  const stdout = wasi.getStdoutString()
+  console.log(stdout)
+  console.log(`exited with: ${exitCode}`)
+}
+
+main().catch(alert)
 
