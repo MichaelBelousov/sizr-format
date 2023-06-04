@@ -98,8 +98,7 @@ langSelect.addEventListener('change', async (e) => {
 
 import * as _wasmer from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@1.2.2/+esm'
 /** @type {typeof import("@wasmer/wasi")} */
-const wasmer = _wasmer;
-
+const wasmer = _wasmer
 
 async function main() {
   await wasmer.init()
@@ -109,11 +108,14 @@ async function main() {
   })
   const moduleBlob = fetch("webdriver.wasm")
   const module = await WebAssembly.compileStreaming(moduleBlob)
-  await wasi.instantiate(module, {})
-  const exitCode = wasi.start()
-  const stdout = wasi.getStdoutString()
-  console.log(stdout)
-  console.log(`exited with: ${exitCode}`)
+  const inst = wasi.instantiate(module, {})
+  inst.exports.init()
+  runButton.addEventListener("click", () => {
+    const program = programEditor.value
+    wasi.setStdinString(program)
+    inst.exports.eval_stdin()
+    output.textContent += wasi.getStderrString() + "\n"
+  })
 }
 
 main().catch(alert)
