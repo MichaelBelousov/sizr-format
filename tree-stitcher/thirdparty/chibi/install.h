@@ -1,0 +1,5 @@
+#define sexp_so_extension ".so"
+#define sexp_default_module_path "/usr/share/chibi:/usr/lib/x86_64-linux-gnu/chibi:/usr/local/share/snow:/usr/local/lib/x86_64-linux-gnu/snow"
+#define sexp_platform "linux"
+#define sexp_version "0.9.1"
+#define sexp_release_name "fluoride"

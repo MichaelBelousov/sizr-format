@@ -70,9 +70,26 @@ pub fn build(b: *std.build.Builder) void {
     driver_exe.install();
     driver_exe.addIncludePath("./src/driver");
     driver_exe.linkSystemLibrary("chibi-scheme");
-    driver_exe.addCSourceFile("src/chibi_macros.c", &.{"-std=c99", "-fPIC"});
+    driver_exe.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-fPIC"});
     const driver = b.step("driver", "Build the driver");
     driver.dependOn(&driver_exe.step);
+
+    // TODO: deduplicate from regular driver
+    const webdriver_exe = b.addExecutable("webdriver", "src/driver/main.zig");
+    var webTarget = target;
+    webTarget.cpu_arch = .wasm32;
+    webTarget.os_tag = .wasi; // not emscripten
+    webdriver_exe.setTarget(webTarget);
+    webdriver_exe.linkLibC();
+    webdriver_exe.install();
+    webdriver_exe.addIncludePath("./src/driver");
+    webdriver_exe.addIncludePath("./thirdparty");
+    webdriver_exe.linkSystemLibrary("chibi-scheme");
+    webdriver_exe.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-fPIC"});
+
+    // FIXME: why doesn't this step work? I keep needing to do full zig build...
+    const webdriver = b.step("webdriver", "Build the web driver");
+    webdriver.dependOn(&webdriver_exe.step);
 
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig

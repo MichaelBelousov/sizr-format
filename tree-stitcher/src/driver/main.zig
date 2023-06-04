@@ -2,8 +2,15 @@
 //! with the sizr primitives built in
 
 const std = @import("std");
+const builtin = @import("builtin");
 // FIXME: create a package of chibi bindings
-const chibi = @cImport({ @cInclude("../chibi_macros.h"); });
+const chibi = @cImport({
+    if (builtin.os.tag == .emscripten) {
+        @cDefine("sexp_platform", "emscripten");
+        @cDefine("SEXP_USE_DL", "0");
+    }
+    @cInclude("../chibi_macros.h");
+});
 
 pub fn main() !void {
     const args = try std.process.argsAlloc(std.heap.c_allocator);
