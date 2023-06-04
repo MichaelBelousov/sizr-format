@@ -64,50 +64,52 @@ pub fn build(b: *std.build.Builder) void {
     query_binding.addIncludePath("src");
     query_binding.step.dependOn(&patch_chibi_bindings_src.step);
 
-    const driver_exe = b.addExecutable("driver", "src/driver/main.zig");
+    const driver_exe = b.addStaticLibrary("driver", "src/driver/main.zig");
     driver_exe.setTarget(target);
     driver_exe.linkLibC();
-    driver_exe.install();
     driver_exe.addIncludePath("./src/driver");
     driver_exe.linkSystemLibrary("chibi-scheme");
     driver_exe.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-fPIC"});
     const driver = b.step("driver", "Build the driver");
     driver.dependOn(&driver_exe.step);
+    driver_exe.install();
 
-    // TODO: deduplicate from regular driver
-    const webdriver_exe = b.addStaticLibrary("webdriver", "src/driver/main.zig");
     var webTarget = target;
     webTarget.cpu_arch = .wasm32;
     // can't use emscripten target doesn't support a lot of stuff
     // maybe should use freestanding? (also doesn't support stdin/err)
     webTarget.os_tag = .wasi;
-    webdriver_exe.setTarget(webTarget);
-    webdriver_exe.linkLibC();
-    webdriver_exe.install();
-    webdriver_exe.addIncludePath("./src/driver");
-    webdriver_exe.addIncludePath("./thirdparty");
-    webdriver_exe.linkSystemLibrary("chibi-scheme");
-    webdriver_exe.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-fPIC"});
 
-    // emcc -O0 chibi-scheme-static.bc
-    //-o $@ -s ALLOW_MEMORY_GROWTH=1 -s MODULARIZE=1
-    //-s EXPORT_NAME=\"Chibi\" -s EXPORTED_FUNCTIONS=@js/exported_functions.json
-    //`find  lib -type f \( -name "*.scm" -or -name "*.sld" \) -printf " --preload-file %p"`
-    //-s 'EXTRA_EXPORTED_RUNTIME_METHODS=["ccall", "cwrap"]' --pre-js js/pre.js --post-js js/post.js
-    const link_webdriver = b.addSystemCommand(&[_][]const u8{
-        "emcc",
-        "/home/mike/personal/chibi-scheme/js/chibi.wasm",
-        "-o", "out/repl.wasm",
-        "-s", "STANDALONE_WASM",
-        "-s", "EXPORTED_FUNCTIONS=_initDriver",
-        "-s", "LLD_REPORT_UNDEFINED",
-        "--no-entry",
-        "-O0",
-    });
-    link_webdriver.addFileSourceArg(webdriver_exe.getOutputSource());
-    link_webdriver.step.dependOn(&webdriver_exe.step);
+    // TODO: deduplicate from regular driver
+    const webdriver_obj = b.addObject("webdriver", "src/driver/main.zig");
+    webdriver_obj.setTarget(webTarget);
+    webdriver_obj.linkLibC();
+    webdriver_obj.addIncludePath("./src/driver");
+    webdriver_obj.addIncludePath("./thirdparty");
+    webdriver_obj.linkSystemLibrary("chibi-scheme");
+    webdriver_obj.addCSourceFile("src/chibi_macros.c", &.{"-std=c11"});
+    webdriver_obj.export_symbol_names = &[_][]const u8{"_initDriver"};
+        //"--export=_initDriver",
 
-    // FIXME: why doesn't this step work? I keep needing to do full zig build...
+
+    // appears to be able to re-do the export
+    //$ wasm-ld -o libwebdriver.a.o /home/mike/personal/sizr/tree-stitcher/zig-cache/o/3b14aa658eaa473a043aab6fc9c74bcc/libwebdriver.a.o \
+    // --export=_initDriver --no-entry --allow-undefined
+
+    const chibi_wasm_o = b.addObject("chibi_wasm", "/home/mike/personal/chibi-scheme/js/chibi.o");
+    chibi_wasm_o.setTarget(webTarget);
+    chibi_wasm_o.rdynamic = false;
+
+    const link_webdriver = b.addSharedLibrarySource("webdriver", webdriver_obj.getOutputSource(), .unversioned);
+    link_webdriver.setTarget(webTarget);
+    //link_webdriver.addObjectFile("/home/mike/personal/chibi-scheme/js/chibi.o");
+    link_webdriver.addObject(chibi_wasm_o);
+    link_webdriver.export_symbol_names = &[_][]const u8{"_initDriver"};
+    //link_webdriver.addFileSourceArg(webdriver_obj.getOutputSource());
+    link_webdriver.step.dependOn(&webdriver_obj.step);
+    link_webdriver.step.dependOn(&chibi_wasm_o.step);
+    link_webdriver.rdynamic = false;
+
     const webdriver = b.step("webdriver", "Build the web driver");
     webdriver.dependOn(&link_webdriver.step);
 

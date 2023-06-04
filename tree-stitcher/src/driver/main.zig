@@ -13,6 +13,7 @@ const chibi = @cImport({
 });
 
 // FIXME: horrible, errno is different between wasi and emscripten!
+// this issue https://github.com/WebAssembly/wasi-libc/issues/411
 extern "C" var errno: c_long;
 
 export fn _initDriver() u32 {
