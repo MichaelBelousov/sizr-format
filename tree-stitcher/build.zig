@@ -78,23 +78,26 @@ pub fn build(b: *std.build.Builder) void {
     webTarget.cpu_arch = .wasm32;
     webTarget.os_tag = .wasi;
 
-    const link_webdriver = b.addExecutable("webdriver", "src/driver/main.zig");
-    link_webdriver.linkLibC();
-    link_webdriver.setTarget(webTarget);
-    link_webdriver.addIncludePath("./src/driver");
-    link_webdriver.addIncludePath("./thirdparty");
-    link_webdriver.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-DSEXP_USE_DL=0"});
+    const webdriver = b.addExecutable("webdriver", "src/driver/main.zig");
+    webdriver.linkLibC();
+    webdriver.setTarget(webTarget);
+    webdriver.addIncludePath("./src/driver");
+    webdriver.addIncludePath("./thirdparty");
+    webdriver.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-DSEXP_USE_DL=0"});
     // NOTE: currently this requires manually building my fork of the chibi-scheme project
-    link_webdriver.addLibraryPath("/home/mike/personal/chibi-scheme/zig-out/lib");
-    link_webdriver.linkSystemLibraryNeeded("chibi-scheme");
-    //link_webdriver.linkLibrary(chibi_wasm_o);
-    link_webdriver.export_symbol_names = &[_][]const u8{"sexp_eval_string"};
-    link_webdriver.rdynamic = false;
-    link_webdriver.install();
+    webdriver.addLibraryPath("/home/mike/personal/chibi-scheme/zig-out/lib");
+    webdriver.linkSystemLibraryNeeded("chibi-scheme");
+    //webdriver.linkLibrary(chibi_wasm_o);
+    webdriver.export_symbol_names = &.{
+        "sexp_eval_string",
+        "init", "deinit", "eval_str", "eval_stdin"
+    };
+    webdriver.rdynamic = false;
+    webdriver.install();
 
     // LIFEHACK: how to build and install only one component
-    const webdriver = b.step("webdriver", "Build the web driver");
-    webdriver.dependOn(&link_webdriver.install_step.?.step);
+    const build_webdriver = b.step("webdriver", "Build the web driver");
+    build_webdriver.dependOn(&webdriver.install_step.?.step);
 
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig

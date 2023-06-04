@@ -16,8 +16,10 @@ const chibi = @cImport({
 // this issue https://github.com/WebAssembly/wasi-libc/issues/411
 extern "C" var errno: c_long;
 
-pub fn main() !void {
-    const args = try std.process.argsAlloc(std.heap.c_allocator);
+export var chibi_ctx: chibi.sexp = null;
+
+export fn init() u16 {
+    const args = std.process.argsAlloc(std.heap.c_allocator) catch |e| return @errorToInt(e);
     defer std.process.argsFree(std.heap.c_allocator, args);
     for (args) |arg| {
         std.debug.print("arg: {s}\n", .{arg});
@@ -25,21 +27,49 @@ pub fn main() !void {
 
     chibi.sexp_scheme_init();
 
-    var ctx: chibi.sexp = null;
-    ctx = chibi.sexp_make_eval_context(null, null, null, 0, 0);
-    defer _ = chibi.sexp_destroy_context(ctx);
-    _ = chibi.sexp_load_standard_env(ctx, null, chibi.SEXP_SEVEN);
-    _ = chibi.sexp_load_standard_ports(ctx, null, chibi.stdin, chibi.stdout, chibi.stderr, 1);
+    chibi_ctx = chibi.sexp_make_eval_context(null, null, null, 0, 0);
+    _ = chibi.sexp_load_standard_env(chibi_ctx, null, chibi.SEXP_SEVEN);
+    _ = chibi.sexp_load_standard_ports(chibi_ctx, null, chibi.stdin, chibi.stdout, chibi.stderr, 1);
 
-    while (true) {
-        var line_buff: [8192]u8 = undefined;
+    return 0;
+}
+
+export fn deinit() void {
+    defer _ = chibi.sexp_destroy_context(chibi_ctx);
+}
+
+export fn eval_str(buf_ptr: [*]const u8, _buf_len: i32) void {
+    // FIXME: is this even necessary
+    const buf_len = @intCast(usize, _buf_len);
+    std.debug.print("received: '{s}', ptr: {*}, len: {}\n", .{buf_ptr[0..buf_len], buf_ptr, buf_len});
+    const result = chibi.sexp_eval_string(chibi_ctx, buf_ptr, @intCast(c_int, _buf_len), null);
+    chibi._sexp_debug(chibi_ctx, "", result);
+}
+
+export fn eval_stdin() u16 {
+    var line_buff: [1024]u8 = undefined;
+    const bytes_read = std.io.getStdIn().read(&line_buff) catch |e| return @errorToInt(e);
+    std.debug.print("received: '{s}', len: {}\n", .{line_buff[0..bytes_read], bytes_read});
+    const result = chibi.sexp_eval_string(chibi_ctx, &line_buff, @intCast(c_int, bytes_read), null);
+    chibi._sexp_debug(chibi_ctx, "", result);
+    return 0;
+}
+
+pub fn main() !void {
+    chibi.sexp_scheme_init();
+
+    //try @as(anyerror!void, @intToError(init()));
+    _ = init();
+    defer deinit();
+
+    //while (true) {
+    {
+        var line_buff: [1024]u8 = undefined;
         // TODO: use readline lib and also wait for parens to match
         _ = try std.io.getStdOut().write("> ");
         const bytes_read = try std.io.getStdIn().read(&line_buff);
-        const result = chibi.sexp_eval_string(ctx, &line_buff, @intCast(c_long, bytes_read), null);
-        chibi._sexp_debug(ctx, "", result);
-        if (std.mem.eql(u8, "exit", line_buff[0..4]))
-            break;
+        // if (std.mem.eql(u8, "exit", line_buff[0..bytes_read]))
+        //     break;
+        eval_str(&line_buff, @intCast(i32, bytes_read));
     }
 }
-
