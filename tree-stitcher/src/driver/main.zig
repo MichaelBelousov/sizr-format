@@ -12,8 +12,11 @@ const chibi = @cImport({
     @cInclude("../chibi_macros.h");
 });
 
-pub fn main() !void {
-    const args = try std.process.argsAlloc(std.heap.c_allocator);
+// FIXME: horrible, errno is different between wasi and emscripten!
+extern "C" var errno: c_long;
+
+export fn _initDriver() u32 {
+    const args = std.process.argsAlloc(std.heap.c_allocator) catch |err| return @errorToInt(err);
     defer std.process.argsFree(std.heap.c_allocator, args);
     for (args) |arg| {
         std.debug.print("arg: {s}\n", .{arg});
@@ -30,12 +33,14 @@ pub fn main() !void {
     while (true) {
         var line_buff: [8192]u8 = undefined;
         // TODO: use readline lib and also wait for parens to match
-        _ = try std.io.getStdOut().write("> ");
-        const bytes_read = try std.io.getStdIn().read(&line_buff);
+        _ = std.io.getStdOut().write("> ") catch |err| return @errorToInt(err);
+        const bytes_read = std.io.getStdIn().read(&line_buff) catch |err| return @errorToInt(err);
         const result = chibi.sexp_eval_string(ctx, &line_buff, @intCast(c_long, bytes_read), null);
         chibi._sexp_debug(ctx, "", result);
         if (std.mem.eql(u8, "exit", line_buff[0..4]))
             break;
     }
+
+    return 0;
 }
 

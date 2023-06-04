@@ -2,3 +2,6 @@
 zig-cache
 zig-out
 tree-sitter-chibi-ffi.c
+
+# playground wasm custom out dir
+out

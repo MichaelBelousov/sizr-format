@@ -75,10 +75,12 @@ pub fn build(b: *std.build.Builder) void {
     driver.dependOn(&driver_exe.step);
 
     // TODO: deduplicate from regular driver
-    const webdriver_exe = b.addExecutable("webdriver", "src/driver/main.zig");
+    const webdriver_exe = b.addStaticLibrary("webdriver", "src/driver/main.zig");
     var webTarget = target;
     webTarget.cpu_arch = .wasm32;
-    webTarget.os_tag = .wasi; // not emscripten
+    // can't use emscripten target doesn't support a lot of stuff
+    // maybe should use freestanding? (also doesn't support stdin/err)
+    webTarget.os_tag = .wasi;
     webdriver_exe.setTarget(webTarget);
     webdriver_exe.linkLibC();
     webdriver_exe.install();
@@ -87,9 +89,27 @@ pub fn build(b: *std.build.Builder) void {
     webdriver_exe.linkSystemLibrary("chibi-scheme");
     webdriver_exe.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-fPIC"});
 
+    // emcc -O0 chibi-scheme-static.bc
+    //-o $@ -s ALLOW_MEMORY_GROWTH=1 -s MODULARIZE=1
+    //-s EXPORT_NAME=\"Chibi\" -s EXPORTED_FUNCTIONS=@js/exported_functions.json
+    //`find  lib -type f \( -name "*.scm" -or -name "*.sld" \) -printf " --preload-file %p"`
+    //-s 'EXTRA_EXPORTED_RUNTIME_METHODS=["ccall", "cwrap"]' --pre-js js/pre.js --post-js js/post.js
+    const link_webdriver = b.addSystemCommand(&[_][]const u8{
+        "emcc",
+        "/home/mike/personal/chibi-scheme/js/chibi.wasm",
+        "-o", "out/repl.wasm",
+        "-s", "STANDALONE_WASM",
+        "-s", "EXPORTED_FUNCTIONS=_initDriver",
+        "-s", "LLD_REPORT_UNDEFINED",
+        "--no-entry",
+        "-O0",
+    });
+    link_webdriver.addFileSourceArg(webdriver_exe.getOutputSource());
+    link_webdriver.step.dependOn(&webdriver_exe.step);
+
     // FIXME: why doesn't this step work? I keep needing to do full zig build...
     const webdriver = b.step("webdriver", "Build the web driver");
-    webdriver.dependOn(&webdriver_exe.step);
+    webdriver.dependOn(&link_webdriver.step);
 
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig
