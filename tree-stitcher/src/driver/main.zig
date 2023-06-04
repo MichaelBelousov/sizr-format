@@ -38,10 +38,9 @@ export fn deinit() void {
     defer _ = chibi.sexp_destroy_context(chibi_ctx);
 }
 
+// this blog demonstrates how I should implement usage of this function in the browser with wasmer
+// https://mnt.io/2018/08/22/from-rust-to-beyond-the-webassembly-galaxy/
 export fn eval_str(buf_ptr: [*]const u8, _buf_len: i32) void {
-    // FIXME: is this even necessary
-    const buf_len = @intCast(usize, _buf_len);
-    std.debug.print("received: '{s}', ptr: {*}, len: {}\n", .{buf_ptr[0..buf_len], buf_ptr, buf_len});
     const result = chibi.sexp_eval_string(chibi_ctx, buf_ptr, @intCast(c_int, _buf_len), null);
     chibi._sexp_debug(chibi_ctx, "", result);
 }
@@ -49,7 +48,6 @@ export fn eval_str(buf_ptr: [*]const u8, _buf_len: i32) void {
 export fn eval_stdin() u16 {
     var line_buff: [1024]u8 = undefined;
     const bytes_read = std.io.getStdIn().read(&line_buff) catch |e| return @errorToInt(e);
-    std.debug.print("received: '{s}', len: {}\n", .{line_buff[0..bytes_read], bytes_read});
     const result = chibi.sexp_eval_string(chibi_ctx, &line_buff, @intCast(c_int, bytes_read), null);
     chibi._sexp_debug(chibi_ctx, "", result);
     return 0;
