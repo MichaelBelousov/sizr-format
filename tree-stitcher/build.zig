@@ -57,63 +57,44 @@ pub fn build(b: *std.build.Builder) void {
 
     const query_binding = b.addSharedLibrary("bindings", "src/chibi_transform.zig", .unversioned);
     query_binding.addCSourceFile("./tree-sitter-chibi-ffi.c", &.{"-std=c99", "-fPIC"});
-    // compiler bug: previously I accidentally did src/chibi_macros.h here, which caused a malformed object file
+    // COMPILER BUG: previously I accidentally did src/chibi_macros.h here, which caused a malformed object file
     // which ld.lld would think was a linker script and scream at
     query_binding.addCSourceFile("src/chibi_macros.c", &.{"-std=c99", "-fPIC"});
     query_binding.linkSystemLibrary("chibi-scheme");
     query_binding.addIncludePath("src");
     query_binding.step.dependOn(&patch_chibi_bindings_src.step);
 
-    const driver_exe = b.addStaticLibrary("driver", "src/driver/main.zig");
-    driver_exe.setTarget(target);
-    driver_exe.linkLibC();
-    driver_exe.addIncludePath("./src/driver");
-    driver_exe.linkSystemLibrary("chibi-scheme");
-    driver_exe.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-fPIC"});
-    const driver = b.step("driver", "Build the driver");
-    driver.dependOn(&driver_exe.step);
-    driver_exe.install();
+    // const driver_exe = b.addStaticLibrary("driver", "src/driver/main.zig");
+    // driver_exe.setTarget(target);
+    // driver_exe.linkLibC();
+    // driver_exe.addIncludePath("./src/driver");
+    // driver_exe.linkSystemLibrary("chibi-scheme");
+    // driver_exe.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-fPIC"});
+    // const driver = b.step("driver", "Build the driver");
+    // driver.dependOn(&driver_exe.step);
+    // driver_exe.install();
 
     var webTarget = target;
     webTarget.cpu_arch = .wasm32;
-    // can't use emscripten target doesn't support a lot of stuff
-    // maybe should use freestanding? (also doesn't support stdin/err)
     webTarget.os_tag = .wasi;
 
-    // TODO: deduplicate from regular driver
-    const webdriver_obj = b.addObject("webdriver", "src/driver/main.zig");
-    webdriver_obj.setTarget(webTarget);
-    webdriver_obj.linkLibC();
-    webdriver_obj.addIncludePath("./src/driver");
-    webdriver_obj.addIncludePath("./thirdparty");
-    webdriver_obj.linkSystemLibrary("chibi-scheme");
-    webdriver_obj.addCSourceFile("src/chibi_macros.c", &.{"-std=c11"});
-    webdriver_obj.export_symbol_names = &[_][]const u8{"_initDriver"};
-        //"--export=_initDriver",
-
-
-    // appears to be able to re-do the export
-    //$ wasm-ld -o libwebdriver.a.o /home/mike/personal/sizr/tree-stitcher/zig-cache/o/3b14aa658eaa473a043aab6fc9c74bcc/libwebdriver.a.o \
-    // --export=_initDriver --no-entry --allow-undefined
-
-    //const chibi_wasm_o = b.addObject("chibi_wasm", "/home/mike/personal/chibi-scheme/zig-out/lib/chibi-scheme.o");
-    const chibi_wasm_o = b.addObject("chibi_wasm", "/home/mike/personal/chibi-scheme/zig-cache/o/2d3065cdefd61a188e083adfce93b1b4/chibi-scheme.o");
-    chibi_wasm_o.setTarget(webTarget);
-    //chibi_wasm_o.rdynamic = false;
-
-    const link_webdriver = b.addExecutableSource("webdriver", webdriver_obj.getOutputSource());
-    link_webdriver.entry_symbol_name = "_initDriver";
+    const link_webdriver = b.addExecutable("webdriver", "src/driver/main.zig");
+    link_webdriver.linkLibC();
     link_webdriver.setTarget(webTarget);
-    //link_webdriver.addObjectFile("/home/mike/personal/chibi-scheme/js/chibi.o");
-    link_webdriver.addObject(chibi_wasm_o);
-    link_webdriver.export_symbol_names = &[_][]const u8{"_initDriver"};
-    //link_webdriver.addFileSourceArg(webdriver_obj.getOutputSource());
-    link_webdriver.step.dependOn(&webdriver_obj.step);
-    link_webdriver.step.dependOn(&chibi_wasm_o.step);
+    link_webdriver.addIncludePath("./src/driver");
+    link_webdriver.addIncludePath("./thirdparty");
+    link_webdriver.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-DSEXP_USE_DL=0"});
+    // NOTE: currently this requires manually building my fork of the chibi-scheme project
+    link_webdriver.addLibraryPath("/home/mike/personal/chibi-scheme/zig-out/lib");
+    link_webdriver.linkSystemLibraryNeeded("chibi-scheme");
+    //link_webdriver.linkLibrary(chibi_wasm_o);
+    link_webdriver.export_symbol_names = &[_][]const u8{"sexp_eval_string"};
     link_webdriver.rdynamic = false;
+    link_webdriver.install();
 
+    // LIFEHACK: how to build and install only one component
     const webdriver = b.step("webdriver", "Build the web driver");
-    webdriver.dependOn(&link_webdriver.step);
+    webdriver.dependOn(&link_webdriver.install_step.?.step);
 
     // zig build-exe -lc -lc++ -Lthirdparty/tree-sitter -Ithirdparty/tree-sitter/lib/include
     // -ltree-sitter thirdparty/tree-sitter-cpp/src/parser.c thirdparty/tree-sitter-cpp/src/scanner.cc src/code.zig

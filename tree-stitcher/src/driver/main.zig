@@ -16,8 +16,8 @@ const chibi = @cImport({
 // this issue https://github.com/WebAssembly/wasi-libc/issues/411
 extern "C" var errno: c_long;
 
-export fn _initDriver() u32 {
-    const args = std.process.argsAlloc(std.heap.c_allocator) catch |err| return @errorToInt(err);
+pub fn main() !void {
+    const args = try std.process.argsAlloc(std.heap.c_allocator);
     defer std.process.argsFree(std.heap.c_allocator, args);
     for (args) |arg| {
         std.debug.print("arg: {s}\n", .{arg});
@@ -34,14 +34,12 @@ export fn _initDriver() u32 {
     while (true) {
         var line_buff: [8192]u8 = undefined;
         // TODO: use readline lib and also wait for parens to match
-        _ = std.io.getStdOut().write("> ") catch |err| return @errorToInt(err);
-        const bytes_read = std.io.getStdIn().read(&line_buff) catch |err| return @errorToInt(err);
+        _ = try std.io.getStdOut().write("> ");
+        const bytes_read = try std.io.getStdIn().read(&line_buff);
         const result = chibi.sexp_eval_string(ctx, &line_buff, @intCast(c_long, bytes_read), null);
         chibi._sexp_debug(ctx, "", result);
         if (std.mem.eql(u8, "exit", line_buff[0..4]))
             break;
     }
-
-    return 0;
 }
 
