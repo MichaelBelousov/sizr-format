@@ -35,6 +35,7 @@ sessionTargetType = targetInSessionStorageIsValid ? sessionTargetType : 'python'
 
 const programEditor = /** @type {HTMLTextAreaElement} */ (document.querySelector('#program-editor'))
 programEditor.value = sessionProgram
+programEditor.focus()
 
 const targetEditor = /** @type {HTMLTextAreaElement} */ (document.querySelector('#target-editor'))
 targetEditor.value = sessionTarget
@@ -114,7 +115,7 @@ async function main() {
     const program = programEditor.value
     wasi.setStdinString(program)
     inst.exports.eval_stdin()
-    output.textContent += wasi.getStderrString() + "\n"
+    output.textContent = wasi.getStderrString() + "\n"
   })
 }
 
