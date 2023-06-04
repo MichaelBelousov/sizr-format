@@ -96,11 +96,13 @@ pub fn build(b: *std.build.Builder) void {
     //$ wasm-ld -o libwebdriver.a.o /home/mike/personal/sizr/tree-stitcher/zig-cache/o/3b14aa658eaa473a043aab6fc9c74bcc/libwebdriver.a.o \
     // --export=_initDriver --no-entry --allow-undefined
 
-    const chibi_wasm_o = b.addObject("chibi_wasm", "/home/mike/personal/chibi-scheme/js/chibi.o");
+    //const chibi_wasm_o = b.addObject("chibi_wasm", "/home/mike/personal/chibi-scheme/zig-out/lib/chibi-scheme.o");
+    const chibi_wasm_o = b.addObject("chibi_wasm", "/home/mike/personal/chibi-scheme/zig-cache/o/2d3065cdefd61a188e083adfce93b1b4/chibi-scheme.o");
     chibi_wasm_o.setTarget(webTarget);
-    chibi_wasm_o.rdynamic = false;
+    //chibi_wasm_o.rdynamic = false;
 
-    const link_webdriver = b.addSharedLibrarySource("webdriver", webdriver_obj.getOutputSource(), .unversioned);
+    const link_webdriver = b.addExecutableSource("webdriver", webdriver_obj.getOutputSource());
+    link_webdriver.entry_symbol_name = "_initDriver";
     link_webdriver.setTarget(webTarget);
     //link_webdriver.addObjectFile("/home/mike/personal/chibi-scheme/js/chibi.o");
     link_webdriver.addObject(chibi_wasm_o);
