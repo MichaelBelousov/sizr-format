@@ -10,7 +10,8 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@wasmer/wasi": "^1.2.2",
+    "@wasmer/wasi": "^0.12.0",
+    "@wasmer/wasmfs": "^0.12.0",
     "typescript": "^5.1.3",
     "web-tree-sitter": "^0.20.8"
   }

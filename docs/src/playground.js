@@ -11,6 +11,17 @@ function assert(cond, msg) {
   }
 }
 
+/** @param {any} obj */
+function alert(obj) {
+  window.alert(
+    obj instanceof Error
+    ? `${obj.constructor.name}: ${obj.message}\n${obj.stack}`
+    : typeof obj === "string"
+    ? obj
+    : "object: " + JSON.stringify(obj)
+  )
+}
+
 const defaultProgram = `\
 (transform
   ((function_definition body: (_) @body))
@@ -97,27 +108,48 @@ langSelect.addEventListener('change', async (e) => {
   }
 })
 
-import * as _wasmer from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@1.2.2/+esm'
+//import * as wasmerBrowserBindings from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@1.2.2/lib/bindings/browser/+esm'
+// apparently their native esm bindings require a buffer polyfill
+//import { Buffer } from 'https://cdn.jsdelivr.net/npm/buffer@6.0.3/+esm'
+//window.Buffer = Buffer
+import * as _wasmer from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@0.12.0/+esm'
+import * as _wasmFs from 'https://cdn.jsdelivr.net/npm/@wasmer/wasmfs@0.12.0/+esm'
+// HACK: bad module system mismatch, their default export is lifted by the +esm transform
+import { default as _wasiBindings } from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@0.12.0/lib/bindings/browser.js/+esm'
+const wasiBindings = _wasiBindings.default
 /** @type {typeof import("@wasmer/wasi")} */
 const wasmer = _wasmer
 
+/** @type {typeof import("@wasmer/wasmfs").WasmFs} */
+const WasmFs = _wasmFs.WasmFs
+
 async function main() {
-  await wasmer.init()
+  //await wasmer.init()
+  const wasmFs = new WasmFs();
   const wasi = new wasmer.WASI({
     env: {},
     args: [],
+    bindings: {
+      ...wasiBindings,
+      fs: wasmFs.fs
+    },
+    //preopens: {
+      //"/target.txt": "wtf?",
+    //}
   })
   const moduleBlob = fetch("webdriver.wasm")
   const module = await WebAssembly.compileStreaming(moduleBlob)
-  const inst = wasi.instantiate(module, {})
+  const inst = await WebAssembly.instantiate(module, wasi.getImports(module))
   inst.exports.init()
   runButton.addEventListener("click", () => {
     const program = programEditor.value
-    wasi.setStdinString(program)
+    wasmFs.fs.writeFileSync("/dev/stdin", program)
     inst.exports.eval_stdin()
-    output.textContent = wasi.getStderrString() + "\n"
+    output.textContent = wasmFs.getStdOut() + "\n"
+    const stderr = wasmFs.fs.readFileSync("/dev/stderr")
+    if (stderr) alert(stderr)
   })
 }
 
-main().catch(alert)
+main().catch((err) => { alert(err); throw err })
 
