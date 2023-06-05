@@ -40,7 +40,7 @@ const FileBuffer = struct {
     pub fn from_path(alloc: std.mem.Allocator, path: []const u8) !Self {
         const file = try std.fs.openFileAbsolute(path, .{});
         defer file.close();
-        var file_len = (try file.stat()).size;
+        const file_len = (try file.stat()).size;
 
         switch (builtin.os.tag) {
             .windows => {
