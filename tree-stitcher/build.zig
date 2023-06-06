@@ -64,16 +64,6 @@ pub fn build(b: *std.build.Builder) void {
     query_binding.addIncludePath("src");
     query_binding.step.dependOn(&patch_chibi_bindings_src.step);
 
-    // const driver_exe = b.addStaticLibrary("driver", "src/driver/main.zig");
-    // driver_exe.setTarget(target);
-    // driver_exe.linkLibC();
-    // driver_exe.addIncludePath("./src/driver");
-    // driver_exe.linkSystemLibrary("chibi-scheme");
-    // driver_exe.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-fPIC"});
-    // const driver = b.step("driver", "Build the driver");
-    // driver.dependOn(&driver_exe.step);
-    // driver_exe.install();
-
     var webTarget = target;
     webTarget.cpu_arch = .wasm32;
     webTarget.os_tag = .wasi;
@@ -82,12 +72,11 @@ pub fn build(b: *std.build.Builder) void {
     webdriver.linkLibC();
     webdriver.setTarget(webTarget);
     webdriver.addIncludePath("./src/driver");
-    webdriver.addIncludePath("./thirdparty");
+    webdriver.addIncludePath("./thirdparty/chibi-scheme/include");
     webdriver.addCSourceFile("src/chibi_macros.c", &.{"-std=c11", "-DSEXP_USE_DL=0"});
-    // NOTE: currently this requires manually building my fork of the chibi-scheme project
-    webdriver.addLibraryPath("/home/mike/personal/chibi-scheme/zig-out/lib");
+    // NOTE: currently this requires manually running make && zig build in thirdparty/chibi-scheme
+    webdriver.addLibraryPath("./thirdparty/chibi-scheme/zig-out/lib");
     webdriver.linkSystemLibraryNeeded("chibi-scheme");
-    //webdriver.linkLibrary(chibi_wasm_o);
     webdriver.export_symbol_names = &.{
         "sexp_eval_string",
         "init", "deinit", "eval_str", "eval_stdin"
