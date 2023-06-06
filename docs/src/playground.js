@@ -130,6 +130,29 @@ const wasmer = _wasmer
 /** @type {import('@wasmer/wasi').WASI} */
 let wasi
 
+/**
+ * @param {import('@wasmer/wasi').MemFS} fs
+ */
+async function loadFileSystem(fs) {
+  const files = [
+    "init-7.scm",
+    "meta-7.scm",
+  ]
+
+  fs.createDir("/chibi")
+
+  await Promise.all(
+    files.map(f => fetch(`chibi-data/${f}`)
+      .then(resp => resp.arrayBuffer())
+      .then(buff => {
+        // FIXME: support nested files by emulating mkdir -p
+        const file = fs.open(`/chibi/${f}`, { write: true, create: true })
+        file.write(new Uint8Array(buff))
+      })
+    )
+  )
+}
+
 async function main() {
   const moduleBlob = fetch('webdriver.wasm')
   const [module] = await Promise.all([
@@ -138,7 +161,9 @@ async function main() {
   ])
 
   wasi = new wasmer.WASI({
-    env: {},
+    env: {
+      'CHIBI_MODULE_PATH': '/chibi'
+    },
     args: [],
     preopens: {
       '/': '/',
@@ -150,8 +175,7 @@ async function main() {
 
   let targetFile = wasi.fs.open("/target.txt", {read: true, write: true, create: true})
   targetFile.writeString(targetEditor.value)
-  //targetFile.seek(0)
-  //targetFile.flush()
+  await loadFileSystem(wasi.fs)
 
   handleNativeError(inst.exports.init())
 
