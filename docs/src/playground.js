@@ -11,21 +11,26 @@ function assert(cond, msg) {
   }
 }
 
-/** @param {any} obj */
-function alert(obj) {
-  window.alert(
-    obj instanceof Error
-    ? `${obj.constructor.name}: ${obj.message}\n${obj.stack}`
-    : typeof obj === 'string'
-    ? obj
-    : 'object: ' + JSON.stringify(obj)
-  )
+/** @param {any[]} objs */
+function alert(...objs) {
+  window.alert(objs
+    .map(obj =>
+      obj instanceof Error
+      ? `${obj.constructor.name}: ${obj.message}\n${obj.stack}`
+      : typeof obj === 'string'
+      ? obj
+      : 'object: ' + JSON.stringify(obj)
+    )
+    .join('\n'))
 }
 
 /** @param {number} nativeCallResult */
 function handleNativeError(nativeCallResult) {
   if (nativeCallResult !== 0)
-    alert(Error(`got failure code ${nativeCallResult} in native call`))
+    alert(
+      Error(`got failure code ${nativeCallResult} in native call`),
+      wasi.getStderrString()
+    )
 }
 
 const defaultProgram = `\
@@ -118,30 +123,38 @@ langSelect.addEventListener('change', async (e) => {
 //import { Buffer } from 'https://cdn.jsdelivr.net/npm/buffer@6.0.3/+esm'
 //window.Buffer = Buffer
 import * as _wasmer from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@1.2.2/+esm'
-import * as _wasmFs from 'https://cdn.jsdelivr.net/npm/@wasmer/wasmfs@0.12.0/+esm'
 
 /** @type {typeof import('@wasmer/wasi')} */
 const wasmer = _wasmer
-/** @type {typeof import('@wasmer/wasmfs').WasmFs} */
-const WasmFs = _wasmFs.WasmFs
 
 /** @type {import('@wasmer/wasi').WASI} */
 let wasi
 
 async function main() {
-  await wasmer.init()
-  const wasi = new wasmer.WASI({
+  const moduleBlob = fetch('webdriver.wasm')
+  const [module] = await Promise.all([
+    WebAssembly.compileStreaming(moduleBlob),
+    wasmer.init(),
+  ])
+
+  wasi = new wasmer.WASI({
     env: {},
     args: [],
-    // how does the stupid file system work in 1.2.2?
     preopens: {
       '/': '/',
     },
   })
-  const moduleBlob = fetch('webdriver.wasm')
-  const module = await WebAssembly.compileStreaming(moduleBlob)
+  window._wasi = wasi
+
   const inst = wasi.instantiate(module, {})
+
+  let targetFile = wasi.fs.open("/target.txt", {read: true, write: true, create: true})
+  targetFile.writeString(targetEditor.value)
+  //targetFile.seek(0)
+  //targetFile.flush()
+
   handleNativeError(inst.exports.init())
+
   runButton.addEventListener('click', () => {
     const program = programEditor.value
     wasi.setStdinString(program)
@@ -150,5 +163,5 @@ async function main() {
   })
 }
 
-main().catch((err) => { alert(err); throw err })
+main().catch((err) => { alert(err, wasi.getStderrString()); throw err })
 
