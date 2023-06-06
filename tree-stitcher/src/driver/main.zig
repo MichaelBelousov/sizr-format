@@ -38,7 +38,7 @@ export fn init() u16 {
     //     std.debug.print("arg: {s}\n", .{arg});
     // }
 
-    // preopens = std.fs.wasi.PreopenList.init(allocator);
+    preopens = std.fs.wasi.PreopenList.init(allocator);
     // // populate causes integer overflow somehow,
     // no backtraces so haven't looked into it yet
     // preopens.populate("/") catch return 1;
@@ -114,14 +114,32 @@ pub fn main() !void {
 
     defer deinit();
 
-    //while (true) {
+    // FIXME: temp loop
+    while (true)
     {
         var line_buff: [1024]u8 = undefined;
         // TODO: use readline lib and also wait for parens to match
+        // FIXME: temp emit non-wasi prompt
         _ = try std.io.getStdOut().write("> ");
-        const bytes_read = try std.io.getStdIn().read(&line_buff);
+        // need to read it all, not just by line!
+
+        var total_bytes_read: usize = 0;
+        {
+            // HACK: temporary solution for multi-line input, doesn't handle quotes containing parentheses
+            var lpar_count: usize = 0;
+            var rpar_count: usize = 0;
+            while (true) {
+                const bytes_read = try std.io.getStdIn().read(line_buff[total_bytes_read..]);
+                // NOTE: would be cool to scan these simultaneously, I wonder if the compiler will do that already
+                lpar_count += std.mem.count(u8, line_buff[total_bytes_read..total_bytes_read + bytes_read], "(");
+                rpar_count += std.mem.count(u8, line_buff[total_bytes_read..total_bytes_read + bytes_read], ")");
+                total_bytes_read += bytes_read;
+                if (lpar_count == rpar_count) break;
+            }
+        }
+
         // if (std.mem.eql(u8, "exit", line_buff[0..bytes_read]))
         //     break;
-        eval_str(&line_buff, @intCast(i32, bytes_read));
+        eval_str(&line_buff, @intCast(i32, total_bytes_read));
     }
 }
