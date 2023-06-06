@@ -29,27 +29,45 @@ var preopens: std.fs.wasi.PreopenList = undefined;
 var target_buf: []u8 = undefined;
 
 export fn init() u16 {
-    const args = std.process.argsAlloc(allocator) catch |e| {
-        std.debug.print("proc arg alloc err: {}\n", .{e});
-        return @errorToInt(e);
-    };
-    defer std.process.argsFree(allocator, args);
-    for (args) |arg| {
-        std.debug.print("arg: {s}\n", .{arg});
-    }
+    // const args = std.process.argsAlloc(allocator) catch |e| {
+    //     std.debug.print("proc arg alloc err: {}\n", .{e});
+    //     return @errorToInt(e);
+    // };
+    // defer std.process.argsFree(allocator, args);
+    // for (args) |arg| {
+    //     std.debug.print("arg: {s}\n", .{arg});
+    // }
 
     preopens = std.fs.wasi.PreopenList.init(allocator);
-    preopens.populate("/") catch |e| {
-        std.debug.print("preopen populate err: {}\n", .{e});
+    // // populate causes integer overflow somehow,
+    // no backtraces so haven't looked into it yet
+    // preopens.populate("/") catch return 1;
+    // preopens.populate("/") catch |e| {
+    //     std.debug.print("preopen populate err: {}\n", .{e});
+    //     return @errorToInt(e);
+    // };
+    // for (preopens.asSlice()) |preopen, i| {
+    //     std.debug.print("preopen {}: {}\n", .{i, preopen});
+    // }
+    // std.os.initPreopensWasi(allocator, "/") catch |e| {
+    //     std.debug.print("initPreopen err: {}\n", .{e});
+    //     return @errorToInt(e);
+    // };
+
+    // this is debug only
+    var root_dir = std.fs.cwd().openIterableDir("/", .{}) catch |e| {
+        std.debug.print("open iter / err: {}\n", .{e});
         return @errorToInt(e);
     };
-    for (preopens.asSlice()) |preopen, i| {
-        std.debug.print("preopen {}: {}\n", .{i, preopen});
+    defer root_dir.close();
+    var root_dir_iter = root_dir.iterate();
+    while (root_dir_iter.next() catch |e| {
+            std.debug.print("iter / err: {}\n", .{e});
+            return @errorToInt(e);
+        }
+    ) |subdir| {
+        std.debug.print("file: {s}\n", .{subdir.name});
     }
-    std.os.initPreopensWasi(allocator, "/") catch |e| {
-        std.debug.print("initPreopen err: {}\n", .{e});
-        return @errorToInt(e);
-    };
 
     const target_file = std.fs.cwd().openFile("/target.txt", .{}) catch |e| {
         std.debug.print("open /target.txt err: {}\n", .{e});
@@ -70,6 +88,8 @@ export fn init() u16 {
         std.debug.print("err: {}\n", .{e});
         return @errorToInt(e);
     };
+
+    std.debug.print("file:\n{s}\nEOF\n", .{target_buf});
 
     chibi.sexp_scheme_init();
 
