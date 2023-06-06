@@ -16,10 +16,16 @@ function alert(obj) {
   window.alert(
     obj instanceof Error
     ? `${obj.constructor.name}: ${obj.message}\n${obj.stack}`
-    : typeof obj === "string"
+    : typeof obj === 'string'
     ? obj
-    : "object: " + JSON.stringify(obj)
+    : 'object: ' + JSON.stringify(obj)
   )
+}
+
+/** @param {number} nativeCallResult */
+function handleNativeError(nativeCallResult) {
+  if (nativeCallResult !== 0)
+    alert(Error(`got failure code ${nativeCallResult} in native call`))
 }
 
 const defaultProgram = `\
@@ -68,7 +74,7 @@ programEditor.addEventListener('change', (e) => {
 })
 
 programEditor.addEventListener('keydown', (e) => {
-  if (e.ctrlKey && e.key === "Enter") {
+  if (e.ctrlKey && e.key === 'Enter') {
     runButton.click()
   }
 })
@@ -114,40 +120,33 @@ langSelect.addEventListener('change', async (e) => {
 import * as _wasmer from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@1.2.2/+esm'
 import * as _wasmFs from 'https://cdn.jsdelivr.net/npm/@wasmer/wasmfs@0.12.0/+esm'
 
-/** @type {typeof import("@wasmer/wasi")} */
+/** @type {typeof import('@wasmer/wasi')} */
 const wasmer = _wasmer
-/** @type {typeof import("@wasmer/wasmfs").WasmFs} */
+/** @type {typeof import('@wasmer/wasmfs').WasmFs} */
 const WasmFs = _wasmFs.WasmFs
 
-/** @type {import("@wasmer/wasi").WASI} */
-let wasi;
+/** @type {import('@wasmer/wasi').WASI} */
+let wasi
 
 async function main() {
   await wasmer.init()
-  const wasmFs = new WasmFs()
-  wasi = new wasmer.WASI({
+  const wasi = new wasmer.WASI({
     env: {},
-    // HACK: how does the stupid file system work in 1.2.2
     args: [],
+    // how does the stupid file system work in 1.2.2?
     preopens: {
-      "/": "/",
+      '/': '/',
     },
   })
-  wasi.fs.createDir("/target")
-  const moduleBlob = fetch("webdriver.wasm")
+  const moduleBlob = fetch('webdriver.wasm')
   const module = await WebAssembly.compileStreaming(moduleBlob)
-  const inst = await WebAssembly.instantiate(module, wasi.getImports(module))
-  inst.exports.init()
-  runButton.addEventListener("click", () => {
+  const inst = wasi.instantiate(module, {})
+  handleNativeError(inst.exports.init())
+  runButton.addEventListener('click', () => {
     const program = programEditor.value
     wasi.setStdinString(program)
-    const result = inst.exports.eval_stdin()
-    if (result != 0)
-      alert(`got result of ${result}`)
-    output.textContent = wasi.getStdoutString() + "\n"
-    const stderr = wasi.getStderrString()
-    if (stderr)
-      alert(stderr)
+    handleNativeError(inst.exports.eval_stdin())
+    output.textContent = wasi.getStdoutString() + '\n'
   })
 }
 
