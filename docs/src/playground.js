@@ -108,46 +108,46 @@ langSelect.addEventListener('change', async (e) => {
   }
 })
 
-//import * as wasmerBrowserBindings from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@1.2.2/lib/bindings/browser/+esm'
 // apparently their native esm bindings require a buffer polyfill
 //import { Buffer } from 'https://cdn.jsdelivr.net/npm/buffer@6.0.3/+esm'
 //window.Buffer = Buffer
-import * as _wasmer from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@0.12.0/+esm'
+import * as _wasmer from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@1.2.2/+esm'
 import * as _wasmFs from 'https://cdn.jsdelivr.net/npm/@wasmer/wasmfs@0.12.0/+esm'
-// HACK: bad module system mismatch, their default export is lifted by the +esm transform
-import { default as _wasiBindings } from 'https://cdn.jsdelivr.net/npm/@wasmer/wasi@0.12.0/lib/bindings/browser.js/+esm'
-const wasiBindings = _wasiBindings.default
+
 /** @type {typeof import("@wasmer/wasi")} */
 const wasmer = _wasmer
-
 /** @type {typeof import("@wasmer/wasmfs").WasmFs} */
 const WasmFs = _wasmFs.WasmFs
 
+/** @type {import("@wasmer/wasi").WASI} */
+let wasi;
+
 async function main() {
-  //await wasmer.init()
-  const wasmFs = new WasmFs();
-  const wasi = new wasmer.WASI({
+  await wasmer.init()
+  const wasmFs = new WasmFs()
+  wasi = new wasmer.WASI({
     env: {},
+    // HACK: how does the stupid file system work in 1.2.2
     args: [],
-    bindings: {
-      ...wasiBindings,
-      fs: wasmFs.fs
+    preopens: {
+      "/": "/",
     },
-    //preopens: {
-      //"/target.txt": "wtf?",
-    //}
   })
+  wasi.fs.createDir("/target")
   const moduleBlob = fetch("webdriver.wasm")
   const module = await WebAssembly.compileStreaming(moduleBlob)
   const inst = await WebAssembly.instantiate(module, wasi.getImports(module))
   inst.exports.init()
   runButton.addEventListener("click", () => {
     const program = programEditor.value
-    wasmFs.fs.writeFileSync("/dev/stdin", program)
-    inst.exports.eval_stdin()
-    output.textContent = wasmFs.getStdOut() + "\n"
-    const stderr = wasmFs.fs.readFileSync("/dev/stderr")
-    if (stderr) alert(stderr)
+    wasi.setStdinString(program)
+    const result = inst.exports.eval_stdin()
+    if (result != 0)
+      alert(`got result of ${result}`)
+    output.textContent = wasi.getStdoutString() + "\n"
+    const stderr = wasi.getStderrString()
+    if (stderr)
+      alert(stderr)
   })
 }
 
