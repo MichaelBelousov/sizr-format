@@ -1,0 +1,42 @@
+<html>
+  <head>
+    <link rel="stylesheet" href="./playground.css"></link>
+  </head>
+  <body>
+    <div id="header" class="pane">
+      <h1>Sizr Lisp Playground</h1>
+    </div>
+    <div id="program-pane" class="pane">
+      <button id="run-btn">Run</button>
+      <textarea id="program-editor" class="editor" spellcheck="false"></textarea>
+    </div>
+    <div id="target-pane" class="pane">
+      <select id="lang-select">
+        <!-- NOTE: this list is directly copied from tree-sitter's playground -->
+        <option value="bash">Bash</option>
+        <option value="c">C</option>
+        <option value="cpp">C++</option>
+        <option value="c_sharp">C#</option>
+        <option value="go">Go</option>
+        <option value="html">HTML</option>
+        <option value="java">Java</option>
+        <option value="javascript">JavaScript</option>
+        <option value="php">PHP</option>
+        <option value="python">Python</option>
+        <option value="ruby">Ruby</option>
+        <option value="rust">Rust</option>
+        <option value="toml">TOML</option>
+        <option value="typescript">TypeScript</option>
+        <option value="yaml">YAML</option>
+        <option value="ql">QL</option>
+      </select>
+      <textarea id="target-editor" class="editor" spellcheck="false"></textarea>
+    </div>
+    <div id="output-pane" class="pane">
+      <code id="output"></code>
+    </div>
+  </body>
+  <script src="https://tree-sitter.github.io/tree-sitter.js"></script>
+  <script type="module" src="./playground.js"></script>
+</html>
+

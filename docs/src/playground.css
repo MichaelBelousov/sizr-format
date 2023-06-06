@@ -1,0 +1,56 @@
+
+#output {
+  font-family: monospace;
+  white-space: pre;
+  overflow: auto;
+}
+
+* {
+  color: #fafafa;
+  background-color: #1b1b1b;
+}
+
+body {
+  margin: 0;
+  display: grid;
+  grid-template-areas:
+    "header header"
+    "program target"
+    "output output";
+  grid-template-columns: auto auto;
+  grid-template-rows: auto 1fr 1fr;
+  height: 100vh;
+  width: 100vw;
+}
+
+.pane {
+  display: block;
+  margin: 0.5em;
+}
+
+#header {
+  grid-area: header;
+}
+
+#program-pane {
+  grid-area: program;
+}
+
+.editor {
+  width: 100%;
+  height: calc(100% - 90px);
+}
+
+#run-btn {
+  display: block;
+}
+
+#target-pane {
+  grid-area: target;
+}
+
+#output-pane {
+  grid-area: output;
+  border: 1px solid #fafafa;
+  border-radius: 2px;
+}
