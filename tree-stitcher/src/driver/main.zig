@@ -38,7 +38,7 @@ export fn init() u16 {
     //     std.debug.print("arg: {s}\n", .{arg});
     // }
 
-    preopens = std.fs.wasi.PreopenList.init(allocator);
+    // preopens = std.fs.wasi.PreopenList.init(allocator);
     // // populate causes integer overflow somehow,
     // no backtraces so haven't looked into it yet
     // preopens.populate("/") catch return 1;
@@ -53,21 +53,6 @@ export fn init() u16 {
     //     std.debug.print("initPreopen err: {}\n", .{e});
     //     return @errorToInt(e);
     // };
-
-    // this is debug only
-    var root_dir = std.fs.cwd().openIterableDir("/", .{}) catch |e| {
-        std.debug.print("open iter / err: {}\n", .{e});
-        return @errorToInt(e);
-    };
-    defer root_dir.close();
-    var root_dir_iter = root_dir.iterate();
-    while (root_dir_iter.next() catch |e| {
-            std.debug.print("iter / err: {}\n", .{e});
-            return @errorToInt(e);
-        }
-    ) |subdir| {
-        std.debug.print("file: {s}\n", .{subdir.name});
-    }
 
     const target_file = std.fs.cwd().openFile("/target.txt", .{}) catch |e| {
         std.debug.print("open /target.txt err: {}\n", .{e});
@@ -88,8 +73,6 @@ export fn init() u16 {
         std.debug.print("err: {}\n", .{e});
         return @errorToInt(e);
     };
-
-    std.debug.print("file:\n{s}\nEOF\n", .{target_buf});
 
     chibi.sexp_scheme_init();
 
