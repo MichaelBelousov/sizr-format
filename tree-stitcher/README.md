@@ -4,6 +4,11 @@
 Scheme bindings for tree-sitter with an extension that enables transforming the AST of files in 
 a "workspace" using embedded tree-sitter queries and real scheme code.
 
+## [Try It](https://mikemikeb.com/sizr-format/src/playground.html)
+
+It's broken and will probably hit an infinite loop.
+I think I know why but haven't gotten around to fixing it.
+
 ## Building
 
 Hopefully just
